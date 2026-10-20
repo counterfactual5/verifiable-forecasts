@@ -26,7 +26,8 @@ ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 
 ### 工具链版本
 
-- forge 1.3.5（`forge --version`）
+- forge 1.5.1-stable（`forge --version`）
+- make 3.81（GNU Make，macOS 自带）
 - uv 0.11.2
 - python 3.11+（uv 管理）
 - node v24.18.0（仅 CRE 步骤用）
@@ -57,7 +58,7 @@ docs/
 ## Full Verify
 
 ```
-cd <repo>/contracts && forge fmt --check && forge build && forge test
+make check && make test
 ```
 
 ## 假设

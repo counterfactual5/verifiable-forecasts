@@ -8,7 +8,6 @@ test:
 	cd contracts && forge test
 
 check: verify
-	cd contracts && forge fmt --check && forge build && forge test
 
 fmt:
 	cd contracts && forge fmt
