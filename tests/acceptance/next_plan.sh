@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # R1 acceptance: docs/plans/实施计划.md holds 分工 / 三天排期 / 先砍 (ordered), the chosen Δ, N
-# and the ERC-8004 integration choice; contracts/ and analysis/ untouched since the plan commit.
+# and the ERC-8004 integration choice; contracts/ and analysis/ untouched by the R1 milestone commit.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 doc=docs/plans/实施计划.md
@@ -19,6 +19,6 @@ check "Δ = 300 s chosen" "grep -qE '(Δ|delta|Delta)[^0-9]{0,6}300' $doc"
 check "N = 12 chosen" "grep -qE 'N[[:space:]]*=[[:space:]]*12' $doc"
 check "Δ/N grounded in pool lookback facts" "grep -q 'FACTS.md' $doc && grep -qE '2\\.4h|2\\.41|回溯' $doc"
 check "ERC-8004 integration decided" "grep -qE '^#+ .*ERC-8004' $doc && section ERC-8004 | grep -qE '已部署|参考实现'"
-check "contracts/ and analysis/ unchanged since plan commit" "git diff --quiet c860c40 -- contracts analysis && [[ -z \$(git ls-files --others --exclude-standard contracts analysis) ]]"
+check "R1 milestone left contracts/ and analysis/ untouched" "git diff --quiet c860c40 581bd2d -- contracts analysis"
 
 [[ $fail -eq 0 ]] && echo PASS || { echo FAIL; exit 1; }

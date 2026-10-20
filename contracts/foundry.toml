@@ -6,6 +6,11 @@ out = "out"
 libs = ["lib"]
 solc_version = "0.8.28"
 via_ir = false
+fs_permissions = [{ access = "read", path = "./test/fixtures" }]
+
+# EZKL-generated verifiers exceed EIP-170 without the optimizer; enable it only for src/verifier/**.
+additional_compiler_profiles = [{ name = "verifier", optimizer = true, optimizer_runs = 200 }]
+compilation_restrictions = [{ paths = "src/verifier/**", optimizer = true, optimizer_runs = 200 }]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md
 
@@ -14,3 +19,6 @@ runs = 256
 
 [profile.default.invariant]
 runs = 64
+
+[fmt]
+ignore = ["src/verifier/**/*.sol"]

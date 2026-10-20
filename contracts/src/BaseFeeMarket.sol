@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IERC20} from "./interfaces/IERC20.sol";
+import {MarketMath} from "./lib/MarketMath.sol";
 
 /// @title BaseFeeMarket
 /// @notice Parimutuel prediction market on the average EIP-1559 base fee over a
@@ -228,9 +229,7 @@ contract BaseFeeMarket {
         if (stake == 0) revert NothingToClaim();
         r.stakes[msg.sender][r.winningBucket] = 0;
         uint256 winners = r.pools[r.winningBucket];
-        // payout = stake / winners * (totalStake - fee)
-        uint256 fee = (r.totalStake * feeBps) / 10000;
-        uint256 payout = (stake * (r.totalStake - fee)) / winners;
+        uint256 payout = MarketMath.payout(stake, r.totalStake, winners, feeBps);
         if (!token.transfer(msg.sender, payout)) revert TransferFailed();
         emit Claimed(id, msg.sender, payout);
     }
@@ -290,41 +289,11 @@ contract BaseFeeMarket {
     ///      bucket 0: v < bounds[0]; bucket i: bounds[i-1] <= v < bounds[i];
     ///      bucket n: v >= bounds[n-1].
     function bucketOf(int256[] storage bounds, int256 v) internal view returns (uint256) {
-        uint256 n = bounds.length;
-        for (uint256 i = 0; i < n; ++i) {
-            if (v < bounds[i]) return i;
-        }
-        return n;
+        return MarketMath.bucketOf(bounds, v);
     }
 
-    uint256 private constant LN2_1E18 = 0.693147180559945309e18;
-
-    /// @dev ln(x/1e18) * 1e18 for x in [1, 1e18]; result <= 0, abs error < 1e9.
-    ///      Range reduction: x = m * 2^-e with m/1e18 in [0.5, 1), then
-    ///      ln(x/1e18) = ln(m/1e18) - e*ln2, where ln(m) uses
-    ///      ln(m) = 2*artanh((m-1)/(m+1)) with |y| <= 1/3 (fast convergence).
+    /// @dev ln(x/1e18) * 1e18 for x in [1, 1e18]; result <= 0. See MarketMath.log1e18.
     function log1e18(uint256 x) internal pure returns (int256) {
-        require(x >= 1 && x <= 1e18, "log domain");
-        uint256 e;
-        uint256 m = x;
-        while (m * 2 < 1e18) {
-            m *= 2;
-            ++e;
-        }
-        // now m in [0.5e18, 1e18)
-        int256 num = int256(m) - 1e18;
-        int256 den = int256(m) + 1e18;
-        int256 y = (num * 1e18) / den; // y in [-1/3, 0]
-        int256 y2 = (y * y) / 1e18; // <= 1/9
-        int256 term = y;
-        int256 sum;
-        for (uint256 k = 0; k < 24; ++k) {
-            sum += term / int256(2 * k + 1);
-            term = (term * y2) / 1e18;
-            if (term == 0) break;
-        }
-        int256 ln = 2 * sum - int256(e) * int256(LN2_1E18);
-        require(ln <= 0, "ln(p<=1) must be <= 0");
-        return ln;
+        return MarketMath.log1e18(x);
     }
 }
