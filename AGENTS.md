@@ -17,7 +17,7 @@ Rules for every agent (and human) working in this repository. Short and hard on 
 - Claims that something is "not worth it" or "mainstream" need a source with an evidence grade (A–D, X); otherwise mark them `[待证据]` and do not use them to drop a requirement.
 
 ## Verify before done
-- Run `cd contracts && forge fmt --check && forge build && forge test` and see it pass.
+- Run `cd <repo>/contracts && forge fmt --check && forge build && forge test` and see it pass.
 - The Full Verify stays one line; new steps (ruff/pytest for `agents/`, `analysis/`) go into a root `make verify` target once those subprojects exist, not a second command to remember.
 
 ## Git

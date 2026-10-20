@@ -80,6 +80,6 @@ cd <repo>/contracts && forge fmt --check && forge build && forge test
 
 ## 脚手架记录
 
-- `forge init contracts --empty`（forge 1.5.1-stable），结果：成功（生成 foundry.toml / lib/forge-std v1.17.0；嵌套 .git 已移除；solc 0.8.28）
+- 生成器命令：`forge init contracts --empty`（forge 1.5.1-stable），结果：成功（foundry.toml / lib/forge-std v1.17.0；嵌套 .git 已移除；solc 0.8.28）
 - Python（agents/analysis）尚未初始化：留给 goal 第一个相关任务时 `uv init`（记录于「后续」）
-- 手写部分：MockERC20、ExposedHelpers（测试辅助合约）
+- 手写（原因：测试辅助合约无官方生成器）：MockERC20、ExposedHelpers
