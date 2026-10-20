@@ -1,0 +1,8 @@
+.venv/
+out/
+forge/out/
+forge/cache/
+forge/lib/
+*.srs
+*.key
+*.compiled
