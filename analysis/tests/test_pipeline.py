@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 import pipeline
-from calibrate import METHOD
+from calibrate import MAX_INT256, MAX_WINDOW_BLOCKS, METHOD
 from pipeline import (
     DEFAULT_FIXTURE,
     REQUIRED_PARAM_FIELDS,
@@ -109,6 +109,22 @@ def test_validate_bounds_accepts_a_strictly_increasing_positive_array() -> None:
 def test_validate_bounds_rejects_more_than_the_contract_allows() -> None:
     with pytest.raises(ValueError, match="at most 32"):
         validate_bounds(list(range(1, 34)))
+
+
+def test_validate_bounds_accepts_int256_max_and_rejects_one_above() -> None:
+    assert validate_bounds([MAX_INT256]) == (MAX_INT256,)
+    assert validate_bounds([1, MAX_INT256]) == (1, MAX_INT256)
+    with pytest.raises(ValueError, match="int256 maximum"):
+        validate_bounds([MAX_INT256 + 1])
+    with pytest.raises(ValueError, match="int256 maximum"):
+        validate_bounds([1, MAX_INT256 + 1])
+
+
+def test_bucket_of_accepts_int256_max_and_rejects_one_above() -> None:
+    assert bucket_of(MAX_INT256, [MAX_INT256]) == 1
+    assert bucket_of(MAX_INT256 - 1, [MAX_INT256]) == 0
+    with pytest.raises(ValueError, match="int256 maximum"):
+        bucket_of(1, [MAX_INT256 + 1])
 
 
 # --- committed fixture ---------------------------------------------------------------
@@ -224,6 +240,33 @@ def test_validate_params_rejects_non_increasing_bounds() -> None:
         "method": METHOD,
     }
     with pytest.raises(ValueError, match="bounds_wei"):
+        validate_params(payload)
+
+
+def test_validate_params_window_k_limit_is_the_contract_window_limit() -> None:
+    payload = {
+        "window_k": MAX_WINDOW_BLOCKS,
+        "bounds_wei": [1000000000],
+        "quantiles": {"50": 1000000000},
+        "samples": 1,
+        "method": METHOD,
+    }
+    assert MAX_WINDOW_BLOCKS == 256
+    validate_params(payload)
+    payload["window_k"] = MAX_WINDOW_BLOCKS + 1
+    with pytest.raises(ValueError, match="window_k"):
+        validate_params(payload)
+
+
+def test_validate_params_rejects_a_bound_above_int256_max() -> None:
+    payload = {
+        "window_k": 50,
+        "bounds_wei": [1000000000, MAX_INT256 + 1],
+        "quantiles": {"50": 1000000000},
+        "samples": 200,
+        "method": METHOD,
+    }
+    with pytest.raises(ValueError, match="int256 maximum"):
         validate_params(payload)
 
 
@@ -350,6 +393,125 @@ def test_pipeline_stops_when_the_fetch_step_fails(tmp_path: Path, monkeypatch) -
     exit_code = main(["--history", str(history), "--out", str(out), "--from", "10", "--to", "20"])
     assert exit_code == 2
     assert not out.exists()
+
+
+# --- fixture gate ----------------------------------------------------------------------
+
+
+def record_fetch_calls(monkeypatch) -> list[list[str]]:
+    calls: list[list[str]] = []
+
+    def fake_fetch(argv: list[str]) -> int:
+        calls.append(argv)
+        return 0
+
+    monkeypatch.setattr(pipeline.fetch_fee_history, "main", fake_fetch)
+    return calls
+
+
+def assert_nothing_written(out: Path) -> None:
+    assert not out.exists()
+    assert not (out.parent / "calibration.md").exists()
+
+
+def test_pipeline_wrong_explicit_fixture_fails_before_fetch_and_writes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls = record_fetch_calls(monkeypatch)
+    fixture = tmp_path / "wrong.json"
+    fixture.write_text(
+        json.dumps(
+            {
+                "bounds_wei": [10, 20],
+                "cases": [{"value_wei": 10, "bucket": 0}],
+                "semantics": "half-open",
+            }
+        ),
+        encoding="utf-8",
+    )
+    history = write_history(tmp_path / "history.csv", fee_path())
+    out = tmp_path / "params.json"
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "--history",
+                str(history),
+                "--out",
+                str(out),
+                "--fixture",
+                str(fixture),
+                "--from",
+                "10",
+                "--to",
+                "20",
+            ]
+        )
+    assert excinfo.value.code != 0
+    assert calls == []
+    assert_nothing_written(out)
+
+
+def test_pipeline_missing_explicit_fixture_fails_before_fetch_and_writes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls = record_fetch_calls(monkeypatch)
+    history = write_history(tmp_path / "history.csv", fee_path())
+    out = tmp_path / "params.json"
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "--history",
+                str(history),
+                "--out",
+                str(out),
+                "--fixture",
+                str(tmp_path / "missing.json"),
+                "--from",
+                "10",
+                "--to",
+                "20",
+            ]
+        )
+    assert excinfo.value.code != 0
+    assert calls == []
+    assert_nothing_written(out)
+
+
+def test_pipeline_missing_default_fixture_fails_before_fetch_and_writes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls = record_fetch_calls(monkeypatch)
+    monkeypatch.setattr(pipeline, "DEFAULT_FIXTURE", tmp_path / "no" / "fixture.json")
+    history = write_history(tmp_path / "history.csv", fee_path())
+    out = tmp_path / "params.json"
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--history", str(history), "--out", str(out), "--from", "10", "--to", "20"])
+    assert excinfo.value.code != 0
+    assert calls == []
+    assert_nothing_written(out)
+
+
+def test_pipeline_missing_default_fixture_fails_offline_too(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(pipeline, "DEFAULT_FIXTURE", tmp_path / "no" / "fixture.json")
+    history = write_history(tmp_path / "history.csv", fee_path())
+    out = tmp_path / "params.json"
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--history", str(history), "--out", str(out)])
+    assert excinfo.value.code != 0
+    assert_nothing_written(out)
+
+
+def test_pipeline_single_bound_calibration_runs_end_to_end(tmp_path: Path) -> None:
+    constant = [(index + 1, 1_000_000_000, 1_700_000_000 + index) for index in range(300)]
+    history = write_history(tmp_path / "history.csv", constant)
+    out = tmp_path / "params.json"
+    assert main(["--history", str(history), "--out", str(out)]) == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["bounds_wei"] == [1_000_000_000]
+    validate_params(payload)
+    assert bucket_of(999_999_999, payload["bounds_wei"]) == 0
+    assert bucket_of(1_000_000_000, payload["bounds_wei"]) == 1
+    assert (out.parent / "calibration.md").exists()
 
 
 # --- CLI ---------------------------------------------------------------------------------

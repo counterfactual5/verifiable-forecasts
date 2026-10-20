@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Final
@@ -33,6 +32,8 @@ from typing import Final
 import fetch_fee_history
 from calibrate import (
     DEFAULT_CANDIDATES,
+    MAX_INT256,
+    MAX_WINDOW_BLOCKS,
     REPORT_NAME,
     calibrate,
     load_history,
@@ -63,7 +64,8 @@ def validate_bounds(bounds: Sequence[int]) -> tuple[int, ...]:
 
     The contract rejects empty arrays, arrays longer than 32 entries, a non-positive
     first bound and any bound that does not strictly exceed its predecessor. It also
-    works in ``int256`` only, so a float bound is not a bound here either.
+    works in ``int256`` only, so a float bound or a bound above ``MAX_INT256`` is not
+    a bound here either.
     """
 
     values = tuple(bounds)
@@ -76,6 +78,8 @@ def validate_bounds(bounds: Sequence[int]) -> tuple[int, ...]:
             raise ValueError(f"bounds[{index}] must be an integer, got {type(bound).__name__}")
         if bound <= 0:
             raise ValueError(f"bounds[{index}] must be positive, got {bound}")
+        if bound > MAX_INT256:
+            raise ValueError(f"bounds[{index}] exceeds the int256 maximum, got {bound}")
         if index and bound <= values[index - 1]:
             raise ValueError(
                 f"bounds must be strictly increasing: bounds[{index}]={bound} "
@@ -204,6 +208,10 @@ def validate_params(payload: Mapping[str, object]) -> None:
     window_k = payload["window_k"]
     if isinstance(window_k, bool) or not isinstance(window_k, int) or window_k <= 0:
         raise ValueError("params payload field 'window_k' must be a positive integer")
+    if window_k > MAX_WINDOW_BLOCKS:
+        raise ValueError(
+            f"params payload field 'window_k' must be at most {MAX_WINDOW_BLOCKS}, got {window_k}"
+        )
 
     samples = payload["samples"]
     if isinstance(samples, bool) or not isinstance(samples, int) or samples <= 0:
@@ -295,7 +303,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run fetch (optional) and calibration, then write the params JSON."""
+    """Verify the bucket fixture, run fetch (optional) and calibration, then write params.
+
+    The fixture is a gate: a missing or disagreeing fixture stops the run before the
+    fetch step and before any file is written.
+    """
 
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -305,6 +317,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     history_path = Path(args.history)
     out_path = Path(args.out)
+
+    fixture_path = Path(args.fixture) if args.fixture else DEFAULT_FIXTURE
+    if not fixture_path.is_file():
+        parser.error(f"bucket case fixture not found: {fixture_path}")
+    try:
+        checked = verify_bucket_fixture(fixture_path)
+    except ValueError as exc:
+        parser.error(str(exc))
+    print(f"checked {checked} bucket cases against {fixture_path}")
 
     if args.from_block is not None:
         fetch_code = fetch_fee_history.main(
@@ -347,19 +368,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"window_k={result.window_k} samples={result.samples} bounds_wei={list(result.bounds_wei)}"
     )
     print(f"wrote {params_path} and {report_path}")
-
-    fixture_path = Path(args.fixture) if args.fixture else DEFAULT_FIXTURE
-    if fixture_path.exists():
-        try:
-            checked = verify_bucket_fixture(fixture_path)
-        except ValueError as exc:
-            parser.error(str(exc))
-        print(f"checked {checked} bucket cases against {fixture_path}")
-    elif args.fixture is not None:
-        parser.error(f"bucket case fixture not found: {fixture_path}")
-    else:
-        print(f"bucket case fixture not found at {fixture_path}; skipping", file=sys.stderr)
-
     return 0
 
 

@@ -63,7 +63,7 @@ uv run python src/pipeline.py --help
 | `--rpc` | JSON-RPC endpoint for the optional fetch step. Default `https://ethereum-rpc.publicnode.com`. |
 | `--from` / `--to` | Inclusive block range of the optional fetch step. Given together, or not at all. |
 | `--candidates` | Comma-separated candidate window lengths. Default `10,25,50,100,200`. |
-| `--fixture` | Bucket case fixture to check against the contract semantics. Default `contracts/test/fixtures/basefee_bucket_cases.json`. |
+| `--fixture` | Bucket case fixture to check against the contract semantics before anything else runs; missing or disagreeing is an error. Default `contracts/test/fixtures/basefee_bucket_cases.json`. |
 
 Without `--from`/`--to` the run is fully offline: it reads the existing history CSV and never opens a socket.
 The offline path does not depend on `--rpc`, `--from` or `--to`; the optional fetch step is the only part that
@@ -84,15 +84,24 @@ The suite is offline and deterministic: it runs against committed fixture rows, 
 ```json
 {
   "window_k": 50,
-  "bounds_wei": [1000000000, 1500000000, 2500000000],
-  "quantiles": {"10": 900000000, "50": 1200000000, "90": 1800000000},
+  "bounds_wei": [1100000000, 1200000000, 1450000000],
+  "quantiles": {
+    "10": 900000000,
+    "25": 1100000000,
+    "50": 1200000000,
+    "75": 1450000000,
+    "90": 1800000000
+  },
   "samples": 20000,
-  "method": "window-mean p10/p25/p50/p75/p90, log-spaced bounds"
+  "method": "contiguous K-block mean, integer floor division; nearest-rank integer quantiles; K minimizes (p90-p10)/p50 by cross multiplication; bounds are distinct positive p25/p50/p75"
 }
 ```
 
-`bounds_wei` is passed verbatim as the `bounds` array of `BaseFeeMarket.createRound`. `window_k` is the number
-of blocks in a round's sampling window.
+`bounds_wei` is passed verbatim as the `bounds` array of `BaseFeeMarket.createRound`; it is the distinct
+positive values among the p25/p50/p75 quantiles, so it holds one to three entries. A flat history whose
+p25, p50 and p75 coincide yields a single bound (for example `[1000000000]`), which is valid: the contract
+then has two buckets. `window_k` is the number of blocks in a round's sampling window, at most 256.
+`method` is `calibrate.METHOD` verbatim.
 
 ### `data/params.json` schema
 
@@ -100,14 +109,16 @@ The pipeline writes exactly these five fields, and it refuses to write a payload
 
 | Field | Type | Meaning |
 |---|---|---|
-| `window_k` | int > 0 | Recommended sampling window length in blocks. |
-| `bounds_wei` | list of int | Strictly increasing positive bounds in wei, passed verbatim to `createRound`. |
+| `window_k` | int, 1..256 | Recommended sampling window length in blocks (`createRound` rejects windows above 256). |
+| `bounds_wei` | list of int | 1 to 32 strictly increasing positive bounds in wei, each at most int256 max (`2**255 - 1`), passed verbatim to `createRound`. |
 | `quantiles` | object of int | Nearest-rank quantiles of the window-mean distribution, keyed by percentile (`"10"`, `"25"`, `"50"`, `"75"`, `"90"`). |
 | `samples` | int > 0 | Number of complete window means the quantiles were computed from. |
 | `method` | string | One line describing how the numbers were produced. |
 
 Every bound and every quantile is an integer in wei. The contract rejects bounds that are not strictly
-increasing or not positive, and it accepts at most 32 of them.
+increasing or not positive, it accepts at most 32 of them and at least one, and every bound must fit in
+`int256` (at most `2**255 - 1`). The pipeline enforces the same rules, plus `window_k <= 256`, before it
+writes anything.
 
 ## Bucket semantics
 
@@ -122,6 +133,11 @@ A value equal to a bound belongs to the bucket that *starts* at that bound, so `
 `i`. The boundary values are pinned down in the committed fixture
 `contracts/test/fixtures/basefee_bucket_cases.json`, which the pipeline checks on every run and the Python
 suite asserts case by case.
+
+The fixture check is a fail-closed gate: the pipeline resolves the fixture (the default path or `--fixture`)
+and verifies every case *before* the optional fetch step and before writing `params.json` or
+`calibration.md`. A missing fixture, default or explicit, or a case that disagrees with the contract
+semantics exits non-zero and leaves no output behind.
 
 ### `basefee_bucket_cases.json` schema
 
