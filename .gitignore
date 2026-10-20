@@ -1,0 +1,24 @@
+# build output
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+
+# data (fetched, reproducible via analysis scripts)
+data/
+
+# secrets & local
+.env
+.env.*
+!.env.example
+.local/
+docs/.local/
+
+# os
+.DS_Store
