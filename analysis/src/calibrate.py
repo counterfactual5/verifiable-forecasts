@@ -19,8 +19,12 @@ anywhere in this module. The deterministic rules are:
   Ties keep the smallest ``K``.
 * Bucket bounds are the selected candidate's ``p25``, ``p50`` and ``p75`` in ascending
   order with duplicates and non-positive values removed, which keeps the array strictly
-  increasing even when quantiles tie. Fewer than two distinct positive values is an
-  error: a one-bound array cannot define a market.
+  increasing even when quantiles tie. A single distinct positive value yields a
+  one-bound array (two buckets), which the contract accepts; no positive value at all
+  is an error.
+* Contract limits are enforced here so ``params.json`` never reverts on-chain:
+  ``window_k`` is at most ``MAX_WINDOW_BLOCKS`` (256, the ``blockhash``/window limit)
+  and every base fee, hence every bound, is at most ``MAX_INT256``.
 """
 
 from __future__ import annotations
@@ -36,7 +40,9 @@ from typing import Final
 DEFAULT_CANDIDATES: Final[tuple[int, ...]] = (10, 25, 50, 100, 200)
 QUANTILE_PERCENTILES: Final[tuple[int, ...]] = (10, 25, 50, 75, 90)
 BOUND_PERCENTILES: Final[tuple[int, ...]] = (25, 50, 75)
-MIN_BOUNDS: Final[int] = 2
+MIN_BOUNDS: Final[int] = 1
+MAX_WINDOW_BLOCKS: Final[int] = 256
+MAX_INT256: Final[int] = (1 << 255) - 1
 DEFAULT_OUT: Final[Path] = Path("data/params.json")
 REPORT_NAME: Final[str] = "calibration.md"
 METHOD: Final[str] = (
@@ -153,6 +159,8 @@ def load_history(path: str | Path) -> list[FeeRow]:
                 raise ValueError(f"line {line_number}: block must be positive")
             if fee < 0:
                 raise ValueError(f"line {line_number}: base_fee_wei must be non-negative")
+            if fee > MAX_INT256:
+                raise ValueError(f"line {line_number}: base_fee_wei exceeds int256 maximum")
             rows.append(FeeRow(block=block, base_fee_wei=fee, ts=ts))
 
     if not rows:
@@ -262,8 +270,9 @@ def bucket_bounds(quantiles: dict[str, int]) -> tuple[int, ...]:
     """Strictly increasing positive bounds from ``p25``, ``p50``, ``p75``.
 
     Tied quantiles collapse to one bound (for example ``p25 == p50`` yields two
-    bounds) and non-positive quantiles are dropped because a bound must be positive.
-    Fewer than two distinct positive values cannot express a market.
+    bounds, and ``p25 == p50 == p75`` yields one) and non-positive quantiles are
+    dropped because a bound must be positive. No positive value at all is an error,
+    as is a value above ``MAX_INT256`` (it would not fit the contract's ``int256``).
     """
 
     missing = [
@@ -278,10 +287,9 @@ def bucket_bounds(quantiles: dict[str, int]) -> tuple[int, ...]:
     }
     positive = sorted(values)
     if len(positive) < MIN_BOUNDS:
-        raise ValueError(
-            "fewer than two distinct positive quantiles among p25/p50/p75; "
-            "cannot build strictly increasing bounds"
-        )
+        raise ValueError("no positive quantile among p25/p50/p75; cannot build bounds")
+    if positive[-1] > MAX_INT256:
+        raise ValueError("bucket bound exceeds int256 maximum")
     return tuple(positive)
 
 
@@ -297,6 +305,8 @@ def parse_candidates(text: str) -> tuple[int, ...]:
         raise ValueError(f"invalid --candidates value {text!r}") from exc
     if any(value <= 0 for value in values):
         raise ValueError("candidate window lengths must be positive")
+    if any(value > MAX_WINDOW_BLOCKS for value in values):
+        raise ValueError(f"candidate window lengths must be at most {MAX_WINDOW_BLOCKS}")
     if len(set(values)) != len(values):
         raise ValueError("candidate window lengths must be unique")
     return tuple(sorted(values))
@@ -310,6 +320,8 @@ def calibrate(
     ordered_candidates = sorted(set(candidates))
     if not ordered_candidates or any(value <= 0 for value in ordered_candidates):
         raise ValueError("candidates must be a non-empty list of positive window lengths")
+    if ordered_candidates[-1] > MAX_WINDOW_BLOCKS:
+        raise ValueError(f"candidate window lengths must be at most {MAX_WINDOW_BLOCKS}")
 
     stats: list[CandidateStats] = []
     skipped: dict[int, str] = {}
@@ -399,12 +411,15 @@ def render_report(
             f"- `window_k`: {result.window_k}",
             f"- `bounds_wei`: `{list(result.bounds_wei)}`",
             "- Buckets follow half-open intervals: "
-            f"(-inf, {result.bounds_wei[0]}), "
             + ", ".join(
-                f"[{low}, {high})"
-                for low, high in zip(result.bounds_wei, result.bounds_wei[1:], strict=False)
+                [f"(-inf, {result.bounds_wei[0]})"]
+                + [
+                    f"[{low}, {high})"
+                    for low, high in zip(result.bounds_wei, result.bounds_wei[1:], strict=False)
+                ]
+                + [f"[{result.bounds_wei[-1]}, +inf)"]
             )
-            + f", [{result.bounds_wei[-1]}, +inf).",
+            + ".",
             "",
         ]
     )

@@ -11,6 +11,8 @@ import pytest
 
 from calibrate import (
     DEFAULT_CANDIDATES,
+    MAX_INT256,
+    MAX_WINDOW_BLOCKS,
     METHOD,
     FeeRow,
     bucket_bounds,
@@ -194,11 +196,24 @@ def test_bucket_bounds_deduplicate_tied_quantiles() -> None:
     assert list(bounds) == sorted(set(bounds))
 
 
-def test_bucket_bounds_require_two_distinct_positive_values() -> None:
-    with pytest.raises(ValueError, match="two distinct positive"):
-        bucket_bounds({"25": 7, "50": 7, "75": 7})
-    with pytest.raises(ValueError, match="two distinct positive"):
+def test_bucket_bounds_all_equal_quantiles_yield_single_bound() -> None:
+    assert bucket_bounds({"25": 7, "50": 7, "75": 7}) == (7,)
+    assert bucket_bounds({"25": 0, "50": 7, "75": 7}) == (7,)
+    with pytest.raises(ValueError, match="no positive quantile"):
         bucket_bounds({"25": 0, "50": 0, "75": 0})
+
+
+def test_bucket_bounds_reject_values_above_int256() -> None:
+    assert bucket_bounds({"25": 1, "50": 2, "75": MAX_INT256}) == (1, 2, MAX_INT256)
+    with pytest.raises(ValueError, match="int256"):
+        bucket_bounds({"25": 1, "50": 2, "75": MAX_INT256 + 1})
+
+
+def test_calibrate_constant_history_yields_single_bound(tmp_path: Path) -> None:
+    result = calibrate(fee_rows(30, fee=1_000), [10])
+    assert result.bounds_wei == (1_000,)
+    path = write_report(result, tmp_path / "calibration.md")
+    assert "(-inf, 1000), [1000, +inf)." in path.read_text(encoding="utf-8")
 
 
 def test_bucket_bounds_require_all_three_quantile_keys() -> None:
@@ -285,6 +300,37 @@ def test_parse_candidates_rejects_invalid_values() -> None:
 
 def test_parse_candidates_accepts_sorted_unique_values() -> None:
     assert parse_candidates("50,10,25") == (10, 25, 50)
+
+
+def test_window_limit_constant_matches_contract() -> None:
+    assert MAX_WINDOW_BLOCKS == 256
+    assert MAX_INT256 == 2**255 - 1
+
+
+def test_parse_candidates_enforces_max_window() -> None:
+    assert parse_candidates("10,256") == (10, 256)
+    for text in ("257", "10,257", "300"):
+        with pytest.raises(ValueError, match="at most 256"):
+            parse_candidates(text)
+
+
+def test_calibrate_enforces_max_window() -> None:
+    rows = fee_rows(300, fee=1_000)
+    assert calibrate(rows, [256]).window_k == 256
+    for candidates in ([257], [10, 257], [300]):
+        with pytest.raises(ValueError, match="at most 256"):
+            calibrate(rows, candidates)
+
+
+def test_load_history_accepts_int256_max_fee(tmp_path: Path) -> None:
+    path = write_csv(tmp_path, [(1, MAX_INT256, 100)])
+    assert load_history(path)[0].base_fee_wei == MAX_INT256
+
+
+def test_load_history_rejects_fee_above_int256(tmp_path: Path) -> None:
+    path = write_csv(tmp_path, [(1, 10, 100), (2, MAX_INT256 + 1, 101)])
+    with pytest.raises(ValueError, match=r"line 3: .*int256"):
+        load_history(path)
 
 
 # --- CLI ----------------------------------------------------------------------------
