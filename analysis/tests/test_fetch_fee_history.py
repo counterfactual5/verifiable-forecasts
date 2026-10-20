@@ -6,6 +6,7 @@ never touches the network and never sleeps.
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import urllib.error
@@ -340,6 +341,160 @@ def test_rpc_error_envelope_is_retryable() -> None:
         fetch_block_with_retry(client, 7, attempts=3, backoff=0.25, sleep=delays.append)
     assert opener.calls == 3
     assert delays == [0.25, 0.5]
+
+
+# --- failures while reading the response body ------------------------------
+
+
+class FailingReadResponse:
+    """A response whose ``read()`` raises, as a dropped connection would."""
+
+    def __init__(self, error: BaseException, *, close_error: BaseException | None = None) -> None:
+        self._error = error
+        self._close_error = close_error
+        self.closed = False
+
+    def read(self) -> bytes:
+        raise self._error
+
+    def close(self) -> None:
+        self.closed = True
+        if self._close_error is not None:
+            raise self._close_error
+
+
+class ScriptedResponseOpener:
+    """Return scripted response objects in order, one per call."""
+
+    def __init__(self, responses: list[object]) -> None:
+        self._responses = list(responses)
+        self.calls = 0
+
+    def __call__(self, request, timeout=None):
+        self.calls += 1
+        if not self._responses:
+            raise AssertionError("unexpected extra request")
+        return self._responses.pop(0)
+
+
+def read_errors() -> list[BaseException]:
+    return [
+        OSError("connection reset by peer"),
+        http.client.IncompleteRead(b'{"jsonrpc"', 100),
+    ]
+
+
+READ_ERROR_FACTORIES = {
+    "oserror": lambda: OSError("connection reset by peer"),
+    "incomplete_read": lambda: http.client.IncompleteRead(b"{", 100),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(READ_ERROR_FACTORIES))
+def test_read_failure_is_retried_with_backoff(kind: str) -> None:
+    error_factory = READ_ERROR_FACTORIES[kind]
+    expected_type = type(error_factory())
+    responses = [FailingReadResponse(error_factory()) for _ in range(3)]
+    opener = ScriptedResponseOpener(responses)
+    client = RpcClient("http://rpc.invalid", opener=opener)
+    delays: list[float] = []
+    with pytest.raises(RpcError) as excinfo:
+        fetch_block_with_retry(client, 50, attempts=3, backoff=0.5, sleep=delays.append)
+    assert opener.calls == 3
+    assert delays == [0.5, 1.0]
+    assert all(response.closed for response in responses)
+    assert isinstance(excinfo.value.__cause__, RpcError)
+    assert isinstance(excinfo.value.__cause__.__cause__, expected_type)
+
+
+@pytest.mark.parametrize("kind", sorted(READ_ERROR_FACTORIES))
+def test_read_failure_is_counted_as_failed_by_main(tmp_path: Path, kind: str) -> None:
+    error_factory = READ_ERROR_FACTORIES[kind]
+    opener = ScriptedResponseOpener([FailingReadResponse(error_factory()) for _ in range(3)])
+    client = RpcClient("http://rpc.invalid", opener=opener)
+    out = tmp_path / "history.csv"
+    stdout = io.StringIO()
+    delays: list[float] = []
+    code = main(
+        ["--from", "60", "--to", "60", "--out", str(out)],
+        client=client,
+        sleep=delays.append,
+        stdout=stdout,
+    )
+    assert code == 0
+    assert stdout.getvalue().strip() == "fetched=0 skipped=0 failed=1"
+    assert opener.calls == 3
+    assert delays == [0.5, 1.0]
+    assert read_csv(out) == [["block", "base_fee_wei", "ts"]]
+
+
+def test_read_failure_is_counted_as_failed_by_fetch_range() -> None:
+    opener = ScriptedResponseOpener(
+        [FailingReadResponse(error) for error in read_errors()]
+        + [FailingReadResponse(OSError("timed out"))]
+    )
+    client = RpcClient("http://rpc.invalid", opener=opener)
+    delays: list[float] = []
+    failures: list[tuple[int, Exception]] = []
+    records, summary = fetch_range(
+        client,
+        61,
+        61,
+        sleep=delays.append,
+        on_failure=lambda number, exc: failures.append((number, exc)),
+    )
+    assert records == []
+    assert summary.failed == 1
+    assert summary.fetched == 0
+    assert opener.calls == 3
+    assert delays == [0.5, 1.0]
+    assert [number for number, _ in failures] == [61]
+    assert isinstance(failures[0][1], RpcError)
+
+
+def test_read_failure_once_then_success_is_fetched(tmp_path: Path) -> None:
+    opener = ScriptedResponseOpener(
+        [
+            FailingReadResponse(TimeoutError("read timed out")),
+            FakeResponse(rpc_result(block_payload(62, 777, 1700000062))),
+        ]
+    )
+    client = RpcClient("http://rpc.invalid", opener=opener)
+    out = tmp_path / "history.csv"
+    stdout = io.StringIO()
+    delays: list[float] = []
+    code = main(
+        ["--from", "62", "--to", "62", "--out", str(out)],
+        client=client,
+        sleep=delays.append,
+        stdout=stdout,
+    )
+    assert code == 0
+    assert stdout.getvalue().strip() == "fetched=1 skipped=0 failed=0"
+    assert opener.calls == 2
+    assert delays == [0.5]
+    assert read_csv(out)[1:] == [["62", "777", "1700000062"]]
+
+
+def test_close_failure_does_not_mask_read_error() -> None:
+    response = FailingReadResponse(
+        OSError("connection reset by peer"), close_error=OSError("close failed")
+    )
+    client = RpcClient("http://rpc.invalid", opener=ScriptedResponseOpener([response]))
+    with pytest.raises(RpcError) as excinfo:
+        client.call("eth_blockNumber")
+    assert response.closed
+    assert str(excinfo.value.__cause__) == "connection reset by peer"
+
+
+def test_close_failure_after_successful_read_is_ignored() -> None:
+    class CloseFailsResponse(FakeResponse):
+        def close(self) -> None:
+            raise http.client.HTTPException("close failed")
+
+    opener = ScriptedResponseOpener([CloseFailsResponse(rpc_result(block_payload(63, 5, 6)))])
+    client = RpcClient("http://rpc.invalid", opener=opener)
+    assert fetch_block(client, 63) == BlockRecord(block=63, base_fee_wei=5, timestamp=6)
 
 
 # --- permanent failure ----------------------------------------------------

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import http.client
 import json
 import sys
 import time
@@ -163,11 +164,22 @@ class RpcClient:
             raise RpcError(f"{method}: transport error: {exc}") from exc
         try:
             raw = response.read()
+        except (OSError, http.client.HTTPException) as exc:
+            raise RpcError(f"{method}: transport error while reading: {exc!r}") from exc
         finally:
-            close = getattr(response, "close", None)
-            if callable(close):
-                close()
+            self._close_quietly(response)
         return self._parse_response(method, raw)
+
+    @staticmethod
+    def _close_quietly(response: Any) -> None:
+        """Close the response; a failing close never masks the read outcome."""
+        close = getattr(response, "close", None)
+        if not callable(close):
+            return
+        try:
+            close()
+        except (OSError, http.client.HTTPException):
+            pass
 
     @staticmethod
     def _parse_response(method: str, raw: Any) -> Any:
