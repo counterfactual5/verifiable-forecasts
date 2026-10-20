@@ -1,4 +1,4 @@
-.PHONY: verify test fmt check
+.PHONY: verify test check fmt
 
 # Single entry for Full Verify (kicks off to the Foundry suite; grows as subprojects appear)
 verify:
@@ -7,7 +7,8 @@ verify:
 test:
 	cd contracts && forge test
 
+check: verify
+	cd contracts && forge fmt --check && forge build && forge test
+
 fmt:
 	cd contracts && forge fmt
-
-check: verify
