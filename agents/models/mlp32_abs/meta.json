@@ -1,0 +1,15 @@
+{
+  "name": "mlp32_abs",
+  "description": "|x| -> 32 ReLU -> 5 softmax",
+  "params": 709,
+  "test_log_loss": 0.8712,
+  "prior_log_loss": 1.5368,
+  "test_accuracy": 0.6228,
+  "logit_clip": 3.0,
+  "onnx_sha256": "686e5c3c501b95ad4fa8d2b66fdfef23dec8333997aa5d5aeb2394d18db0d952",
+  "train": {
+    "samples": 40000,
+    "steps": 3000,
+    "l2": 0.001
+  }
+}

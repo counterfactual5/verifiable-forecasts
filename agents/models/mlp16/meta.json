@@ -1,0 +1,15 @@
+{
+  "name": "mlp16",
+  "description": "16->16 ReLU->5 softmax on signed features",
+  "params": 357,
+  "test_log_loss": 0.9129,
+  "prior_log_loss": 1.5368,
+  "test_accuracy": 0.6107,
+  "logit_clip": 3.0,
+  "onnx_sha256": "7d31060d1d67759c9e1f840e932951ad69762ff96b9168b102df67ce25add4a6",
+  "train": {
+    "samples": 40000,
+    "steps": 3000,
+    "l2": 0.001
+  }
+}

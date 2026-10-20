@@ -1,0 +1,15 @@
+{
+  "name": "linear_abs",
+  "description": "softmax(W |x| + b): linear in absolute feature values",
+  "params": 85,
+  "test_log_loss": 0.8972,
+  "prior_log_loss": 1.5368,
+  "test_accuracy": 0.616,
+  "logit_clip": 3.0,
+  "onnx_sha256": "e5ee7971b942c01fda07f88a0b63aec2c53c7e568dba3488fdf1c1173c03c863",
+  "train": {
+    "samples": 40000,
+    "steps": 3000,
+    "l2": 0.001
+  }
+}

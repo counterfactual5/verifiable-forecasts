@@ -10,6 +10,12 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 
+# EZKL build/proof artifacts (pk ~400 MB per model; rebuilt by agents/vol_agents/build.py)
+agents/out/
+*.key
+*.srs
+*.compiled
+
 # data (fetched, reproducible via analysis scripts)
 data/
 
