@@ -1,0 +1,26 @@
+{
+  "bounds_wei": [
+    1000000000,
+    1500000000,
+    2500000000,
+    4000000000
+  ],
+  "cases": [
+    { "value_wei": 0, "bucket": 0 },
+    { "value_wei": 1, "bucket": 0 },
+    { "value_wei": 999999999, "bucket": 0 },
+    { "value_wei": 1000000000, "bucket": 1 },
+    { "value_wei": 1000000001, "bucket": 1 },
+    { "value_wei": 1499999999, "bucket": 1 },
+    { "value_wei": 1500000000, "bucket": 2 },
+    { "value_wei": 1500000001, "bucket": 2 },
+    { "value_wei": 2499999999, "bucket": 2 },
+    { "value_wei": 2500000000, "bucket": 3 },
+    { "value_wei": 2500000001, "bucket": 3 },
+    { "value_wei": 3999999999, "bucket": 3 },
+    { "value_wei": 4000000000, "bucket": 4 },
+    { "value_wei": 4000000001, "bucket": 4 },
+    { "value_wei": 1000000000000, "bucket": 4 }
+  ],
+  "semantics": "Half-open intervals, matching BaseFeeMarket.bucketOf: bucket 0 covers (-inf, bounds_wei[0]); bucket i covers [bounds_wei[i-1], bounds_wei[i]); the last bucket covers [bounds_wei[n-1], +inf). A value equal to a bound belongs to the bucket that starts at that bound, so bounds_wei[i] is never in bucket i. All values and bounds are integers in wei."
+}
