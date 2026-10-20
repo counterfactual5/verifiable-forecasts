@@ -35,15 +35,28 @@ docs/plans/路线图.md      dated delivery roadmap
 
 ## Quickstart
 
-### 1. Run the contract suite
+### 1. Run the verification suite
 
-Requirements: Foundry (`forge`, `anvil`) and GNU Make (macOS `make` is fine).
+Requirements: Foundry (`forge`, `anvil`), GNU Make (macOS `make` is fine), [uv](https://docs.astral.sh/uv/),
+and Python >= 3.11.
+
+One-time bootstrap (the only step that needs network access; installs the locked analysis dependencies):
+
+```bash
+make analysis-sync   # equivalent to: cd analysis && uv sync --locked
+```
+
+Then run the checks:
 
 ```bash
 make check && make test
 ```
 
-The suite is deterministic and offline: Foundry cheatcodes set the next block's base fee. It covers the full
+`make check` runs the Foundry suite (`forge fmt --check`, `forge build`, `forge test`) plus the analysis
+`ruff check` and `pytest` suites. After the bootstrap, the Makefile exports `UV_LOCKED=1` and `UV_OFFLINE=1`,
+so the analysis checks run offline against `uv.lock` and fail instead of silently downloading packages.
+
+The contract suite is deterministic and offline: Foundry cheatcodes set the next block's base fee. It covers the full
 round lifecycle, boundary buckets, coverage refunds, pro-rata claims, current-block `BASEFEE` reads, and
 prediction log-score precision.
 
