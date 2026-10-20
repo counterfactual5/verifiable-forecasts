@@ -1,5 +1,5 @@
-"""End to end on a local anvil: deploy, register one verifier per model, open a round, let every agent
-prove and submit, then settle and compare the agents by their onchain log scores."""
+"""End to end on a local anvil: deploy, register one verifier per model, open a round, let every
+agent prove and submit, then settle and compare the agents by their onchain log scores."""
 
 import json
 
@@ -30,7 +30,10 @@ def test_agent_proves_and_submits(submitted):
     assert as_int(c.call(d.market, "predictorCount(uint256)(uint256)", rid)[0]) == len(d.agents)
     for a in d.agents:
         rec, model_id, probs, _ = c.call(
-            d.market, "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)", rid, a.address
+            d.market,
+            "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)",
+            rid,
+            a.address,
         )
         assert rec is True or rec == "true"
         assert as_int(model_id) == a.model_id

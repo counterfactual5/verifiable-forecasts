@@ -5,7 +5,6 @@ witness public inputs equal the contract's encoding, prove, and submit the forec
 import json
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
@@ -33,7 +32,8 @@ class Agent:
 
     def forecast(self, chain: Anvil, market: str, round_id: int):
         """Prove the model on round `round_id` and submit; returns the submitted outputs."""
-        feats = [as_int(v) for v in chain.call(market, "getFeatures(uint256)(int256[16])", round_id)[0]]
+        raw = chain.call(market, "getFeatures(uint256)(int256[16])", round_id)
+        feats = [as_int(v) for v in raw[0]]
         work = OUT / "rounds" / f"{market.lower()}-{round_id}" / self.name
         work.mkdir(parents=True, exist_ok=True)
         x = cm.model_input(feats)
@@ -44,7 +44,9 @@ class Agent:
         got = [cm.le_hex_to_int(h) for h in w["inputs"][0]]
         want = [cm.encode(v) for v in feats]
         if got != want:
-            raise RuntimeError(f"{self.name}: witness inputs differ from the contract encoding\n{got}\n{want}")
+            raise RuntimeError(
+                f"{self.name}: witness inputs differ from the contract encoding\n{got}\n{want}"
+            )
 
         self.timings["prove"] = run_step(self.model, "prove", work)
         proof = json.loads((work / "proof.json").read_text())

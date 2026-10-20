@@ -28,7 +28,8 @@ def _free_port():
 def _run(cmd, timeout=600):
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
-        raise RuntimeError(f"{' '.join(cmd[:4])} ... failed:\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}")
+        head = " ".join(cmd[:4])
+        raise RuntimeError(f"{head} ... failed:\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}")
     return r.stdout.strip()
 
 

@@ -2,8 +2,9 @@
 
 deploy(): MockERC20, MockPool, VolMarket(Δ=300, N=12) and one EZKL verifier per model; each model is
 registered with its own agent as operator. open_round(): set the pool's 17 history segments and 12
-window segments, createRound at T0. Every agent then proves and submits. settle_round(): sample every
-checkpoint, settle, read each agent's onchain log score and write out/compare_round.json.
+window segments, createRound at T0. Every agent then proves and submits.
+settle_round(): sample every checkpoint, settle, read each agent's onchain log score and write
+out/compare_round.json.
 
 Usage: uv run python -m vol_agents.round   (starts and stops its own anvil)
 """
@@ -21,8 +22,9 @@ from .ezkl_step import OUT
 # the 12 window segments of VolMarket.t.sol's _mixed() (RV 49, bucket 3).
 HISTORY_DIFFS = [2, -3, 1, 4, -2, 0, -3, 2, 1, -4, 3, -1, 2, -2, 0, 3]
 BASE_TICK = 196000
-WINDOW_TICKS = [196000, 196002, 195999, 196003, 196003, 196002, 196000, 196001, 195999, 195999, 196002,
-                196001]
+WINDOW_TICKS = [
+    196000, 196002, 195999, 196003, 196003, 196002, 196000, 196001, 195999, 195999, 196002, 196001,
+]
 COMPARE = OUT / "compare_round.json"
 
 
@@ -49,7 +51,9 @@ def deploy(chain: Anvil, models=None) -> Deployment:
     owner = DEV_KEYS[0]
     token = chain.deploy(owner, "test/mocks/MockERC20.sol:MockERC20")
     pool = chain.deploy(owner, "test/mocks/MockPool.sol:MockPool")
-    market = chain.deploy(owner, "src/VolMarket.sol:VolMarket", token, 0, pool, cm.DELTA, cm.N_SEGMENTS)
+    market = chain.deploy(
+        owner, "src/VolMarket.sol:VolMarket", token, 0, pool, cm.DELTA, cm.N_SEGMENTS
+    )
     agents = []
     for i, m in enumerate(models):
         build(m)

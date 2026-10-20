@@ -25,7 +25,10 @@ MAX_LOGROWS = 15
 
 
 def run(fn, *args, **kwargs):
-    """Call an ezkl binding inside an event loop (some return awaitables, some need a running loop)."""
+    """Call an ezkl binding inside an event loop.
+
+    Some bindings return awaitables, some need a running loop.
+    """
 
     async def call():
         r = fn(*args, **kwargs)
@@ -80,7 +83,14 @@ def step(model, name, work=None):
             run(ezkl.gen_witness, str(w / "input.json"), p["compiled"], str(w / "witness.json"),
                 p["vk"], srs)
         elif name == "prove":
-            run(ezkl.prove, str(w / "witness.json"), p["compiled"], p["pk"], str(w / "proof.json"), srs)
+            run(
+                ezkl.prove,
+                str(w / "witness.json"),
+                p["compiled"],
+                p["pk"],
+                str(w / "proof.json"),
+                srs,
+            )
         elif not run(ezkl.verify, str(w / "proof.json"), p["settings"], p["vk"], srs):
             raise SystemExit("verify failed")
     else:

@@ -9,6 +9,8 @@ verify:
 	cd contracts && forge fmt --check && forge build && forge test
 	cd analysis && uv run ruff check src tests
 	cd analysis && uv run pytest tests/ -q
+	cd agents && uv run ruff check .
+	cd agents && uv run pytest -q
 
 test:
 	cd contracts && forge test
