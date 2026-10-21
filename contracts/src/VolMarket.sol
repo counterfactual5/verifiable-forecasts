@@ -4,6 +4,8 @@ pragma solidity ^0.8.28;
 import {IERC20} from "./interfaces/IERC20.sol";
 import {IUniswapV3PoolOracle} from "./interfaces/IUniswapV3PoolOracle.sol";
 import {IHalo2Verifier} from "./interfaces/IHalo2Verifier.sol";
+import {IERC8004Identity} from "./interfaces/IERC8004Identity.sol";
+import {IERC8004Reputation} from "./interfaces/IERC8004Reputation.sol";
 import {MarketMath} from "./lib/MarketMath.sol";
 
 /// @title VolMarket
@@ -37,6 +39,8 @@ contract VolMarket {
     error RoundNotSettled();
     error NothingToClaim();
     error TransferFailed();
+    error ReputationNotConfigured();
+    error AgentNotOwned();
 
     // ---------------------------------------------------------------- events
     event ModelRegistered(uint256 indexed modelId, address verifier, address operator);
@@ -50,6 +54,11 @@ contract VolMarket {
     event RoundVoided(uint256 indexed roundId);
     event PredictionScored(uint256 indexed roundId, address indexed predictor, int256 logScore);
     event Claimed(uint256 indexed roundId, address indexed claimant, uint256 payout);
+    event ReputationSet(address indexed identityRegistry, address indexed reputationRegistry);
+    event AgentLinked(uint256 indexed modelId, uint256 indexed agentId, address indexed operator);
+    event ReputationWriteFailed(
+        uint256 indexed roundId, address indexed predictor, uint256 indexed agentId, bytes32 reason
+    );
 
     // ---------------------------------------------------------------- types
     struct Round {
@@ -99,6 +108,17 @@ contract VolMarket {
     uint256 public roundCount;
     mapping(uint256 => Round) private rounds;
 
+    // ---------------------------------------------------------------- ERC-8004 reputation
+    /// @dev ERC-8004 registries. Both unset means the reputation wiring is disabled: the market
+    ///      behaves exactly as it does without this feature.
+    IERC8004Identity public identityRegistry;
+    IERC8004Reputation public reputationRegistry;
+    /// @dev modelId -> agentId of the model operator's agent.
+    mapping(uint256 => uint256) public agentOfModel;
+    /// @dev Binding marker: agent id 0 is a legal binding target, so it cannot double as the
+    ///      "no agent" sentinel.
+    mapping(uint256 => bool) public agentBound;
+
     // ---------------------------------------------------------------- modifiers
     modifier roundExists(uint256 id) {
         if (id >= roundCount) revert RoundNotFound();
@@ -138,6 +158,40 @@ contract VolMarket {
 
     function modelCount() external view returns (uint256) {
         return models.length;
+    }
+
+    // ---------------------------------------------------------------- ERC-8004 reputation
+    /// @notice Point the market at the ERC-8004 identity and reputation registries.
+    /// @dev The zero address on both sides disables the feature; one zero side is a configuration
+    ///      mistake and is rejected, because a half-configured wiring would silently drop scores.
+    function setReputation(address identity, address reputation) external {
+        if (msg.sender != owner) revert NotOwner();
+        if ((identity == address(0)) != (reputation == address(0))) revert InvalidParams();
+        identityRegistry = IERC8004Identity(identity);
+        reputationRegistry = IERC8004Reputation(reputation);
+        emit ReputationSet(identity, reputation);
+    }
+
+    /// @notice Bind the ERC-8004 agent of the caller to one of its models.
+    /// @dev Only the model operator may bind, and only for an agent it owns: the market writes the
+    ///      operator's scores under that agent id, so a binding must not be claimable by a third
+    ///      party. Agent id 0 marks a model whose scores are not attributed to any agent.
+    function linkAgent(uint256 modelId, uint256 agentId) external {
+        if (modelId >= models.length) revert UnknownModel();
+        if (msg.sender != modelOperator[modelId]) revert NotModelOperator();
+        if (address(identityRegistry) == address(0)) revert ReputationNotConfigured();
+        if (agentId != 0) {
+            address agentOwner;
+            try identityRegistry.ownerOf(agentId) returns (address ownerOf) {
+                agentOwner = ownerOf;
+            } catch {
+                revert AgentNotOwned();
+            }
+            if (agentOwner != msg.sender) revert AgentNotOwned();
+        }
+        agentOfModel[modelId] = agentId;
+        agentBound[modelId] = true;
+        emit AgentLinked(modelId, agentId, msg.sender);
     }
 
     // ---------------------------------------------------------------- round mgmt
@@ -294,6 +348,7 @@ contract VolMarket {
         r.winningBucket = uint8(win);
         emit RoundSettled(id, win, rv, count);
         _score(r, id, win);
+        _writeReputation(r, id);
     }
 
     /// @dev logScore = max(ln p_win, -18e18); p_win = 0 also scores -18e18.
@@ -308,6 +363,59 @@ contract VolMarket {
             p.logScore = score;
             emit PredictionScored(id, who, score);
         }
+    }
+
+    /// @dev Writes the scored log score of every predictor with a bound agent to the ERC-8004
+    ///      reputation registry. The registry is untrusted here: a rejected write is reported as
+    ///      an event and never blocks settlement or the claims that follow it.
+    function _writeReputation(Round storage r, uint256 id) internal {
+        if (address(reputationRegistry) == address(0)) return;
+        uint256 predictorsLen = r.predictors.length;
+        string memory tag2 = _reputationTag();
+        for (uint256 i = 0; i < predictorsLen; ++i) {
+            address who = r.predictors[i];
+            Prediction storage p = r.predictions[who];
+            uint256 modelId = p.modelId;
+            if (!agentBound[modelId]) continue;
+            uint256 agentId = agentOfModel[modelId];
+            if (agentId == 0) continue; // binding without an agent: nothing to attribute
+            _giveFeedback(id, who, agentId, _toInt128(p.logScore), tag2);
+        }
+    }
+
+    function _giveFeedback(uint256 id, address who, uint256 agentId, int128 value, string memory tag2) internal {
+        try reputationRegistry.giveFeedback(agentId, value, 18, "logScore", tag2, "", "", bytes32(0)) {}
+        catch (bytes memory reason) {
+            emit ReputationWriteFailed(id, who, agentId, keccak256(reason));
+        }
+    }
+
+    /// @dev tag2 identifies the window the score belongs to: "vol-<delta>s-<nSegments>", derived
+    ///      from the constructor parameters so that markets with different windows do not mix.
+    function _reputationTag() internal view returns (string memory) {
+        return string.concat("vol-", _toString(uint256(delta)), "s-", _toString(uint256(nSegments)));
+    }
+
+    /// @dev Clamp into int128: the reputation value is an int128, a wider score must not truncate.
+    function _toInt128(int256 value) internal pure returns (int128) {
+        if (value > int256(type(int128).max)) return type(int128).max;
+        if (value < int256(type(int128).min)) return type(int128).min;
+        return int128(value);
+    }
+
+    /// @dev Decimal string of `value`; the contract needs no string library for two tag fields.
+    function _toString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) return "0";
+        uint256 digits;
+        for (uint256 rest = value; rest != 0; rest /= 10) {
+            ++digits;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            buffer[--digits] = bytes1(uint8(48 + value % 10));
+            value /= 10;
+        }
+        return string(buffer);
     }
 
     /// @dev Stored checkpoints first; the rest via one batched observe, falling back to per-point

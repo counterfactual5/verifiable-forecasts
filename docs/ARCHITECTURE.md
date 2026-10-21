@@ -100,14 +100,31 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 
 ## 7. 计划中
 
-### ERC-8004 信誉（计划中）
+### ERC-8004 信誉
 
-接口按 ERC-8004 v2.0.0：单测与离线演示用 `contracts/src/erc8004/` 下按接口写的最小 Identity / Reputation 实现，主网 fork 演示用已部署的注册表（Identity `0x8004A169…a432`、Reputation `0x8004BAa1…9b63`）。收窄后的设计：
+R2 已将 ERC-8004 v2.0 Identity / Reputation 接口接入 `VolMarket`。owner 通过
+`setReputation(identity, reputation)` 配置两个注册表；传入 `address(0)`、
+`address(0)` 同时关闭。未配置或已关闭时，`settle` 不写信誉，原有结算与赔付行为不变。
 
-- 不改构造函数与 `registerModel` 签名；新增 owner 的 `setReputation(identity, reputation)` 与 operator 的 `linkAgent(modelId, agentId)`（调用者须是该模型 operator 且是 agentId 的 owner；agentId 可为 0，另设绑定标记）。
-- `settle` 对每个已绑定预测者 `try giveFeedback(agentId, int128(logScore), 18, "logScore", <由 delta/nSegments 派生的 tag2>, "", uri, hash)`；失败只发事件、不回滚，避免 agent owner 通过授权市场合约卡死结算与赔付。
-- 分数取 `getPrediction().logScore`，不重算；未设置 reputation 时行为与现状一致。
-- 读取方用 `getSummary(agentId, [市场合约地址], "logScore", "")`，第三方写的反馈不计入。Validation 注册表不做。
+- 模型 operator 调用 `linkAgent(modelId, agentId)` 绑定 ERC-8004 身份。调用者必须是该
+  `modelId` 的 operator，并且必须拥有 `agentId` 对应的 Identity。`agentId == 0` 可以被
+  明确绑定，但只表示已配置的“无身份”绑定，按 unbound 处理，结算时不写反馈。
+- `settle` 对每个已链接且非零的预测者，使用预测记录中已保存的 `logScore`（不重新计算）
+  以非回滚调用写入信誉：
+  `try giveFeedback(agentId, int128(logScore), 18, "logScore", tag2, "", "", bytes32(0))`。
+  `tag2` 由构造参数运行时派生为 `vol-<delta>s-<nSegments>`（例如
+  `vol-300s-12`），不是硬编码的示例标签。注册表调用失败发出 `ReputationWriteFailed`
+  事件，但不回滚 `settle`，因此不会阻断结算或赔付。最多 32 个绑定预测者的测试结算
+  gas 实测小于 8M。
+- 读取信誉时，客户端应将市场合约作为唯一 submitter/client 过滤项：
+  `getSummary(agentId, [marketAddress], "logScore", tag2)`。`tag2` 可传空字符串以按
+  `logScore` 汇总所有窗口，也可传具体的 `vol-<delta>s-<nSegments>` 做精确筛选；第三方
+  submitter 的反馈不会混入结果。
+
+`IdentityRegistryLite` 与 `ReputationRegistryLite` 是仅供本地测试和 demo 的 ERC-8004
+接口子集：Identity 注册得到的 `agentId` 从 1 开始；Reputation 记录按 submitter/client
+保存，读取按 client 与 `tag1`/`tag2` 过滤（空 tag 按通配处理）。它们不代表完整生产注册表，
+也不实现 Validation 注册表。
 
 ### Chainlink 喂价交叉校验（计划中）
 

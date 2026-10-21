@@ -1,13 +1,18 @@
 """End to end on a local anvil: deploy, register one verifier per model, open a round, let every
-agent prove and submit, then settle and compare the agents by their onchain log scores."""
+agent prove and submit, then settle and compare the agents by their onchain log scores. The
+settled round also shows each agent's log score in its ERC-8004 reputation."""
 
 import json
 
 import pytest
 
 from vol_agents import contract_math as cm
-from vol_agents.chain import Anvil, as_int
+from vol_agents.chain import DEV_KEYS, Anvil, as_int
 from vol_agents.round import COMPARE, WINDOW_TICKS, deploy, open_round, settle_round, submit_all
+
+PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)"
+SUMMARY_SIG = "getSummary(uint256,address[],string,string)(int256)"
+FEEDBACK_SIG = "giveFeedback(uint256,int128,uint8,string,string,string,string,bytes32)"
 
 
 @pytest.fixture(scope="module")
@@ -22,6 +27,17 @@ def submitted(chain):
     rid = open_round(d)
     submit_all(d, rid)
     return d, rid
+
+
+@pytest.fixture(scope="module")
+def settled(submitted):
+    """Settle the module's round once; the tests below read this settled state.
+
+    A round settles only once, so the settlement belongs to a fixture. The resubmission test
+    stays above this fixture on purpose: it needs a round that is not settled yet.
+    """
+    d, rid = submitted
+    return d, rid, settle_round(d, rid)
 
 
 def test_agent_proves_and_submits(submitted):
@@ -55,10 +71,8 @@ def test_resubmission_rejected(submitted):
         a.forecast(d.chain, d.market, rid)
 
 
-def test_agents_compare_after_round(submitted):
-    d, rid = submitted
-    COMPARE.unlink(missing_ok=True)
-    res = settle_round(d, rid)
+def test_agents_compare_after_round(settled):
+    d, rid, res = settled
     assert res["settled"] and not res["voided"]
     assert res["realized_vol"] == cm.realized_vol(WINDOW_TICKS) == 49
     assert res["winning_bucket"] == 3
@@ -79,3 +93,51 @@ def test_agents_compare_after_round(submitted):
         )
         assert as_int(onchain[3]) == r["score"]
         assert -18 * 10**18 <= r["score"] < 0
+
+
+def test_agent_score_written_to_reputation(settled):
+    d, rid, _ = settled
+    c = d.chain
+    scores = {
+        a.name: as_int(c.call(d.market, PREDICTION_SIG, rid, a.address)[3])
+        for a in d.agents
+    }
+    for a in d.agents:
+        summary = as_int(
+            c.call(
+                d.reputation,
+                SUMMARY_SIG,
+                d.agent_ids[a.name],
+                f"[{d.market}]",
+                "logScore",
+                "",
+            )[0]
+        )
+        assert summary == scores[a.name]
+
+    # Feedback from a client other than the market must stay out of the market's summary.
+    a = d.agents[0]
+    c.send(
+        DEV_KEYS[0],
+        d.reputation,
+        FEEDBACK_SIG,
+        d.agent_ids[a.name],
+        123456789,
+        18,
+        "logScore",
+        "vol-300s-12",
+        "",
+        "",
+        "0x" + "00" * 32,
+    )
+    summary = as_int(
+        c.call(
+            d.reputation,
+            SUMMARY_SIG,
+            d.agent_ids[a.name],
+            f"[{d.market}]",
+            "logScore",
+            "",
+        )[0]
+    )
+    assert summary == scores[a.name]

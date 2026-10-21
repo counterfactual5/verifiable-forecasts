@@ -1,8 +1,10 @@
 """One VolMarket round on a local anvil chain with the three agents competing.
 
-deploy(): MockERC20, MockPool, VolMarket(Δ=300, N=12) and one EZKL verifier per model; each model is
-registered with its own agent as operator. open_round(): set the pool's 17 history segments and 12
-window segments, createRound at T0. Every agent then proves and submits.
+deploy(): MockERC20, MockPool, VolMarket(Δ=300, N=12), the ERC-8004 Lite identity and reputation
+registries and one EZKL verifier per model; each model is registered with its own agent as
+operator, and each agent registers an ERC-8004 identity that the market links to its model, so
+the settled log score reaches that agent's reputation. open_round(): set the pool's 17 history
+segments and 12 window segments, createRound at T0. Every agent then proves and submits.
 settle_round(): sample every checkpoint, settle, read each agent's onchain log score and write
 out/compare_round.json.
 
@@ -26,6 +28,8 @@ WINDOW_TICKS = [
     196000, 196002, 195999, 196003, 196003, 196002, 196000, 196001, 195999, 195999, 196002, 196001,
 ]
 COMPARE = OUT / "compare_round.json"
+# ERC-8004 agent metadata URI: deterministic and never resolved, so a round stays reproducible.
+AGENT_URI = "https://example.invalid/agents/{name}"
 
 
 def history_ticks():
@@ -41,8 +45,34 @@ class Deployment:
     token: str
     pool: str
     market: str
+    identity: str
+    reputation: str
     agents: list[Agent]
+    agent_ids: dict = field(default_factory=dict)  # agent name -> ERC-8004 agentId
     rounds: dict = field(default_factory=dict)
+
+
+def _registered_agent_id(receipt: dict) -> int:
+    """The agentId minted by `register`, read from the Registered event of its receipt.
+
+    The Lite identity registry emits exactly one event per registration and the agentId is
+    its first indexed topic.
+    """
+    for log in receipt.get("logs") or []:
+        topics = log.get("topics") or []
+        if len(topics) >= 2:
+            return int(topics[1], 16)
+    raise RuntimeError(f"identity registration receipt has no Registered event: {receipt}")
+
+
+def register_identity(chain: Anvil, identity: str, key: str, uri: str) -> int:
+    """Register `uri` under the account of `key` and return the minted ERC-8004 agentId.
+
+    The registering key owns the identity, which is what lets that account link the identity
+    to its model.
+    """
+    receipt = chain.send(key, identity, "register(string)(uint256)", uri)
+    return _registered_agent_id(receipt)
 
 
 def deploy(chain: Anvil, models=None) -> Deployment:
@@ -54,7 +84,13 @@ def deploy(chain: Anvil, models=None) -> Deployment:
     market = chain.deploy(
         owner, "src/VolMarket.sol:VolMarket", token, 0, pool, cm.DELTA, cm.N_SEGMENTS
     )
+    identity = chain.deploy(owner, "src/erc8004/IdentityRegistryLite.sol:IdentityRegistryLite")
+    reputation = chain.deploy(
+        owner, "src/erc8004/ReputationRegistryLite.sol:ReputationRegistryLite"
+    )
+    chain.send(owner, market, "setReputation(address,address)", identity, reputation)
     agents = []
+    agent_ids = {}
     for i, m in enumerate(models):
         build(m)
         name = verifier_name(m)
@@ -63,8 +99,24 @@ def deploy(chain: Anvil, models=None) -> Deployment:
         agent = Agent(name=f"agent-{m}", model=m, key=key, address=address_of(key))
         chain.send(owner, market, "registerModel(address,address)", verifier, agent.address)
         agent.model_id = as_int(chain.call(market, "modelCount()(uint256)")[0]) - 1
+        # The agent owns its identity and links it to its model, so the market can write the
+        # settled log score to that agent's reputation.
+        agent_id = register_identity(
+            chain, identity, key, AGENT_URI.format(name=agent.name)
+        )
+        chain.send(key, market, "linkAgent(uint256,uint256)", agent.model_id, agent_id)
+        agent_ids[agent.name] = agent_id
         agents.append(agent)
-    return Deployment(chain, token, pool, market, agents)
+    return Deployment(
+        chain=chain,
+        token=token,
+        pool=pool,
+        market=market,
+        identity=identity,
+        reputation=reputation,
+        agents=agents,
+        agent_ids=agent_ids,
+    )
 
 
 def open_round(d: Deployment) -> int:
