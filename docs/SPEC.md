@@ -1,59 +1,72 @@
-# verifiable-forecasts SPEC
+# SPEC：可验证 AI 预测的链上问责
 
 > 文档状态：[Accepted]
 > 确认方式：用户确认
+
+本文取代旧的 BaseFee 预测市场方向（`block.basefee` 结算、naive/EWMA/TimesFM 机器人、Chainlink CRE 仅做编排模拟；旧版见 git 历史）。新方向的详细规格以 `docs/plans/实施计划.md` 第 4–8 节为准，本文只做精简摘要；两者冲突时以实施计划和代码为准。
 
 ## 目标与范围
 
 ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 
-**做什么**：一个以太坊原生的 base fee（EIP-1559 基础费）预测市场。每轮押注"未来 K 个区块的 base fee 平均值落在哪个区间"；合约用 `BASEFEE` 操作码（EIP-3198）读取协议自带的数值结算，无需预言机。TSFM（零样本时序模型）作为预测者入场，预测分布事前上链、事后由链上真实值打分，形成"AI 预测能力的公开可验证考场"。彩池（parimutuel）分配。
+**状态**：核心链路已完成（`VolMarket` 合约 + EZKL 验证合约 + 3 个预测 agent，本地 anvil 端到端跑通）；ERC-8004 信誉、Chainlink 交叉校验、区间校准、主网 fork 演示与看板为计划中。
 
-**不做**（均写入 README「Future Work」）：LMSR 做市、blob 费用市场（`BLOBBASEFEE`）、FHE/commit-reveal 密封下注、ERC-8004 信誉、x402 付费、真实资金、主网部署。Chainlink CRE 仅做 CLI 模拟（专项奖达标线），不依赖其可用性。
+**问题**：AI 预测者可以事后挑选好看的结果来宣传，评委和用户无法核实「这个预测确实是这个模型在事前、对这些输入算出来的」，也没有公开、不可篡改的成绩记录。
+
+**做什么**：一个链上考场。考题是 Uniswap V3 ETH/USDC 0.05% 池（`0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`）未来 1 小时的 TWAP 已实现波动率（Δ = 300 s、N = 12 段，单位 tick²），按 5 个区间彩池（parimutuel）下注。AI 预测 agent 用 EZKL 为小模型推理生成 zk 证明；合约在开轮时自己从链上 `observe()` 算出公开输入（16 个特征），提交时链上验证证明，结算时用 `observe()` 算实际波动率（`sample()` 检查点兜底），按对数评分给每个预测打分。计划中：分数写入 ERC-8004 v2.0.0 信誉注册表，结算时用 Chainlink ETH/USD 喂价交叉校验池子价格。
+
+**不做**（写入 README「Known limitations / Future work」）：LMSR 做市、blob 费用市场（`BLOBBASEFEE`）、FHE / commit-reveal 密封下注、x402 付费、真实资金与真实网络部署（只归用户）、ERC-8004 Validation 注册表（规范仍在变）、Chainlink CRE / Automation（本阶段不做）。
+
+## 功能
+
+| 功能 | 状态 | 位置 |
+|---|---|---|
+| 波动率市场合约：开轮存特征、下注、`sample` 检查点、`settle`（`observe` 批量 + 逐点兜底，缺点归一，覆盖率 < 90% 作废退款）、`claim` | 已完成 | `contracts/src/VolMarket.sol` |
+| 彩池 / 分桶 / 对数评分共用数学（`BaseFeeMarket` 与 `VolMarket` 共用） | 已完成 | `contracts/src/lib/MarketMath.sol` |
+| zk 证明校验：每个模型一份 EZKL 生成的验证合约；`registerModel(verifier, operator)`；`submitPrediction` 截止前、证明通过才记录 | 已完成 | `contracts/src/verifier/`、`VolMarket.submitPrediction` |
+| 预测 agent：3 个模型（`linear_abs` / `mlp16` / `mlp32_abs`）训练、EZKL 构建、读特征→证明→提交→结算→比较链上分数 | 已完成（本地 anvil + MockPool） | `agents/` |
+| 合约 / agents 共享口径 fixture（tickCumulative → 段均值 → RV → 桶） | 已完成 | `contracts/test/fixtures/vol_rv_cases.json` |
+| `make verify` 接入 agents 的 ruff 与 pytest | 已完成 | `Makefile` |
+| analysis 拉取 Swap 事件、按合约口径算历史 RV、校准 4 个区间边界 | 计划中 | `analysis/` |
+| ERC-8004 v2.0.0 身份注册 + 结算后 `giveFeedback` 写信誉 | 计划中 | `contracts/src/erc8004/`（未创建） |
+| Chainlink ETH/USD 喂价交叉校验（`setPriceFeed` 可选开启） | 计划中 | `VolMarket.settle` |
+| 主网 fork 回放演示 + 简单看板 | 计划中 | `demo/`、`dashboard/`（未实现） |
+| 删除旧 `BaseFeeMarket` 与 analysis 的 base fee 管线 | 计划中（提交前） | `contracts/src/BaseFeeMarket.sol`、`analysis/src/` |
+
+## 第一个功能
+
+新方向的第一个功能是波动率市场合约 `VolMarket.sol`（已完成）：轮次状态机（createRound → bet / submitPrediction → sample → settle → claim），开轮时由合约从 `observe()` 自算 16 个特征作为 zk 证明的公开输入，提交预测时链上校验 EZKL 证明，结算按对数评分。参数：Δ、N 为构造参数，区间边界为 `createRound` 参数。
+
+**验收标准**：
+1. `cd contracts && forge test --match-path test/VolMarket.t.sol` 全绿，覆盖完整生命周期、彩池按比例分配、缺点归一与覆盖率作废退款、`observe` 过旧时用 `sample` 检查点兜底、证明篡改被拒、非 operator 提交被拒。
+2. 合约与 agents 读同一份 `contracts/test/fixtures/vol_rv_cases.json`，RV 与桶逐项一致。
+3. 评分统一为 `max(ln p_win, −18e18)`（1e18 缩放），概率为 0 与极小概率同样记 −18e18。
 
 ## 技术选型
 
 | 项 | 选择 | 理由 | 证据等级 |
 |---|---|---|---|
-| 合约与测试 | Foundry（forge） | 本机已装（forge 1.x）；以太坊黑客松事实标准， cheatcodes 适配 basefee 回放 | X（本机）+ C（官方文档） |
-| 结算数据源 | `BASEFEE` opcode (EIP-3198) | 协议原生值，2 gas 读取，无预言机争议 | A（EIP 最终态） |
-| 回放驱动 | Anvil `anvil_setNextBlockBaseFeePerGas` | 主演示不依赖网络与真实尖峰出现 | C（Foundry 文档） |
-| 预测模型 | 零样本 TSFM（timesfm/chronos，复用 `~/Work/chronos-experiment/.venv`） | 本机已有可跑环境；TSFM 为主角而非插件 | X（本机） |
-| Python 环境 | uv（Python ≥3.11，不用系统 3.15） | 本机已装；3.15 无 torch 轮子 | X（本机） |
-| TSFM 服务化 | 独立推理进程（stdio/HTTP 适配器） | 模型重依赖隔离在适配层，机器人只读输出，现场故障可降级 | D（工程经验） |
-| 前端看板 | Streamlit | Python 单文件最快出可视化 | C（官方文档） |
-| Chainlink CRE | TypeScript SDK + CRE CLI 模拟 | 2026 年 Chainlink 黑客松规则：Automation/Functions 已弃用，CRE 模拟即可达标 | C（Chainlink 官方 prize 页） |
-
-### 工具链版本
-
-- forge 1.5.1-stable（`forge --version`）
-- make 3.81（GNU Make，macOS 自带）
-- uv 0.11.2
-- python 3.11+（uv 管理）
-- node v24.18.0（仅 CRE 步骤用）
-- git 2.54.0
+| 合约与测试 | Foundry（forge 1.5.1，solc 0.8.28） | 本机已装；cheatcodes 适配时间回放 | X（本机）+ C（官方文档） |
+| 结算数据源 | Uniswap V3 `observe()`（0.05% 池），`sample()` 检查点兜底 | 池子 cardinality 723，最坏可回溯约 2.41 h，1 h 窗口一次取全；13 点合约内调用约 32 万 gas | X（`spikes/facts/FACTS.md` 主网实测） |
+| zk 证明 | EZKL 23.0.5（Halo2/KZG，logrows 15，`input_scale = 12`，参数 fixed） | prove ≈ 9 s / 1.23 GB；验证合约 19,656 B < EIP-170；验证交易 ≈ 79.5 万 gas | X（`spikes/ezkl/README.md` 实测） |
+| 预测模型 | numpy 训练的小 MLP / 线性模型 → ONNX | 电路小、证明快；模型重依赖隔离在子进程 | X（`agents/` 实测） |
+| 信誉（计划中） | ERC-8004 v2.0.0：本地 Lite 实现用于测试与离线演示，主网 fork 用已部署合约 | 池子与喂价只在主网 | X（`spikes/facts/FACTS.md` 链上核实） |
+| 价格交叉校验（计划中） | Chainlink ETH/USD `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`（8 位小数） | 与池子 tick 换算价一致（2435.09 vs ≈2436） | X（`spikes/facts/FACTS.md`） |
+| Python 环境 | uv 0.11.2；agents Python ≥ 3.12，analysis ≥ 3.11 | 本机已装，锁文件可复现 | X（本机） |
 
 ## 结构与依赖
 
 ```
-contracts/        # Foundry 项目（src/ test/ script/）
-agents/           # Python：预测机器人（tsfm/ewma/naive）+ 推理适配器
-analysis/         # 数据抓取、窗口/区间参数统计、回测
-dashboard/        # Streamlit 看板（后置）
-chainlink/        # CRE workflow（后置，仅 CLI 模拟）
+contracts/        # Foundry：VolMarket、MarketMath、EZKL 验证合约、旧 BaseFeeMarket（legacy）
+agents/           # Python：模型训练、EZKL 构建、证明与提交、anvil 端到端
+analysis/         # Python：数据拉取与区间校准（当前仍是旧 base fee 管线，计划改为 Swap 波动率）
+spikes/           # 事实核实（facts/）与 EZKL 可行性实验（ezkl/）
+chainlink/        # 喂价交叉校验说明（计划中）
+dashboard/        # 看板（计划中）
 docs/
 ```
 
-单向依赖：`agents`、`analysis` 互不引用；合约不依赖任何 Python。组合根=各子项目入口脚本。窗口长度与区间边界是合约构造参数，不是硬编码。
-
-## 第一个功能：市场合约内核
-
-范围：`BaseFeeMarket.sol`——轮次状态机（createRound → bet → sample → settle → claim）+ 预测记录（recordPrediction）与链上评分（logscore）。参数：窗口 K、区间边界数组、下注截止。
-
-**验收标准（判定规则先写，不挪门）**：
-1. `forge test` 全绿，覆盖：完整生命周期、彩池按押注比例分配、结算落各区间边界值、覆盖率 <90% 轮次作废退款、重复 claim 拒绝、错窗口 sample 拒绝。
-2. Foundry cheatcode 测试证明合约读取的是**当前块** `BASEFEE`（roll+fee 设定后断言结算均值）。
-3. 预测评分：构造已知分布与已知结果，断言 logscore 数值正确（先证红再变绿）。
+单向依赖：`agents`、`analysis` 互不引用；合约不依赖任何 Python；agents 只通过 Foundry 构建产物与 `contracts/test/fixtures/` 读取合约侧内容。Δ、N 是构造参数，区间边界是 `createRound` 参数，不写死。
 
 ## Full Verify
 
@@ -63,24 +76,17 @@ make check && make test
 
 ## 假设
 
-- 赛程以官方公告为准（报名 10/22 截止；10/24 下午现场演示，评审前公开仓库）；尚未在官方渠道逐条核实，仅依据主办方宣传文案。
-- 主演示在本地 Anvil（离线安全）；Sepolia 仅部署留地址。
-- 窗口 K=50、区间按对数倍数划分为初值，待 analysis 用 2–4 周主网数据校准后回填合约默认参数。
-- 彩池模式冷启动由协议方注入种子资金，README 说明。
-- 公开下注可被跟单是已知问题，README 记录 commit-reveal/FHE 为未来方案。
+- 赛程以官方公告为准（10/24 下午现场演示，评审前公开仓库）；未逐条在官方渠道核实。
+- 主演示在本地 anvil（离线、MockPool）；主网 fork 演示为计划中。不做真实网络部署。
+- 区间边界当前为占位 `[8, 20, 45, 110]` tick²，3 个模型也按它在合成数据上训练；按粗估真实 RV 在千级 tick²，需由 analysis 用真实 Swap 历史校准，校准后模型需重训并重建验证合约。
+- 彩池冷启动由协议方注入种子资金；公开下注可被跟单是已知问题，密封下注列为 Future work。
+- 首次构建 EZKL 电路时若本地没有 SRS 会联网下载（`agents/vol_agents/build.py`），目前不校验 SRS 摘要。
 
-## 后续（交给 goal 的候选任务）
+## 后续
 
-1. 数据管线：抓取主网 fee history → 窗口均值分布统计 → 定参图（10/20 晚）。
-2. Anvil 回放驱动 + 三机器人（tsfm/ewma/naive）跑通一整轮（10/21）。
-3. 离线回测与累计盈亏/校准图（10/21）。
-4. Streamlit 看板 + 预测者排行榜（10/22，可砍）。
-5. Chainlink CRE workflow CLI 模拟 + README 标注（10/22，可砍）。
-6. README/录屏/仓库公开（10/22）。
-7. 边界测试：goal 建出第二个功能目录时加（agents 不引用 analysis 等）。
-
-## 脚手架记录
-
-- 生成器命令：`forge init contracts --empty`（forge 1.5.1-stable），结果：成功（foundry.toml / lib/forge-std v1.17.0；嵌套 .git 已移除；solc 0.8.28）
-- Python（agents/analysis）尚未初始化：留给 goal 第一个相关任务时 `uv init`（记录于「后续」）
-- 手写（原因：测试辅助合约无官方生成器）：MockERC20、ExposedHelpers
+1. analysis 改为拉取 Swap 事件，按合约同一口径算历史波动率，校准 4 个严格递增的区间边界。
+2. ERC-8004 接入：注册 agent 身份，结算后由市场合约把分数写进信誉；写信誉失败不影响结算与赔付。
+3. Chainlink 喂价交叉校验：owner 可选开启，偏离 > 200 bps 或喂价早于 3900 s 即作废退款。
+4. 用校准后的区间边界重训模型并重建 EZKL 验证合约。
+5. 演示：主网 fork 回放 + 简单看板。
+6. 提交前：校验 SRS 摘要、`install_verifier` 不再静默覆盖已提交的验证合约；补结算取整的 fuzz 测试；删除旧 `BaseFeeMarket` 与 base fee 管线；README / 架构文档终稿、pitch 讲稿。

@@ -1,9 +1,9 @@
 # AGENTS.md
 
-Rules for every agent (and human) working in this repository. Short and hard on purpose; details live in `docs/SPEC.md`.
+Rules for every agent (and human) working in this repository. Short and hard on purpose; details live in `docs/SPEC.md` and `docs/plans/实施计划.md`.
 
 ## Focus
-- Work only on the current focus: the "第一个功能" section of `docs/SPEC.md` (or "当前焦点" in `docs/plans/路线图.md` once it exists). Do not start later items early.
+- The current focus is whatever `docs/plans/路线图.md` says; scope is set by `docs/plans/实施计划.md` and `docs/SPEC.md`. Do not start later items early.
 
 ## Structure
 - Subprojects are independent: `contracts/` (Foundry) must not depend on anything outside itself; `agents/` and `analysis/` never import each other. Entry scripts stay thin: wiring only.
@@ -30,6 +30,14 @@ Rules for every agent (and human) working in this repository. Short and hard on 
 ## Where to find
 | What | Where |
 |---|---|
-| Spec, stack choice, current focus, assumptions | `docs/SPEC.md` |
+| Spec, stack choice, assumptions | `docs/SPEC.md` |
+| Detailed design (Δ/N, vol formula, zk public inputs, ERC-8004, Chainlink) | `docs/plans/实施计划.md` |
+| Current focus | `docs/plans/路线图.md` |
 | Full Verify | `docs/SPEC.md` "## Full Verify" |
-| Chainlink CRE files (bounty: must list in README) | `chainlink/` once created |
+| Market contract, shared math | `contracts/src/VolMarket.sol`, `contracts/src/lib/MarketMath.sol` |
+| EZKL-generated verifiers (do not edit or format by hand) | `contracts/src/verifier/` |
+| Shared vol fixture (contracts, agents, analysis all read it) | `contracts/test/fixtures/vol_rv_cases.json` |
+| Forecasting agents, models, EZKL build | `agents/` (see `agents/README.md`) |
+| Verified facts (pool history, observe gas, ERC-8004, Chainlink) | `spikes/facts/FACTS.md` |
+| EZKL feasibility measurements | `spikes/ezkl/README.md` |
+| Legacy base-fee market (to be removed before submission) | `contracts/src/BaseFeeMarket.sol`, `analysis/src/` |

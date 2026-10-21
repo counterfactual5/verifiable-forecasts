@@ -1,32 +1,36 @@
 # chainlink/
 
-Chainlink CRE (Custom Runtime Environment) workflow for the Chainlink sponsor bounty at ETH Shenzhen 2026.
+Chainlink integration: an ETH/USD price-feed cross-check at settlement.
 
-**Not implemented yet.** The 2026 Chainlink hackathon rules accept a **CLI-simulated** CRE workflow, so the
-bounty does not depend on this directory working against a live CRE deployment. The project must not depend on
-CRE being available either.
+**Planned — not implemented yet.** Nothing in this directory or in `contracts/` reads a Chainlink feed today.
+The design below follows `docs/plans/实施计划.md` (section 8) and the narrowed roadmap stage; it will be
+updated once the code lands.
 
-## Planned contents
+## What it will do
 
-| File | What it does |
-|---|---|
-| `workflow.ts` | The CRE workflow: read the round's window definition and the latest base fee, run the forecaster, return the probability vector. |
-| `README.md` | How to run the workflow with the CRE CLI, and what it returns. |
-| `simulate.sh` | Local simulation of the workflow against Anvil, so the demo never needs network access. |
+`VolMarket` settles from the Uniswap V3 pool's `observe()`. The cross-check compares the pool's price with
+the Chainlink ETH/USD feed at settlement, so a round is not paid out on pool data that disagrees with an
+independent price source.
 
-## Boundary
+- **Opt-in:** the owner calls `setPriceFeed(feed)`; the zero address turns the check off. The constructor
+  does not change, and with no feed set, settlement, voiding and refunds behave exactly as today.
+- **Feed:** mainnet ETH/USD `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419` (8 decimals), read with
+  `latestRoundData`; a `MockAggregator` is used in tests and the offline demo.
+- **Pool price:** the TWAP tick over the last Δ before settlement (`observe([Δ, 0])`), converted to an
+  8-decimal USD price with a self-written fixed-point `1.0001^tick` (Uniswap's GPL TickMath is not ported).
+- **Thresholds** (from `docs/plans/实施计划.md`): deviation > **200 bps**, a feed update older than
+  **3900 s**, or `answer ≤ 0` voids the round. Voiding reuses the existing full refund path and emits
+  `PriceCheckFailed`.
+- **Late settlement:** the comparison uses the price at settlement time, not at the end of the window.
 
-- **Depends on:** the `agents/` forecast output and the `analysis/` parameter file, both as data.
-- **Depends on nothing from:** the contract source, `dashboard/`.
-- This directory is a **consumer** of the rest of the project. Nothing in `contracts/`, `agents/` or
-  `analysis/` may import from it.
+## Limits
 
-## Bounty requirement
+- It checks a single price point. Manipulation inside a segment, which moves the segment-mean ticks that
+  realized volatility is built from, is not detected by this check.
+- On real data the two prices differ by about 0.04 % (`spikes/facts/FACTS.md`), so the void branch is only
+  exercised with the mock feed.
 
-The root `README.md` must list this directory and explain how to run the workflow, even if the workflow is
-only simulated. That listing is checked in the repository README, not here.
+## Not in this phase
 
-## Rules this must respect
-
-- 2026 Chainlink hackathon: Automation and Functions tracks are retired; **CRE** is the current surface.
-- The workflow must be runnable in simulation from a clean checkout.
+Chainlink CRE workflows and Automation (automatic `settle` calls) are out of scope for now. Settlement stays
+permissionless: anyone can call `settle(id)` after the window.

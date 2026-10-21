@@ -1,5 +1,7 @@
 # 测试报告：项目基线与 analysis 离线管线
 
+> **历史报告**：本文记录旧 BaseFee 方向 analysis 阶段的测试结果，与当前「可验证 AI 预测」方向（`VolMarket` + agents）无关；提交前按新方向重写。
+
 ## 范围
 
 本轮交付建立了仓库目录与文档基线（`analysis/`、`agents/`、`dashboard/`、`chainlink/`、`docs/ARCHITECTURE.md`、
