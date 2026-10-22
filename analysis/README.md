@@ -44,6 +44,15 @@ uv run python src/vol_calibrate.py --swaps data/swaps.csv
 `--delta` and `--n-segments` default to the contract's 300 s × 12; `bounds` in `data/vol_params.json` is
 passed verbatim as the `bounds` argument of `VolMarket.createRound`.
 
+The pool is dense (about 1 Swap per block), so a 10k-block segment can reach the gateway's 10,000-log
+cap and fail; pass `--segment-blocks 2000` (1..10000) to the fetcher for long ranges. Logs that carry
+`blockTimestamp` (the tenderly gateway does) need no per-block timestamp request.
+
+`vol_calibrate.py --export-grid data/tick_cumulative_grid.csv [--grid-step 60]` also writes
+`timestamp,tick_cumulative` at every multiple of the grid step inside the observed span. The cumulative
+starts at the first Swap, so it differs from the oracle's by a constant that cancels in every
+difference; consumers outside `analysis/` read this file instead of importing the module.
+
 ## Test
 
 ```bash

@@ -32,9 +32,11 @@ pool exceeds that in dense segments; a response that reaches
 ``LOG_COUNT_WARN_THRESHOLD`` logs is therefore a permanent error naming the
 segment and the count, never data.
 
-Timestamps are resolved with ``eth_getBlockByNumber`` per distinct block and
-cached for the whole run; ``eth_getLogs`` carries no timestamp in the
-JSON-RPC specification.
+Timestamps come from the log's ``blockTimestamp`` field when the gateway
+includes it (recent geth-based gateways do; the tenderly gateway does), and
+otherwise from ``eth_getBlockByNumber`` per distinct block, cached for the
+whole run. ``--segment-blocks`` shrinks the segment below ``SEGMENT_BLOCKS``
+for dense ranges that would reach the log-count cap.
 
 Resume rule: the highest block number already in the output file marks
 everything up to it as covered, so a re-run starts at ``last_block + 1`` and
@@ -538,6 +540,11 @@ def parse_swap_logs(
             continue
         parsed = parse_swap_log(log, position=position)
         timestamp = timestamps.get(parsed.block)
+        if timestamp is None and log.get("blockTimestamp") is not None:
+            timestamp = parse_hex_quantity(
+                log["blockTimestamp"], field_name=f"swap log {parsed.block} blockTimestamp"
+            )
+            timestamps[parsed.block] = timestamp
         if timestamp is None:
             timestamp = fetch_block_timestamp_with_retry(
                 client, parsed.block, attempts=attempts, backoff=backoff, sleep=sleep
@@ -793,6 +800,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="csv",
         help="output file format (default: csv)",
     )
+    parser.add_argument(
+        "--segment-blocks",
+        type=int,
+        default=SEGMENT_BLOCKS,
+        help=f"blocks per eth_getLogs request, 1..{SEGMENT_BLOCKS} (default: {SEGMENT_BLOCKS})",
+    )
     return parser
 
 
@@ -813,6 +826,10 @@ def main(
     try:
         validate_range(args.from_block, args.to_block)
         validate_pool(args.pool)
+        if not 1 <= args.segment_blocks <= SEGMENT_BLOCKS:
+            raise InvalidRangeError(
+                f"--segment-blocks must be in 1..{SEGMENT_BLOCKS}: {args.segment_blocks}"
+            )
     except FetchError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -839,6 +856,7 @@ def main(
             start,
             args.to_block,
             args.pool,
+            segment_blocks=args.segment_blocks,
             sleep=sleep,
             on_failure=report_failure,
         )

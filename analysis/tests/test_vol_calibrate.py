@@ -16,6 +16,7 @@ from vol_calibrate import (
     calibrate_bounds,
     collapse_swaps,
     coverage_voids,
+    cumulative_grid,
     floor_div,
     load_swaps,
     main,
@@ -372,6 +373,46 @@ def test_cli_writes_params_and_report(tmp_path: Path) -> None:
     text = report.read_text(encoding="utf-8")
     assert "Realized volatility calibration" in text
     assert str(payload["bounds"]) in text
+
+
+def irregular_rows() -> list[tuple[int, int, int]]:
+    rows, t, tick = [], START_TIME + 17, 200_000
+    for index in range(400):
+        t += 13 + (index * 37) % 211
+        tick += (index * 7919) % 41 - 20
+        rows.append((1000 + index, tick, t))
+    return rows
+
+
+def test_cumulative_grid_reproduces_window_cumulatives(tmp_path: Path) -> None:
+    points = collapse_swaps(load_swaps(write_csv(tmp_path, irregular_rows())))
+    grid = cumulative_grid(points, 60)
+    times = [t for t, _ in grid]
+    assert all(t % 60 == 0 for t in times)
+    assert times == list(range(times[0], times[-1] + 60, 60))
+    assert points[0].timestamp <= times[0] and times[-1] <= points[-1].timestamp
+    at = dict(grid)
+    checked = 0
+    for start in times[::7]:
+        if start + 12 * 300 > times[-1]:
+            break
+        want = tick_cumulatives(points, start, 300, 12)
+        got = tuple(at[start + k * 300] - at[start] for k in range(13))
+        assert got == want
+        checked += 1
+    assert checked >= 5
+
+
+def test_cli_exports_the_cumulative_grid(tmp_path: Path) -> None:
+    path = write_csv(tmp_path, irregular_rows())
+    grid_path = tmp_path / "grid.csv"
+    out = tmp_path / "vol_params.json"
+    assert main(["--swaps", str(path), "--out", str(out), "--export-grid", str(grid_path),
+                 "--grid-step", "60"]) == 0
+    lines = grid_path.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "timestamp,tick_cumulative"
+    rows = [tuple(int(v) for v in line.split(",")) for line in lines[1:]]
+    assert rows == cumulative_grid(collapse_swaps(load_swaps(path)), 60)
 
 
 def test_cli_reports_a_history_that_covers_no_window(tmp_path: Path, capsys) -> None:

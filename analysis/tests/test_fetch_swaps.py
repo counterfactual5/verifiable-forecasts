@@ -438,6 +438,26 @@ def test_a_transport_failure_is_retried_with_backoff() -> None:
     assert len(opener.block_calls) == 2
 
 
+def test_a_log_carrying_its_block_timestamp_needs_no_block_request() -> None:
+    log = make_log(10, 201000)
+    log["blockTimestamp"] = hex(1700000000)
+    opener = ScriptedOpener(get_logs=[[log, make_log(11, 5)]],
+                            blocks={11: block_payload(11, 1700000012)})
+    records, summary = fetch_swaps(make_client(opener), 10, 11, sleep=lambda _seconds: None)
+    assert summary.failed == 0
+    assert [(r.block, r.timestamp) for r in records] == [(10, 1700000000), (11, 1700000012)]
+    assert opener.block_calls == [11]
+
+
+def test_a_malformed_log_block_timestamp_is_not_guessed() -> None:
+    log = make_log(10, 201000)
+    log["blockTimestamp"] = "0xzz"
+    opener = ScriptedOpener(get_logs=[[log]], blocks={10: block_payload(10, 1700000000)})
+    records, summary = fetch_swaps(make_client(opener), 10, 10, sleep=lambda _seconds: None)
+    assert records == []
+    assert summary.failed == 1
+
+
 # --- CSV output and resume -------------------------------------------------
 
 
@@ -626,6 +646,33 @@ def test_main_reports_a_summary_line(tmp_path: Path) -> None:
     )
     assert code == 0
     assert stdout.getvalue().strip() == "fetched=1 skipped=0 failed=0"
+
+
+def test_main_splits_the_range_at_the_requested_segment_size(tmp_path: Path) -> None:
+    out = tmp_path / "swaps.csv"
+    opener = ScriptedOpener(get_logs=[[], [], []])
+    code = main(
+        ["--from", "10", "--to", "14", "--segment-blocks", "2", "--out", str(out)],
+        client=make_client(opener),
+        stdout=io.StringIO(),
+    )
+    assert code == 0
+    assert [
+        (c["params"][0]["fromBlock"], c["params"][0]["toBlock"]) for c in opener.get_logs_calls
+    ] == [("0xa", "0xb"), ("0xc", "0xd"), ("0xe", "0xe")]
+
+
+@pytest.mark.parametrize("size", ["0", str(SEGMENT_BLOCKS + 1)])
+def test_main_rejects_a_segment_size_outside_the_gateway_limit(tmp_path: Path, size) -> None:
+    out = tmp_path / "swaps.csv"
+    opener = ScriptedOpener()
+    code = main(
+        ["--from", "10", "--to", "14", "--segment-blocks", size, "--out", str(out)],
+        client=make_client(opener),
+        stdout=io.StringIO(),
+    )
+    assert code == 2
+    assert opener.requests == []
 
 
 def test_main_rejects_an_invalid_range(tmp_path: Path) -> None:

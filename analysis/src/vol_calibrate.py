@@ -332,6 +332,43 @@ def tick_cumulatives(
     return tuple(cumulatives)
 
 
+def cumulative_grid(points: Sequence[TimelinePoint], step: int) -> list[tuple[int, int]]:
+    """``(timestamp, tickCumulative)`` at every multiple of ``step`` inside the observed span.
+
+    The cumulative is the integral of the tick from the first observed Swap, so it differs
+    from the pool oracle's ``tickCumulative`` by one constant, which cancels in every
+    difference the contract takes. A consumer can therefore rebuild the contract's features
+    and realized volatility for any round whose checkpoints fall on the grid.
+    """
+
+    if step <= 0:
+        raise ValueError("step must be positive")
+    if not points:
+        return []
+    first, last = points[0].timestamp, points[-1].timestamp
+    grid: list[tuple[int, int]] = []
+    cumulative = 0
+    position = 0
+    moment = -(-first // step) * step
+    previous = first
+    while moment <= last:
+        while position + 1 < len(points) and points[position + 1].timestamp <= moment:
+            cumulative += points[position].tick * (points[position + 1].timestamp - previous)
+            previous = points[position + 1].timestamp
+            position += 1
+        grid.append((moment, cumulative + points[position].tick * (moment - previous)))
+        moment += step
+    return grid
+
+
+def write_grid(grid: Sequence[tuple[int, int]], path: str | Path) -> Path:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["timestamp,tick_cumulative", *(f"{t},{c}" for t, c in grid)]
+    destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return destination
+
+
 def segment_means(
     cumulatives: Sequence[int], available: Sequence[int], delta: int
 ) -> tuple[int, ...]:
@@ -700,6 +737,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="window step in seconds (default: the segment length)",
     )
+    parser.add_argument(
+        "--export-grid",
+        default=None,
+        help="also write timestamp,tick_cumulative at every --grid-step seconds to this CSV",
+    )
+    parser.add_argument(
+        "--grid-step",
+        type=int,
+        default=60,
+        help="grid spacing in seconds for --export-grid (default: 60)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -725,6 +773,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"quantiles={list(result.raw_quantiles)}"
     )
     print(f"wrote {params_path} and {report_path}")
+    if args.export_grid:
+        try:
+            grid = cumulative_grid(collapse_swaps(swaps), args.grid_step)
+        except ValueError as exc:
+            print(f"grid export failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"wrote {write_grid(grid, args.export_grid)} ({len(grid)} rows)")
     return 0
 
 
