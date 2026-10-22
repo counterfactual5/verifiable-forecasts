@@ -56,6 +56,7 @@ contract VolMarket {
     event RoundVoided(uint256 indexed roundId);
     event PredictionScored(uint256 indexed roundId, address indexed predictor, int256 logScore);
     event Claimed(uint256 indexed roundId, address indexed claimant, uint256 payout);
+    event FeeCollected(uint256 indexed roundId, uint256 amount);
     event ReputationSet(address indexed identityRegistry, address indexed reputationRegistry);
     event AgentLinked(uint256 indexed modelId, uint256 indexed agentId, address indexed operator);
     event ReputationWriteFailed(
@@ -76,6 +77,9 @@ contract VolMarket {
         uint256[5] pools; // per-bucket stake
         uint256 totalStake;
         uint256 sampledBits; // bit k set => checkpoints[k] holds tickCumulative(t_k)
+        uint256 claimedWinStake; // winning-bucket stake already paid out
+        uint256 paidOut; // tokens paid to winners so far
+        bool feeCollected;
         mapping(uint256 => int56) checkpoints;
         mapping(address => mapping(uint256 => uint256)) stakes; // user -> bucket -> stake
         mapping(address => Prediction) predictions;
@@ -579,6 +583,8 @@ contract VolMarket {
     // ---------------------------------------------------------------- claims
     /// @notice Winners claim a pro-rata share of the whole pool minus fee. Voided rounds, and rounds
     ///         where nobody staked on the winning bucket, refund every stake in full.
+    /// @dev Each payout rounds down; the last winner to claim receives the remainder, so the winners
+    ///      split exactly total - fee and no rounding dust stays in the contract.
     function claim(uint256 id) external roundExists(id) {
         Round storage r = rounds[id];
         if (!r.settled) revert RoundNotSettled();
@@ -598,9 +604,30 @@ contract VolMarket {
         uint256 stake = r.stakes[msg.sender][r.winningBucket];
         if (stake == 0) revert NothingToClaim();
         r.stakes[msg.sender][r.winningBucket] = 0;
-        uint256 payout = MarketMath.payout(stake, r.totalStake, r.pools[r.winningBucket], feeBps);
+        uint256 winPool = r.pools[r.winningBucket];
+        uint256 payout;
+        r.claimedWinStake += stake;
+        if (r.claimedWinStake == winPool) {
+            payout = r.totalStake - MarketMath.fee(r.totalStake, feeBps) - r.paidOut;
+        } else {
+            payout = MarketMath.payout(stake, r.totalStake, winPool, feeBps);
+        }
+        r.paidOut += payout;
         if (!token.transfer(msg.sender, payout)) revert TransferFailed();
         emit Claimed(id, msg.sender, payout);
+    }
+
+    /// @notice Send the round's protocol fee to `owner`; callable by anyone, once per round. Voided
+    ///         and no-winner rounds refund everything and carry no fee.
+    function collectFee(uint256 id) external roundExists(id) {
+        Round storage r = rounds[id];
+        if (!r.settled) revert RoundNotSettled();
+        uint256 amount =
+            r.voided || r.pools[r.winningBucket] == 0 || r.feeCollected ? 0 : MarketMath.fee(r.totalStake, feeBps);
+        if (amount == 0) revert NothingToClaim();
+        r.feeCollected = true;
+        if (!token.transfer(owner, amount)) revert TransferFailed();
+        emit FeeCollected(id, amount);
     }
 
     // ---------------------------------------------------------------- views

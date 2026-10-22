@@ -504,6 +504,91 @@ contract VolMarketTest is Test {
         market.claim(id);
     }
 
+    /// @dev Three winners on bucket 3 and one loser; every winner can claim, payouts never fall
+    ///      below the pro-rata floor, and the winners split exactly total - fee.
+    function testFuzz_WinnersSplitExactlyTotalMinusFee(uint256[3] memory win, uint256 lose, uint256 feeBps) public {
+        feeBps = bound(feeBps, 0, 999);
+        lose = bound(lose, 1, 1e24);
+        _deploy(feeBps);
+        _segments(_mixed());
+        uint256 id = _create();
+        address[3] memory winners = [alice, carol, makeAddr("dave")];
+        token.mint(winners[2], 1_000_000e18);
+        vm.prank(winners[2]);
+        token.approve(address(market), type(uint256).max);
+        uint256 winPool;
+        for (uint256 i = 0; i < 3; ++i) {
+            win[i] = bound(win[i], 1, 1e24);
+            winPool += win[i];
+            vm.prank(winners[i]);
+            market.bet(id, 3, win[i]);
+        }
+        vm.prank(bob);
+        market.bet(id, 0, lose);
+        uint256 total = winPool + lose;
+        uint256 fee = MarketMath.fee(total, feeBps);
+
+        _settleAfterWindow(id);
+        uint256 paid;
+        for (uint256 i = 0; i < 3; ++i) {
+            uint256 b0 = token.balanceOf(winners[i]);
+            vm.prank(winners[i]);
+            market.claim(id);
+            uint256 got = token.balanceOf(winners[i]) - b0;
+            assertGe(got, MarketMath.payout(win[i], total, winPool, feeBps), "below pro-rata floor");
+            paid += got;
+        }
+        assertEq(paid, total - fee, "winners split total - fee");
+        assertEq(token.balanceOf(address(market)), fee, "only the fee remains");
+
+        if (fee > 0) {
+            market.collectFee(id);
+            assertEq(token.balanceOf(address(this)), fee, "owner receives the fee");
+        }
+        assertEq(token.balanceOf(address(market)), 0, "round fully drained");
+    }
+
+    function test_CollectFeeOnceAfterSettle() public {
+        _deploy(100);
+        _segments(_mixed());
+        uint256 id = _create();
+        vm.prank(alice);
+        market.bet(id, 3, 100e18);
+        vm.prank(bob);
+        market.bet(id, 0, 900e18);
+
+        vm.expectRevert(VolMarket.RoundNotSettled.selector);
+        market.collectFee(id);
+
+        _settleAfterWindow(id);
+        vm.prank(bob);
+        vm.expectEmit(true, false, false, true, address(market));
+        emit VolMarket.FeeCollected(id, 10e18);
+        market.collectFee(id);
+        assertEq(token.balanceOf(address(this)), 10e18, "fee goes to owner, whoever calls");
+
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.collectFee(id);
+
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(address(market)), 0);
+    }
+
+    function test_NoFeeOnRefundedRounds() public {
+        _deploy(100);
+        _segments(_mixed());
+        uint256 id = _create();
+        vm.prank(alice);
+        market.bet(id, 0, 100e18);
+        _settleAfterWindow(id);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.collectFee(id);
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(address(market)), 0);
+    }
+
     function test_DoubleClaimReverts() public {
         _deploy(0);
         _segments(_mixed());
