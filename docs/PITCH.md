@@ -34,14 +34,18 @@ instead of paying out on manipulated data. Reputation is written by the market, 
 by the market's address, so agents cannot pad their own record.
 
 **1:40 Demo (50 s).** On a mainnet fork: real pool, deployed ERC-8004 registries, real Chainlink feed.
-Three zk agents and one commit-only agent commit, then reveal; a tampered proof is rejected. We replay the real hour that followed,
-settle, and the dashboard shows each agent's log score, read back from ERC-8004, and its fee share.
+We replay 24 consecutive real hours (2026-10-21 06:00 to 10-22 06:00 UTC), one round per hour. Three
+zk agents and one commit-only agent commit, then reveal; a tampered proof is rejected. All 24 rounds
+settle, none voided, and every round's features and realized volatility match the mainnet recompute,
+with Etherscan links to the real blocks. The dashboard shows the track record read back from
+ERC-8004: `linear_abs` −35.5 and `mlp32_abs` −35.8 in total beat the uniform guess (−38.6), `mlp16`
+(−39.2) does not.
 
 **2:30 Track fit and next (30 s).** Verifiable AI: onchain-verified inference on contract-derived
 inputs. Agent Infra: ERC-8004 identity plus a reputation signal nobody can self-report. Chainlink:
-the feed is the settlement guard. Honest limits: our three models are small and trained on synthetic
-data with placeholder buckets; next is retraining on the calibrated real-history bounds, then live
-rounds with outside agents.
+the feed is the settlement guard. Honest limits: our three models are small, trained on four weeks of
+one pool and tested on one week; one day of replay says little about skill. Next: rolling retraining,
+then live rounds with outside agents.
 
 ## 3 分钟讲稿（中文）
 
@@ -51,9 +55,9 @@ rounds with outside agents.
 
 **为什么可信（30 秒）**：输入由合约算，不由预测者给；证明把模型、输入、输出绑在一起；答案来自池子的链上 TWAP；池子价格与 Chainlink 偏差超过 2% 就作废退款，不按可疑数据派彩。信誉由市场合约写，读取时只认市场合约地址，agent 无法自刷。
 
-**演示（50 秒）**：主网 fork 上用真实池子、已部署的 ERC-8004 注册表和真实 Chainlink 喂价。三个 zk agent 和一个仅承诺 agent 先承诺后公开，篡改过的证明被拒；回放随后真实的一小时，结算，看板展示各 agent 的对数分、从 ERC-8004 读回的信誉和手续费分成。
+**演示（50 秒）**：主网 fork 上用真实池子、已部署的 ERC-8004 注册表和真实 Chainlink 喂价，连续回放 24 个真实小时（2026-10-21 06:00 至 10-22 06:00 UTC），每小时一轮。三个 zk agent 和一个仅承诺 agent 先承诺后公开，篡改过的证明被拒；24 轮全部结算、0 作废，每轮特征与实际波动率都与主网重算一致，并附 Etherscan 区块链接。看板展示从 ERC-8004 读回的战绩：`linear_abs` 总分 −35.5、`mlp32_abs` −35.8 跑赢均匀基线 −38.6，`mlp16` −39.2 没有跑赢。
 
-**赛道与下一步（30 秒）**：Verifiable AI——链上验证的推理、合约自算的输入；Agent Infra——ERC-8004 身份加无法自报的信誉；Chainlink——喂价是结算护栏。局限：三个模型很小、用合成数据和占位区间训练；下一步按真实历史校准的区间重训，再开放给外部 agent 跑真实轮次。
+**赛道与下一步（30 秒）**：Verifiable AI——链上验证的推理、合约自算的输入；Agent Infra——ERC-8004 身份加无法自报的信誉；Chainlink——喂价是结算护栏。局限：三个模型很小，只用一个池子约四周数据训练、一周测试，一天回放说明不了模型能力；下一步滚动重训，再开放给外部 agent 跑真实轮次。
 
 ## Slide outline (9 slides)
 
@@ -69,8 +73,9 @@ rounds with outside agents.
    discovery and trust"; it proposes pluggable trust models (client-feedback reputation, stake-secured
    re-execution, zkML, TEE oracles; grade A, EIP-8004). Its Identity and Reputation registries v2.0.0 are
    deployed on mainnet (`0x8004A169…a432`, `0x8004BAa1…9b63`; grade X, `spikes/facts/FACTS.md` §4) while
-   the spec is still Draft. zk proofs of small-model inference fit an onchain verifier: EZKL proof ≈ 9 s /
-   1.23 GB, verifier 19,656 B under EIP-170, verification ≈ 795k gas (grade X, `spikes/ezkl/README.md`).
+   the spec is still Draft. zk proofs of small-model inference fit an onchain verifier: verifier
+   ≈ 21.8 KB under the 24,576 B EIP-170 limit, `verifyProof` ≈ 849k gas, proof under 1 GB of memory
+   (grade X, `agents/MODEL_CARD.md` §1).
 4. **Solution.** The exam loop diagram from the README: pool `observe()` → features → agent proves →
    `commitPrediction` → `revealPrediction` verifies → window → `settle` → log score → ERC-8004 →
    fee share for forecasters above baseline.
@@ -79,19 +84,25 @@ rounds with outside agents.
    reveal phase, which ends before the window opens; settlement from the pool's TWAP with
    `sample()` fallback, voided under 90 % coverage; Chainlink cross-check (> 200 bps or > 3900 s stale
    voids). Plus: reputation written by the market and filtered by market address.
-6. **Demo.** Mainnet fork, real pool, deployed ERC-8004, real feed. Screenshot `docs/img/dashboard.png`
-   and the terminal summary: RV 259 tick² onchain = 259 off-chain, Chainlink deviation 14.2 bps,
-   four scores mirrored in `getSummary` under zk and commit-only tags, tampered proofs rejected,
-   0.01 WETH forecaster share split exactly (grade X, `docs/DEMO.md`).
+6. **Demo.** Mainnet fork, real pool, deployed ERC-8004, real feed, 24 consecutive real hours
+   (2026-10-21 06:00 – 10-22 06:00 UTC, blocks 26,239,037–26,246,222), about 12 minutes with
+   `HOURS=24 bash demo/run.sh`. Screenshot `docs/img/dashboard.png` and the summary: 24 settled,
+   0 voided, features and RV equal the mainnet recompute every round, tampered proofs rejected, each
+   agent's ERC-8004 `getSummary` count = 24. Totals: `linear_abs` −35.506, `mlp32_abs` −35.816,
+   uniform −38.627, `mlp16` −39.190, commit-only placeholder heuristic −46.653 (grade X,
+   `docs/DEMO.md`, `dashboard/sample-replay.json`).
 7. **Track fit.** Verifiable AI (verified inference on contract-derived inputs), Agent Infra (ERC-8004
    identity + a reputation signal agents cannot self-report), Chainlink (feed as settlement guard).
-8. **Limits, stated plainly.** Synthetic training data and placeholder buckets `[8, 20, 45, 110]` tick²
-   (real hourly RV calibrates to `[342, 620, 1124, 2052]`; grade X, `analysis/`), so today nearly every
-   real round lands in the top bucket. The fork demo replays the real hour by swaps. Features are
+8. **Limits, stated plainly.** Models trained on 4 weeks of one pool, bounds `[202, 474, 856, 1712]`
+   tick² from the training period only; on the 7-day test period `linear_abs` −1.418 and `mlp16`
+   −1.423 beat the previous-hour transition baseline (−1.452) by only ≈ 0.03, `mlp32_abs` (−1.469)
+   does not; uniform is −1.609 (grade X, `agents/MODEL_CARD.md`). The test week drifted (9 % of hours
+   in the lowest bucket). A week of test data and a day of replay do not prove skill. Weights are
+   public in the circuit, not hidden. The fork demo replays real hours by swaps. Features are
    snapshotted at `createRound`. Bets are public; forecasts are public after reveal, which ends before
-   the window opens. No Automation / CRE. Only small models fit the zk path; larger models can join as
-   commit-only (timing, not provenance); a TEE tier is roadmap only.
-9. **Next.** Retrain on calibrated bounds and real history, rebuild verifiers; open model registration
+   the window opens. No Automation / CRE, no paying users. Only small models fit the zk path; larger
+   models can join as commit-only (timing, not provenance); a TEE tier is roadmap only.
+9. **Next.** Rolling recalibration and retraining with longer evaluation; open model registration
    to outside agents; Chainlink Automation for `settle`; ERC-8004 Validation Registry once the spec
    settles; a TEE tier and submission stake (roadmap, not implemented; see "Tiered verification"
    below).
@@ -268,12 +279,13 @@ BasisOS are grade C only and are deliberately not used.
 
 | Claim | Value | Grade, source |
 |---|---|---|
-| Proof time per agent (demo laptop) | 3.7–9.1 s | X, `demo/fork_round.py` run output |
-| EZKL prove / memory (spike) | ≈ 9 s / 1.23 GB | X, `spikes/ezkl/README.md` |
-| Settle gas, 4 agents, Chainlink check + 4 ERC-8004 writes | 1,096,683 (sent with the gas estimate) | X, demo run (`docs/DEMO.md`) |
+| Proof time per model (laptop) | ≈ 2 s in the fork replay; 7.3–17.8 s / 0.87–0.99 GB under concurrent tests | X, `docs/DEMO.md`, `agents/MODEL_CARD.md` §1 |
+| Verifier size / `verifyProof` gas | ≈ 21.8 KB (< 24,576 B) / ≈ 849k gas | X, `agents/MODEL_CARD.md` §1, `docs/DEMO.md` |
+| Fork replay | 24 real hours, 24 settled, 0 voided, ≈ 12 min | X, `docs/DEMO.md` |
+| Test-period mean log score | `linear_abs` −1.418, `mlp16` −1.423, transition baseline −1.452, `mlp32_abs` −1.469, uniform −1.609 | X, `agents/MODEL_CARD.md` §6 |
 | Settle gas, 32 revealed forecasters bound to ERC-8004 (Lite registry) | 4,415,928 | X, `forge test --match-test test_SettleGasWith32BoundPredictors` |
 | Pool observation history (worst case) | ≈ 2.41 h, so a 1 h window is always readable | X, `spikes/facts/FACTS.md` §1 |
-| Calibrated bounds | `[342, 620, 1124, 2052]` tick² over 2,010 hourly windows | X, `analysis/` |
+| Bucket bounds | `[202, 474, 856, 1712]` tick², quintiles of the training period (2026-09-10 – 10-08 UTC) | X, `agents/MODEL_CARD.md` §3 |
 | SEC "AI washing" penalties, Delphia + Global Predictions | $400,000 total (2024-03-18) | A, [SEC 2024-36](https://www.sec.gov/newsroom/press-releases/2024-36) |
 | Mirror Trading International, "bot" with fake demo balances | > $1.7 B in bitcoin, ≥ 23,000 people | A, [CFTC advisory](https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/AITradingBots.html), [8854-24](https://www.cftc.gov/PressRoom/PressReleases/8854-24) (2024-01-25) |
 | Nate, claimed AI checkout, automation rate "effectively zero" (allegation) | > $40 M raised | A, [DOJ SDNY](https://www.justice.gov/usao-sdny/pr/tech-ceo-charged-artificial-intelligence-investment-fraud-scheme) (2025-04-09) |

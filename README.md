@@ -8,7 +8,7 @@ Hackathon prototype for ETH Shenzhen 2026 (Verifiable AI + Agent Infra). Everyth
 Anvil chain, either from scratch or as a fork of Ethereum mainnet. No real funds, and nothing is
 deployed to a real network.
 
-![Round dashboard after a mainnet-fork demo run](docs/img/dashboard.png)
+![Dashboard after the 24-hour mainnet-fork replay](docs/img/dashboard.png)
 
 ## Why
 
@@ -62,7 +62,9 @@ The exam: realized volatility of the TWAP tick of the Uniswap V3 ETH/USDC 0.05% 
 1. **observe → features.** `createRound(startTime, bounds)` calls the pool's `observe()` for the last 17
    segments and stores 16 features (differences of segment-mean ticks, clamped to ±64 and scaled by 128).
 2. **EZKL proof.** Each agent reads `getFeatures(id)`, runs its small model (16 → … → 5, softmax) and
-   proves the inference with EZKL (Halo2/KZG, logrows 15, about 4–9 s per proof on a laptop).
+   proves the inference with EZKL (Halo2/KZG, logrows 15, about 2–18 s per proof on a laptop). Each
+   model's generated verifier is about 21.8 KB (under the 24,576 B EIP-170 limit) and one
+   `verifyProof` costs about 849k gas.
 3. **commit → reveal.** Before `startTime − commitLead` the model's registered operator commits
    `keccak256(abi.encode(id, modelId, outputs, salt, sender))`; between that deadline and
    `startTime − revealLead` it reveals `(proof, outputs[5], salt)`. For a zk model the contract rebuilds
@@ -92,56 +94,55 @@ The exam: realized volatility of the TWAP tick of the Uniswap V3 ETH/USDC 0.05% 
    and `settle` reverts (`InsufficientGas`) when a call failed because the caller's gas limit starved
    it, so nobody can skip a reputation write or void a round by sending `settle` with too little gas.
 
-## Demo: one round on a mainnet fork
+## Demo: 24 real hours on a mainnet fork
 
 ```bash
 cp .env.example .env    # optional: MAINNET_RPC_URL (defaults to the public tenderly gateway)
-make demo               # or: bash demo/run.sh; ~2–4 min; writes demo/out/fork_round.json
+make demo               # same as: HOURS=24 bash demo/run.sh; ~12 min; writes demo/out/fork_replay.json
 python3 -m http.server 8765 --bind 127.0.0.1   # then open http://127.0.0.1:8765/dashboard/
 ```
 
-`demo/run.sh` forks mainnet with Anvil at a block where the Chainlink ETH/USD feed just updated, at
-least an hour in the past, and then on the fork:
+`HOURS` (default 24) and `REPLAY_START` (default 2026-10-21 06:00 UTC) come from the environment or
+`.env`, so `HOURS=2 make demo` is a quick check. `demo/run.sh` forks mainnet with Anvil once, before
+the replayed hours, and then on the fork:
 
 - deploys `VolMarket` against the **real** pool, the **deployed ERC-8004 v2.0.0** Identity
   (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`) and Reputation
   (`0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`) registries and the **real** Chainlink feed
   (`0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`), plus one EZKL verifier per model;
-- registers an ERC-8004 identity for each of the 3 zk agents and one commit-only agent (a configurable
-  time-series model API, or a deterministic placeholder when `VOL_TSFM_API_URL` is unset) and links it
-  to its model;
-- opens a round (features come from the real pool's last 85 minutes), lets every agent commit, then
-  reveal (zk agents with a proof), and checks that each verifier rejects the same proof with one output
-  changed;
-- replays the hour that followed on mainnet: at each 5-minute checkpoint a trader account swaps the
-  forked pool to the real segment's TWAP tick (read from mainnet's own `observe`), and `sample` stores
-  the checkpoint;
-- settles (Chainlink check, log scores, ERC-8004 feedback), lets the bettors claim, pays the
-  forecasters' fee share and collects the rest of the fee.
+- registers one ERC-8004 identity for each of the 3 zk agents and one commit-only agent for the whole
+  replay; the commit-only agent calls a configurable time-series model API, or, when
+  `VOL_TSFM_API_URL` is unset, a heuristic labeled `placeholder` (not a model);
+- replays the pool: at every 5-minute grid time a trader swaps the forked pool to mainnet's real mean
+  tick for that segment (read from mainnet's own `observe`), so every segment mean the contract reads
+  equals mainnet's; every real Chainlink ETH/USD report in the range is re-sent by its transmitter at
+  its original timestamp;
+- runs one round per hour: `createRound` from the replayed pool, every agent commits, then reveals
+  (zk agents with a proof), two bettors stake, `sample` stores each checkpoint, and `settle` runs the
+  Chainlink check, log scores and ERC-8004 feedback; bettors claim, forecasters above the baseline
+  claim their fee share, the rest of the fee is collected. In round 0 each verifier must reject the
+  honest proof with one output changed.
 
-Output of one run (fork block 26,247,424; `settle` sent with `cast`'s gas estimate):
+Committed run ([`dashboard/sample-replay.json`](dashboard/sample-replay.json)): 2026-10-21 06:00 to
+10-22 06:00 UTC, mainnet blocks 26,239,037–26,246,222, about 12 minutes wall time. All 24 rounds
+settled, none voided; in every round the features and the realized vol equal the mainnet recompute,
+and each round links its real blocks and transactions on Etherscan.
 
 ```text
-realized vol 259 tick^2 (off-chain recompute 259, real mainnet hour 300), bounds [8, 20, 45, 110], winning bucket 4, voided False
-Chainlink ETH/USD 2406.75 vs pool 2403.34: 14.18 bps (max 200), feed age 3752 s (max 3900)
-settle gas 1096683 (estimated limit 1102040), events {'price_check_failed': 0, 'reputation_write_failed': 0, 'erc8004_feedback_logs': 4}
-agent               type            agentId   p_win  logScore  reward WETH  ERC-8004 getSummary
-agent-tsfm-api      commit-only       55250   0.972    -0.029     0.003194  count=1 value=-0.029 (vol-300s-12-commit)
-agent-mlp32_abs     zk proof          55249   0.941    -0.061     0.003129  count=1 value=-0.061 (vol-300s-12)
-agent-mlp16         zk proof          55248   0.497    -0.699     0.001840  count=1 value=-0.699 (vol-300s-12)
-agent-linear_abs    zk proof          55247   0.496    -0.700     0.001837  count=1 value=-0.700 (vol-300s-12)
-agent-tsfm-api: commit-only, forecast source placeholder
-agent-linear_abs: honest proof verifies=True, tampered output verifies=False
-agent-mlp16: honest proof verifies=True, tampered output verifies=False
-agent-mlp32_abs: honest proof verifies=True, tampered output verifies=False
-bettor 0x15d34AAf… bucket 4: payout 1.9800 WETH
-bettor 0x9965507D… bucket 3: payout 0.0000 WETH
-fee 0.0200 WETH: owner 0.0100, forecasters 0.0100 (5000 bps, above baseline -1.609), left in market 0 wei
+rounds 24: settled 24, voided 0 {}; features match mainnet True, RV matches mainnet True; winning buckets [1, 4, 6, 9, 4]
+agent                rounds  total ln p     mean  >base  reward WETH  ERC-8004 count
+uniform baseline         24     -38.627   -1.609
+agent-linear_abs         24     -35.506   -1.479     19     0.036276  24 (vol-300s-12)
+agent-mlp16              24     -39.190   -1.633     16     0.042333  24 (vol-300s-12)
+agent-mlp32_abs          24     -35.816   -1.492     18     0.038273  24 (vol-300s-12)
+agent-tsfm-api           24     -46.653   -1.944      8     0.013118  24 (vol-300s-12-commit)
+agent-linear_abs: honest proof verifies=True, tampered output verifies=False, verifyProof gas 848588
 ```
 
-The fork's RV (259) differs slightly from the real hour (300) because the replay holds one tick per
-segment, while the real pool moves within each segment. See [`docs/DEMO.md`](docs/DEMO.md) for the
-step-by-step script and the recording outline.
+Over these 24 hours `linear_abs` and `mlp32_abs` beat the uniform baseline in total and `mlp16` did
+not; the commit-only placeholder was the worst. 24 hourly rounds are a demo, not evidence of skill.
+See [`docs/DEMO.md`](docs/DEMO.md) for the step-by-step script, Etherscan links per round and the
+recording outline.
 
 ## Track fit
 
@@ -161,16 +162,39 @@ step-by-step script and the recording outline.
 - `contracts/src/verifier/`: one EZKL-generated Halo2 verifier per model.
 - `contracts/src/erc8004/`: minimal ERC-8004 v2.0.0 Identity/Reputation subset for tests and the
   offline round (the fork demo uses the deployed registries).
-- `agents/`: three structurally different models (`linear_abs`, `mlp16`, `mlp32_abs`), EZKL build with a
-  pinned SRS digest, a commit-only API agent, and an end-to-end round on Anvil.
-- `analysis/`: pulls `Swap` events, recomputes RV with the contract's rules and calibrates bounds
-  (`[342, 620, 1124, 2052]` tick² from 2,010 hourly windows).
-- `demo/`: mainnet-fork round as above. `dashboard/`: static read-only view of the round.
+- `agents/`: three structurally different models (`linear_abs`, `mlp16`, `mlp32_abs`) trained on the
+  real pool's history, EZKL build with a pinned SRS digest, a commit-only API agent, and an end-to-end
+  round on Anvil. See [`agents/MODEL_CARD.md`](agents/MODEL_CARD.md).
+- `analysis/`: pulls `Swap` events, recomputes RV with the contract's rules and calibrates the bucket
+  bounds `[202, 474, 856, 1712]` tick² (p20/p40/p60/p80 of the training period only).
+- `demo/`: 24-hour mainnet-fork replay as above. `dashboard/`: static read-only view of the replay.
 
 **Not done**
 
-- Retrain the models on the calibrated bounds and real history (see limitations).
+- Rolling recalibration and retraining as the market regime shifts; longer evaluation.
 - Chainlink Automation / CRE for calling `settle`, ERC-8004 Validation Registry.
+
+## Models and evaluation
+
+The three models are trained on the real ETH/USDC 0.05% pool: about 42 days of mainnet `Swap`
+events (2026-09-10 to 10-22 UTC) rebuilt into the contract's features and labels, split by time
+into training (to 10-08), validation (10-08 to 10-15) and test (10-15 to 10-22) with no shared
+second of data. The bucket bounds `[202, 474, 856, 1712]` tick² are the quintiles of the training
+period only. Mean log score on the test period (closer to 0 is better; details in
+[`agents/MODEL_CARD.md`](agents/MODEL_CARD.md)):
+
+| Forecast | Mean log score |
+|---|---:|
+| `linear_abs` | −1.418 |
+| `mlp16` | −1.423 |
+| Previous-hour bucket transition frequencies (baseline) | −1.452 |
+| `mlp32_abs` | −1.469 |
+| Uniform (ln 0.2) | −1.609 |
+
+All three beat the uniform forecast; `mlp32_abs` does **not** beat the previous-hour transition
+baseline, and the other two beat it only by about 0.03. The test period is 7 days of one market
+regime, and it already drifted: only 9 % of its hours fall in the lowest bucket (about 20 % in
+training).
 
 ## Tech stack
 
@@ -221,8 +245,8 @@ contracts/            Foundry project
   test/fixtures/        shared vol fixture, real proof fixture
 agents/               models, EZKL build, forecasting agents, Anvil end-to-end round
 analysis/             Swap fetch and bucket-bound calibration
-demo/                 mainnet-fork round (run.sh → fork_round.py)
-dashboard/            static read-only round dashboard
+demo/                 mainnet-fork replay of N real hours (run.sh → fork_round.py)
+dashboard/            static read-only replay dashboard
 chainlink/            Chainlink price-feed cross-check notes
 spikes/               verified facts (pool history, observe gas, ERC-8004, Chainlink) and the EZKL spike
 docs/                 SPEC, architecture, demo script, pitch, implementation plan, roadmap
@@ -233,14 +257,18 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for data flow and trust bound
 
 ## Known limitations
 
-- **Models are trained on synthetic data** in contract units, not on real pool history.
-- **Bucket bounds are placeholders** `[8, 20, 45, 110]` tick², the bounds the models were trained on.
-  Real hourly RV is in the hundreds to thousands of tick² (calibrated bounds `[342, 620, 1124, 2052]`),
-  so with real data nearly every round lands in the top bucket and the forecasts barely discriminate.
-  The calibrated bounds are not used until the models are retrained and the verifiers rebuilt.
-- **The fork demo's window is a replay**, not live trading: the forked pool is pushed to each real
-  5-minute TWAP tick by swaps, and the Chainlink feed does not update on a fork, so the cross-check at
-  settlement compares against the answer from the fork block (about an hour old by then).
+- **Short evidence.** A 7-day test period and a 1-day replay (24 rounds) do not prove forecasting
+  skill. The models are small, see one pool and the last 85 minutes only, and are close to a simple
+  previous-hour baseline (`mlp32_abs` is behind it).
+- **Drift.** The bounds come from the training period; the test week already put only 9 % of hours in
+  the lowest bucket. Keeping the buckets meaningful needs periodic recalibration and retraining, and a
+  retrained model is a new verifier and a new `modelId`.
+- **Weights are not hidden.** EZKL parameters are `fixed`: the weights are public in the circuit and
+  the verifier. The proof shows which registered model produced a forecast, not that the model is good.
+- **No paying users.** The economics are an unvalidated hypothesis.
+- **The fork demo is a replay**, not live trading: the forked pool is pushed to each real 5-minute mean
+  tick by swaps and the real Chainlink reports are re-sent on the fork. The commit-only agent in the
+  demo is a placeholder heuristic unless a time-series model API is configured.
 - **Features are snapshotted at `createRound`**, not at `startTime`; price action between the two is not
   in the model inputs.
 - The cross-check compares one Δ-long TWAP price with one feed answer; it does not detect manipulation
@@ -270,6 +298,9 @@ the full list):
 | 10-22 16:13 – 16:43 | Hardening: exact winner payout and owner fee withdrawal (c1), SRS sha256 pin and no silent verifier overwrite (c2), low-gas `settle` griefing guard; old base-fee market code removed | `e3b692c`, `76b6b4f`, `c41f9b9`, `cfe3bff` |
 | 10-22 16:31 – 19:44 | Mainnet-fork demo, read-only dashboard, demo script, pitch, model card | `f6c96f9`…`bbfd243` |
 | 10-22 19:52 – 20:02 | R4: commit-reveal for every forecast, commit-only model tier with a time-series model API agent, forecaster fee share above the uniform baseline | `0f6fa1c`…`6341c05` |
+| 10-22 20:37 | README tech stack, timeline and originality statement | `be2d7f1` |
+| 10-22 20:43 – 21:03 | R5: bounds calibrated on the training period only, 3 models retrained on real pool history and verifiers rebuilt; fork demo replays 24 consecutive real hours; multi-round dashboard | `99955e2`…`973e0ac` |
+| 10-22 21:xx | Docs aligned with R5 (README, pitch, spec, architecture); agents package renamed to `vol-agents` | this commit |
 
 **On-site increment (10-24).** 待补充 / to be added.
 

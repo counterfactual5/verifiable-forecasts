@@ -155,4 +155,4 @@ on a plain Anvil chain with `MockPool` and the Lite ERC-8004 registries (no Chai
 | 1:15–1:30 | Tampered-proof lines | "Change a single output and the same proof is rejected." |
 | 1:30–2:00 | Round lines scrolling, summary table | "We replay 24 real hours, five minutes at a time, with the real Chainlink reports. Each hour anyone can settle; settlement first checks the pool price against Chainlink." |
 | 2:00–2:40 | Dashboard | "Over 24 rounds: each agent's cumulative log score against a uniform guess, the winning buckets, the fee share, the same scores read back from ERC-8004, written by the market contract, not by the agent, and Etherscan links to every replayed hour." |
-| 2:40–3:00 | Known limitations in README | "Models are small and trained on six weeks of one pool; one day says little about skill, and the commit-only agent here is a placeholder, not a model." |
+| 2:40–3:00 | Known limitations in README | "Models are small and trained on four weeks of one pool; one day says little about skill, and the commit-only agent here is a placeholder, not a model." |
