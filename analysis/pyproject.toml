@@ -1,7 +1,7 @@
 [project]
 name = "basefee-analysis"
 version = "0.1.0"
-description = "Offline analysis for the verifiable-forecasts: fetch mainnet base fee history, calibrate the sampling window and bucket bounds, and emit the parameters the contract and the forecasters consume."
+description = "Offline analysis for the vol market: fetch Uniswap V3 Swap events, recompute the contract's realized-vol caliber, and calibrate the bucket bounds VolMarket.createRound consumes."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []

@@ -44,9 +44,6 @@ hole: a later successful segment raises the highest block past it, so a re-run
 never comes back for it. The CLI therefore exits 1 whenever a segment failed;
 a non-zero exit means the output file must not be treated as complete.
 
-This module is self-contained on purpose: the sibling base-fee fetcher is legacy
-and scheduled for removal, so nothing here may import it.
-
 CLI::
 
     python src/fetch_swaps.py --rpc https://mainnet.gateway.tenderly.co \

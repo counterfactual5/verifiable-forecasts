@@ -22,16 +22,16 @@ ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 | 功能 | 状态 | 位置 |
 |---|---|---|
 | 波动率市场合约：开轮存特征、下注、`sample` 检查点、`settle`（`observe` 批量 + 逐点兜底，缺点归一，覆盖率 < 90% 作废退款）、`claim` | 已完成 | `contracts/src/VolMarket.sol` |
-| 彩池 / 分桶 / 对数评分共用数学（`BaseFeeMarket` 与 `VolMarket` 共用） | 已完成 | `contracts/src/lib/MarketMath.sol` |
+| 彩池 / 分桶 / 对数评分数学 | 已完成 | `contracts/src/lib/MarketMath.sol` |
 | zk 证明校验：每个模型一份 EZKL 生成的验证合约；`registerModel(verifier, operator)`；`submitPrediction` 截止前、证明通过才记录 | 已完成 | `contracts/src/verifier/`、`VolMarket.submitPrediction` |
 | 预测 agent：3 个模型（`linear_abs` / `mlp16` / `mlp32_abs`）训练、EZKL 构建、读特征→证明→提交→结算→比较链上分数 | 已完成（本地 anvil + MockPool） | `agents/` |
 | 合约 / agents 共享口径 fixture（tickCumulative → 段均值 → RV → 桶） | 已完成 | `contracts/test/fixtures/vol_rv_cases.json` |
 | `make verify` 接入 agents 的 ruff 与 pytest | 已完成 | `Makefile` |
-| analysis 拉取 Swap 事件、按合约口径算历史 RV、校准 4 个区间边界 | 计划中 | `analysis/` |
+| analysis 拉取 Swap 事件、按合约口径算历史 RV、校准 4 个区间边界 | 已完成 | `analysis/` |
 | ERC-8004 v2.0.0 身份注册 + 结算后 `giveFeedback` 写信誉 | 计划中 | `contracts/src/erc8004/`（未创建） |
 | Chainlink ETH/USD 喂价交叉校验（`setPriceFeed` 可选开启） | 计划中 | `VolMarket.settle` |
 | 主网 fork 回放演示 + 简单看板 | 计划中 | `demo/`、`dashboard/`（未实现） |
-| 删除旧 `BaseFeeMarket` 与 analysis 的 base fee 管线 | 计划中（提交前） | `contracts/src/BaseFeeMarket.sol`、`analysis/src/` |
+| 删除旧 `BaseFeeMarket` 与 analysis 的 base fee 管线 | 已完成 | 见 git 历史 |
 
 ## 第一个功能
 
@@ -57,9 +57,9 @@ ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 ## 结构与依赖
 
 ```
-contracts/        # Foundry：VolMarket、MarketMath、EZKL 验证合约、旧 BaseFeeMarket（legacy）
+contracts/        # Foundry：VolMarket、MarketMath、EZKL 验证合约、ERC-8004 Lite 注册表
 agents/           # Python：模型训练、EZKL 构建、证明与提交、anvil 端到端
-analysis/         # Python：数据拉取与区间校准（当前仍是旧 base fee 管线，计划改为 Swap 波动率）
+analysis/         # Python：Swap 事件拉取、按合约口径算 RV、区间边界校准
 spikes/           # 事实核实（facts/）与 EZKL 可行性实验（ezkl/）
 chainlink/        # 喂价交叉校验说明（计划中）
 dashboard/        # 看板（计划中）
@@ -89,4 +89,4 @@ make check && make test
 3. Chainlink 喂价交叉校验：owner 可选开启，偏离 > 200 bps 或喂价早于 3900 s 即作废退款。
 4. 用校准后的区间边界重训模型并重建 EZKL 验证合约。
 5. 演示：主网 fork 回放 + 简单看板。
-6. 提交前：校验 SRS 摘要、`install_verifier` 不再静默覆盖已提交的验证合约；补结算取整的 fuzz 测试；删除旧 `BaseFeeMarket` 与 base fee 管线；README / 架构文档终稿、pitch 讲稿。
+6. 提交前：README / 架构文档终稿、pitch 讲稿（SRS 摘要校验、验证合约覆盖保护、结算取整 fuzz 与协议费提取、删除旧 base fee 代码已完成）。

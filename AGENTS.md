@@ -40,4 +40,4 @@ Rules for every agent (and human) working in this repository. Short and hard on 
 | Forecasting agents, models, EZKL build | `agents/` (see `agents/README.md`) |
 | Verified facts (pool history, observe gas, ERC-8004, Chainlink) | `spikes/facts/FACTS.md` |
 | EZKL feasibility measurements | `spikes/ezkl/README.md` |
-| Legacy base-fee market (to be removed before submission) | `contracts/src/BaseFeeMarket.sol`, `analysis/src/` |
+| Swap fetch and vol bound calibration | `analysis/` (see `analysis/README.md`) |

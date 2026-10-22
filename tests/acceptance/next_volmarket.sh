@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # R2 acceptance: VolMarket settles time-segmented rounds from observe(), accepts only predictions
-# carrying a real EZKL proof over its own on-chain features, wires the EZKL-generated verifier,
-# and BaseFeeMarket keeps its parimutuel / double-claim / void-refund behaviour.
+# carrying a real EZKL proof over its own on-chain features, and wires the EZKL-generated verifier.
 set -uo pipefail
 cd "$(dirname "$0")/../../contracts"
 fail=0
@@ -53,7 +52,6 @@ for name in \
     printf '%s\n' "$out" | grep -qE "\[PASS\] ${name}\(" && ok "$name passes" || bad "$name passes"
 done
 
-out=$(forge test --match-path test/BaseFeeMarket.t.sol 2>&1) && ok "BaseFeeMarket tests still green" || { bad "BaseFeeMarket tests still green"; printf '%s\n' "$out" | tail -20; }
 forge fmt --check >/dev/null 2>&1 && ok "forge fmt --check" || bad "forge fmt --check"
 sz=$(forge build --sizes 2>&1); src=$?
 [[ $src -eq 0 ]] && ok "forge build --sizes within EIP-170" || { bad "forge build --sizes within EIP-170"; printf '%s\n' "$sz" | tail -15; }

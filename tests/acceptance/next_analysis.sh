@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # R1 acceptance: analysis fetches Swap event logs (tick + timestamp per swap), recomputes the
 # contract's realized-vol caliber on the shared fixture item-by-item, and calibrates exactly
-# 4 strictly increasing bounds that track the input data; legacy base-fee tests stay green.
+# 4 strictly increasing bounds that track the input data.
 set -uo pipefail
 cd "$(dirname "$0")/../../analysis"
 fail=0
@@ -23,8 +23,5 @@ for name in \
     test_calibrated_bounds_change_with_input_data; do
     printf '%s\n' "$out" | grep -qE "${name} PASSED" && ok "$name passes" || bad "$name passes"
 done
-
-out=$(uv run pytest -q tests/test_calibrate.py tests/test_pipeline.py tests/test_fetch_fee_history.py 2>&1); rc=$?
-[[ $rc -eq 0 ]] && ok "legacy analysis tests green" || { bad "legacy analysis tests green (rc $rc)"; printf '%s\n' "$out" | tail -20; }
 
 [[ $fail -eq 0 ]] && echo PASS || { echo FAIL; exit 1; }

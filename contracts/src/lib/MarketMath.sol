@@ -10,15 +10,6 @@ library MarketMath {
     /// @dev bucket index for value v over ascending bounds:
     ///      bucket 0: v < bounds[0]; bucket i: bounds[i-1] <= v < bounds[i];
     ///      bucket n: v >= bounds[n-1].
-    function bucketOf(int256[] memory bounds, int256 v) internal pure returns (uint256) {
-        uint256 n = bounds.length;
-        for (uint256 i = 0; i < n; ++i) {
-            if (v < bounds[i]) return i;
-        }
-        return n;
-    }
-
-    /// @dev Same half-open semantics as the int256 overload, for non-negative values.
     function bucketOf(uint256[] memory bounds, uint256 v) internal pure returns (uint256) {
         uint256 n = bounds.length;
         for (uint256 i = 0; i < n; ++i) {
