@@ -284,23 +284,26 @@ ERC-8004 Validation Registry, Chainlink CRE / Automation.
 ## Development timeline & originality / 开发时间线与原创声明
 
 ETH Shenzhen 2026 runs from 30 September 2026 (online build, then the in-person demo). The first commit of
-this repository is `1c155aa` at **2026-10-20 16:21 (UTC+8)**; all code and docs here were written after
+this repository is `2551c88` at **2026-10-20 16:21 (UTC+8)**; all code and docs here were written after
 that, inside the hackathon period. Milestones by commit (all times UTC+8; `git log --reverse` shows
 the full list):
 
 | When | Milestone | Commits |
 |---|---|---|
-| 10-20 16:21 – 10-21 00:49 | Kickoff and feasibility spikes: repo rules and verify chain, a first base-fee market prototype, swap fetcher, EZKL spike (proof time, verifier size, verify gas), verified facts on pool history, ERC-8004 and Chainlink | `1c155aa`…`b33cc88` |
-| 10-21 01:00 – 19:51 | Pivot to the volatility market: implementation plan, `VolMarket` with EZKL-verified forecasts, three zk agents and their verifiers; base-fee bots archived to `legacy/` | `c860c40`…`2e1fd2a` |
-| 10-21 23:40 | R1: volatility definition shared by contract and analysis, bucket bounds calibrated on real swaps | `dc2fa35` (later speed-ups `55dd65f`, `7bb56f7`) |
-| 10-22 01:05 | R2: ERC-8004 identity linking and reputation writes from the market | `8afe683` |
-| 10-22 16:10 | R3: Chainlink ETH/USD cross-check at settlement | `b3290fa` |
-| 10-22 16:13 – 16:43 | Hardening: exact winner payout and owner fee withdrawal (c1), SRS sha256 pin and no silent verifier overwrite (c2), low-gas `settle` griefing guard; old base-fee market code removed | `e3b692c`, `76b6b4f`, `c41f9b9`, `cfe3bff` |
-| 10-22 16:31 – 19:44 | Mainnet-fork demo, read-only dashboard, demo script, pitch, model card | `f6c96f9`…`bbfd243` |
-| 10-22 19:52 – 20:02 | R4: commit-reveal for every forecast, commit-only model tier with a time-series model API agent, forecaster fee share above the uniform baseline | `0f6fa1c`…`6341c05` |
-| 10-22 20:37 | README tech stack, timeline and originality statement | `be2d7f1` |
-| 10-22 20:43 – 21:03 | R5: bounds calibrated on the training period only, 3 models retrained on real pool history and verifiers rebuilt; fork demo replays 24 consecutive real hours; multi-round dashboard | `99955e2`…`973e0ac` |
-| 10-22 21:xx | Docs aligned with R5 (README, pitch, spec, architecture); agents package renamed to `vol-agents` | this commit |
+| 10-20 16:21 – 10-21 00:49 | Kickoff and feasibility spikes: repo rules and verify chain, a first base-fee market prototype, swap fetcher, EZKL spike (proof time, verifier size, verify gas), verified facts on pool history, ERC-8004 and Chainlink | `2551c88`…`1111524` |
+| 10-21 01:00 – 19:51 | Pivot to the volatility market: implementation plan, `VolMarket` with EZKL-verified forecasts, three zk agents and their verifiers; base-fee bots archived to `legacy/` | `fe40862`…`207e5d3` |
+| 10-21 23:40 | R1: volatility definition shared by contract and analysis, bucket bounds calibrated on real swaps | `48aff5c` (later speed-ups `ff717a5`, `7215f60`) |
+| 10-22 01:05 | R2: ERC-8004 identity linking and reputation writes from the market | `e414814` |
+| 10-22 16:10 | R3: Chainlink ETH/USD cross-check at settlement | `c7f8409` |
+| 10-22 16:13 – 16:43 | Hardening: exact winner payout and owner fee withdrawal (c1), SRS sha256 pin and no silent verifier overwrite (c2), low-gas `settle` griefing guard; old base-fee market code removed | `dabf122`, `906b902`, `52864af`, `35f4827` |
+| 10-22 16:31 – 19:44 | Mainnet-fork demo, read-only dashboard, demo script, pitch, model card | `763129b`…`b9b47dc` |
+| 10-22 19:52 – 20:02 | R4: commit-reveal for every forecast, commit-only model tier with a time-series model API agent, forecaster fee share above the uniform baseline | `2955b02`…`c2de6a0` |
+| 10-22 20:37 | README tech stack, timeline and originality statement | `5e09e54` |
+| 10-22 20:43 – 21:03 | R5: bounds calibrated on the training period only, 3 models retrained on real pool history and verifiers rebuilt; fork demo replays 24 consecutive real hours; multi-round dashboard | `0577602`…`5362b98` |
+| 10-22 21:06 | Docs aligned with R5 (README, pitch, spec, architecture); agents package renamed to `vol-agents` | `5c5e4f9` |
+
+On 10-22 the history was rewritten once to replace local absolute paths and the project's earlier
+working name; authors and timestamps are unchanged, and the hashes above are the rewritten ones.
 
 **On-site increment (10-24).** 待补充 / to be added.
 

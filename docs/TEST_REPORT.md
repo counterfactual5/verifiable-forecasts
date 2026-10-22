@@ -78,4 +78,4 @@ Swap 事件重建与池 `observe()` oracle 的等价性**依赖日志完整**。
 
 旧 analysis 管线（`fetch_fee_history` / `calibrate` / `pipeline`）本轮按计划保留未动，
 其测试（112 passed）作为 Keep 回归继续通过；提交前将与 `BaseFeeMarket.sol` 一起移除。
-旧方向的完整测试记录见上一版报告（git 历史 `docs/TEST_REPORT.md@2d634ac^`）。
+旧方向的完整测试记录见上一版报告（git 历史 `docs/TEST_REPORT.md@9fe29b9^`）。
