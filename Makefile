@@ -1,4 +1,4 @@
-.PHONY: verify test check fmt analysis analysis-sync
+.PHONY: verify test check fmt analysis analysis-sync demo
 
 # After `make analysis-sync`, analysis checks run from uv.lock without network access
 export UV_LOCKED := 1
@@ -26,3 +26,7 @@ analysis:
 
 analysis-sync:
 	cd analysis && env -u UV_OFFLINE uv sync --locked
+
+# Mainnet-fork round; needs network (MAINNET_RPC_URL), so it stays out of verify
+demo:
+	bash demo/run.sh

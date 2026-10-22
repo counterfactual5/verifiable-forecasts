@@ -83,6 +83,6 @@ rounds with outside agents.
 |---|---|---|
 | Proof time per agent (demo laptop) | 3.7–9.1 s | X, `demo/fork_round.py` run output |
 | EZKL prove / memory (spike) | ≈ 9 s / 1.23 GB | X, `spikes/ezkl/README.md` |
-| Settle gas, 3 agents, Chainlink check + 3 ERC-8004 writes | 838,431 | X, demo run (`docs/DEMO.md`) |
+| Settle gas, 3 agents, Chainlink check + 3 ERC-8004 writes | 851,443 (sent with the gas estimate) | X, demo run (`docs/DEMO.md`) |
 | Pool observation history (worst case) | ≈ 2.41 h, so a 1 h window is always readable | X, `spikes/facts/FACTS.md` §1 |
 | Calibrated bounds | `[342, 620, 1124, 2052]` tick² over 2,010 hourly windows | X, `analysis/` |

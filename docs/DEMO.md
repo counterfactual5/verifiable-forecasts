@@ -19,7 +19,7 @@ Everything runs on a local Anvil fork. Nothing is broadcast to mainnet and no re
 ## Run
 
 ```bash
-bash demo/run.sh
+make demo    # or: bash demo/run.sh
 ```
 
 Takes about 1.5–4 minutes (forge build, three EZKL proofs of 4–9 s each, a few hundred fork RPC
@@ -40,25 +40,28 @@ reads). Steps, as printed with `[demo]`:
 6. **Window.** For each of the 12 checkpoints: `sample(k)`, then a trader swaps the forked pool to
    that segment's real TWAP tick, read from mainnet's own `observe()`.
 7. **Settle.** Chainlink cross-check, RV, winning bucket, log scores, ERC-8004 feedback; claims and
-   `collectFee`. The script prints the summary and writes `demo/out/fork_round.json`.
+   `collectFee`. `settle` is sent with `cast`'s gas estimate, the lowest limit it accepts: the market
+   reverts instead of letting a starved registry call fail, so all three writes must land (the script
+   stops if any `ReputationWriteFailed` is emitted). The script prints the summary and writes
+   `demo/out/fork_round.json`.
 
-## Expected output (one run, fork block 26,246,328)
+## Expected output (one run, fork block 26,246,628)
 
 ```text
 [demo] window: replaying the real pool's 5-minute TWAP path
-[demo] segment  0: sell WETH    tick 198340 -> 198346 (real 198346)
+[demo] segment  0: sell USDC    tick 198379 -> 198378 (real 198378)
 ...
-[demo] segment 11: hold         tick 198378 -> 198378 (real 198378)
-[demo] settled=True voided=False RV=305 bucket=4
+[demo] segment 11: sell WETH    tick 198418 -> 198431 (real 198431)
+[demo] settled=True voided=False RV=1322 bucket=4
 
 === VolMarket round on a mainnet fork ===
-realized vol 305 tick^2 (off-chain recompute 305, real mainnet hour 324), bounds [8, 20, 45, 110], winning bucket 4, voided False
-Chainlink ETH/USD 2434.95 vs pool 2426.52: 34.63 bps (max 200), feed age 3689 s (max 3900)
-settle gas 838431, events {'price_check_failed': 0, 'reputation_write_failed': 0, 'erc8004_feedback_logs': 3}
+realized vol 1322 tick^2 (off-chain recompute 1322, real mainnet hour 1353), bounds [8, 20, 45, 110], winning bucket 4, voided False
+Chainlink ETH/USD 2424.39 vs pool 2413.69: 44.12 bps (max 200), feed age 3689 s (max 3900)
+settle gas 851443 (estimated limit 856804), events {'price_check_failed': 0, 'reputation_write_failed': 0, 'erc8004_feedback_logs': 3}
 agent                  agentId   p_win  logScore  ERC-8004 getSummary
-agent-mlp32_abs          55214   0.868    -0.141  count=1 value=-0.141
-agent-mlp16              55213   0.496    -0.702  count=1 value=-0.702
-agent-linear_abs         55212   0.494    -0.705  count=1 value=-0.705
+agent-mlp32_abs          55214   0.853    -0.159  count=1 value=-0.159
+agent-linear_abs         55212   0.646    -0.437  count=1 value=-0.437
+agent-mlp16              55213   0.643    -0.442  count=1 value=-0.442
 agent-linear_abs: honest proof verifies=True, tampered output verifies=False
 agent-mlp16: honest proof verifies=True, tampered output verifies=False
 agent-mlp32_abs: honest proof verifies=True, tampered output verifies=False

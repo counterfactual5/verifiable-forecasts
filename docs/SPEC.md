@@ -9,11 +9,11 @@
 
 ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 
-**状态**：核心链路已完成（`VolMarket` 合约 + EZKL 验证合约 + 3 个预测 agent，本地 anvil 端到端跑通）；ERC-8004 信誉、Chainlink 交叉校验、区间校准、主网 fork 演示与看板为计划中。
+**状态**：已完成核心链路（`VolMarket` 合约 + EZKL 验证合约 + 3 个预测 agent，本地 anvil 端到端跑通）、ERC-8004 信誉、Chainlink 交叉校验、区间校准、主网 fork 演示与看板；尚未按校准边界重训模型。
 
 **问题**：AI 预测者可以事后挑选好看的结果来宣传，评委和用户无法核实「这个预测确实是这个模型在事前、对这些输入算出来的」，也没有公开、不可篡改的成绩记录。
 
-**做什么**：一个链上考场。考题是 Uniswap V3 ETH/USDC 0.05% 池（`0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`）未来 1 小时的 TWAP 已实现波动率（Δ = 300 s、N = 12 段，单位 tick²），按 5 个区间彩池（parimutuel）下注。AI 预测 agent 用 EZKL 为小模型推理生成 zk 证明；合约在开轮时自己从链上 `observe()` 算出公开输入（16 个特征），提交时链上验证证明，结算时用 `observe()` 算实际波动率（`sample()` 检查点兜底），按对数评分给每个预测打分。计划中：分数写入 ERC-8004 v2.0.0 信誉注册表，结算时用 Chainlink ETH/USD 喂价交叉校验池子价格。
+**做什么**：一个链上考场。考题是 Uniswap V3 ETH/USDC 0.05% 池（`0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`）未来 1 小时的 TWAP 已实现波动率（Δ = 300 s、N = 12 段，单位 tick²），按 5 个区间彩池（parimutuel）下注。AI 预测 agent 用 EZKL 为小模型推理生成 zk 证明；合约在开轮时自己从链上 `observe()` 算出公开输入（16 个特征），提交时链上验证证明，结算时用 `observe()` 算实际波动率（`sample()` 检查点兜底），按对数评分给每个预测打分，分数由市场合约写入 ERC-8004 v2.0.0 信誉注册表；结算时可用 Chainlink ETH/USD 喂价交叉校验池子价格。
 
 **不做**（写入 README「Known limitations / Future work」）：LMSR 做市、blob 费用市场（`BLOBBASEFEE`）、FHE / commit-reveal 密封下注、x402 付费、真实资金与真实网络部署（只归用户）、ERC-8004 Validation 注册表（规范仍在变）、Chainlink CRE / Automation（本阶段不做）。
 
@@ -28,9 +28,9 @@ ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 | 合约 / agents 共享口径 fixture（tickCumulative → 段均值 → RV → 桶） | 已完成 | `contracts/test/fixtures/vol_rv_cases.json` |
 | `make verify` 接入 agents 的 ruff 与 pytest | 已完成 | `Makefile` |
 | analysis 拉取 Swap 事件、按合约口径算历史 RV、校准 4 个区间边界 | 已完成 | `analysis/` |
-| ERC-8004 v2.0.0 身份注册 + 结算后 `giveFeedback` 写信誉 | 计划中 | `contracts/src/erc8004/`（未创建） |
-| Chainlink ETH/USD 喂价交叉校验（`setPriceFeed` 可选开启） | 计划中 | `VolMarket.settle` |
-| 主网 fork 回放演示 + 简单看板 | 计划中 | `demo/`、`dashboard/`（未实现） |
+| ERC-8004 v2.0.0 身份注册 + 结算后 `giveFeedback` 写信誉（写入失败只发事件；gas 不足以完成写入时结算 revert） | 已完成 | `VolMarket.setReputation` / `linkAgent` / `settle`，`contracts/src/erc8004/`（Lite 实现） |
+| Chainlink ETH/USD 喂价交叉校验（`setPriceFeed` 可选开启） | 已完成 | `VolMarket.settle` |
+| 主网 fork 回放演示 + 只读静态看板 | 已完成 | `demo/`（`make demo`）、`dashboard/` |
 | 删除旧 `BaseFeeMarket` 与 analysis 的 base fee 管线 | 已完成 | 见 git 历史 |
 
 ## 第一个功能
@@ -50,8 +50,8 @@ ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 | 结算数据源 | Uniswap V3 `observe()`（0.05% 池），`sample()` 检查点兜底 | 池子 cardinality 723，最坏可回溯约 2.41 h，1 h 窗口一次取全；13 点合约内调用约 32 万 gas | X（`spikes/facts/FACTS.md` 主网实测） |
 | zk 证明 | EZKL 23.0.5（Halo2/KZG，logrows 15，`input_scale = 12`，参数 fixed） | prove ≈ 9 s / 1.23 GB；验证合约 19,656 B < EIP-170；验证交易 ≈ 79.5 万 gas | X（`spikes/ezkl/README.md` 实测） |
 | 预测模型 | numpy 训练的小 MLP / 线性模型 → ONNX | 电路小、证明快；模型重依赖隔离在子进程 | X（`agents/` 实测） |
-| 信誉（计划中） | ERC-8004 v2.0.0：本地 Lite 实现用于测试与离线演示，主网 fork 用已部署合约 | 池子与喂价只在主网 | X（`spikes/facts/FACTS.md` 链上核实） |
-| 价格交叉校验（计划中） | Chainlink ETH/USD `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`（8 位小数） | 与池子 tick 换算价一致（2435.09 vs ≈2436） | X（`spikes/facts/FACTS.md`） |
+| 信誉 | ERC-8004 v2.0.0：本地 Lite 实现用于测试与离线演示，主网 fork 用已部署合约 | 池子与喂价只在主网 | X（`spikes/facts/FACTS.md` 链上核实） |
+| 价格交叉校验 | Chainlink ETH/USD `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`（8 位小数） | 与池子 tick 换算价一致（2435.09 vs ≈2436） | X（`spikes/facts/FACTS.md`） |
 | Python 环境 | uv 0.11.2；agents Python ≥ 3.12，analysis ≥ 3.11 | 本机已装，锁文件可复现 | X（本机） |
 
 ## 结构与依赖
@@ -61,8 +61,9 @@ contracts/        # Foundry：VolMarket、MarketMath、EZKL 验证合约、ERC-8
 agents/           # Python：模型训练、EZKL 构建、证明与提交、anvil 端到端
 analysis/         # Python：Swap 事件拉取、按合约口径算 RV、区间边界校准
 spikes/           # 事实核实（facts/）与 EZKL 可行性实验（ezkl/）
-chainlink/        # 喂价交叉校验说明（计划中）
-dashboard/        # 看板（计划中）
+chainlink/        # 喂价交叉校验说明
+demo/             # 主网 fork 回放一轮（run.sh → fork_round.py）
+dashboard/        # 只读静态看板（读 demo 输出 JSON）
 docs/
 ```
 
@@ -77,16 +78,13 @@ make check && make test
 ## 假设
 
 - 赛程以官方公告为准（10/24 下午现场演示，评审前公开仓库）；未逐条在官方渠道核实。
-- 主演示在本地 anvil（离线、MockPool）；主网 fork 演示为计划中。不做真实网络部署。
+- 离线回合在本地 anvil（MockPool）；主网 fork 演示在本地 anvil fork 上进行（`make demo`），不广播任何交易。不做真实网络部署。
 - 区间边界当前为占位 `[8, 20, 45, 110]` tick²，3 个模型也按它在合成数据上训练；按粗估真实 RV 在千级 tick²，需由 analysis 用真实 Swap 历史校准，校准后模型需重训并重建验证合约。
 - 彩池冷启动由协议方注入种子资金；公开下注可被跟单是已知问题，密封下注列为 Future work。
 - 首次构建 EZKL 电路时若本地没有 SRS 且未用 `--srs` / `VOL_AGENTS_SRS` 指定来源，会联网下载；无论来源，SRS 的 sha256 必须等于 `agents/vol_agents/build.py` 里固定的 `SRS_SHA256`，否则构建中止。已提交的验证合约与新构建结果不同时默认拒绝覆盖，需显式 `--force`。
 
 ## 后续
 
-1. analysis 改为拉取 Swap 事件，按合约同一口径算历史波动率，校准 4 个严格递增的区间边界。
-2. ERC-8004 接入：注册 agent 身份，结算后由市场合约把分数写进信誉；写信誉失败不影响结算与赔付。
-3. Chainlink 喂价交叉校验：owner 可选开启，偏离 > 200 bps 或喂价早于 3900 s 即作废退款。
-4. 用校准后的区间边界重训模型并重建 EZKL 验证合约。
-5. 演示：主网 fork 回放 + 简单看板。
-6. 提交前：README / 架构文档终稿、pitch 讲稿（SRS 摘要校验、验证合约覆盖保护、结算取整 fuzz 与协议费提取、删除旧 base fee 代码已完成）。
+已完成：analysis 区间校准、ERC-8004 接入、Chainlink 交叉校验、主网 fork 演示与看板、README / 架构 / 演示 / pitch 文档、SRS 摘要校验、验证合约覆盖保护、结算取整 fuzz 与协议费提取、删除旧 base fee 代码。
+
+1. 用校准后的区间边界重训模型并重建 EZKL 验证合约。

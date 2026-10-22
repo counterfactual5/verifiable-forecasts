@@ -80,13 +80,15 @@ The exam: realized volatility of the TWAP tick of the Uniswap V3 ETH/USDC 0.05% 
    operator links it with `linkAgent`. At settlement the market contract calls
    `giveFeedback(agentId, logScore, 18, "logScore", "vol-300s-12", …)`; readers filter
    `getSummary(agentId, [market], "logScore", …)` to the market as the only client. A failing registry
-   write emits an event and never blocks settlement.
+   write emits an event and never blocks settlement. Each registry and feed call gets at most 500k gas,
+   and `settle` reverts (`InsufficientGas`) when a call failed because the caller's gas limit starved
+   it, so nobody can skip a reputation write or void a round by sending `settle` with too little gas.
 
 ## Demo: one round on a mainnet fork
 
 ```bash
 cp .env.example .env    # optional: MAINNET_RPC_URL (defaults to the public tenderly gateway)
-bash demo/run.sh        # ~2–4 min; writes demo/out/fork_round.json
+make demo               # = bash demo/run.sh; ~2–4 min; writes demo/out/fork_round.json
 python3 -m http.server 8765 --bind 127.0.0.1   # then open http://127.0.0.1:8765/dashboard/
 ```
 
@@ -105,23 +107,23 @@ least an hour in the past, and then on the fork:
   the checkpoint;
 - settles (Chainlink check, log scores, ERC-8004 feedback), lets the bettors claim and collects the fee.
 
-Output of one run (fork block 26,246,328):
+Output of one run (fork block 26,246,628; `settle` sent with `cast`'s gas estimate):
 
 ```text
-realized vol 305 tick^2 (off-chain recompute 305, real mainnet hour 324), bounds [8, 20, 45, 110], winning bucket 4, voided False
-Chainlink ETH/USD 2434.95 vs pool 2426.52: 34.63 bps (max 200), feed age 3689 s (max 3900)
-settle gas 838431, events {'price_check_failed': 0, 'reputation_write_failed': 0, 'erc8004_feedback_logs': 3}
+realized vol 1322 tick^2 (off-chain recompute 1322, real mainnet hour 1353), bounds [8, 20, 45, 110], winning bucket 4, voided False
+Chainlink ETH/USD 2424.39 vs pool 2413.69: 44.12 bps (max 200), feed age 3689 s (max 3900)
+settle gas 851443 (estimated limit 856804), events {'price_check_failed': 0, 'reputation_write_failed': 0, 'erc8004_feedback_logs': 3}
 agent                  agentId   p_win  logScore  ERC-8004 getSummary
-agent-mlp32_abs          55214   0.868    -0.141  count=1 value=-0.141
-agent-mlp16              55213   0.496    -0.702  count=1 value=-0.702
-agent-linear_abs         55212   0.494    -0.705  count=1 value=-0.705
+agent-mlp32_abs          55214   0.853    -0.159  count=1 value=-0.159
+agent-linear_abs         55212   0.646    -0.437  count=1 value=-0.437
+agent-mlp16              55213   0.643    -0.442  count=1 value=-0.442
 agent-linear_abs: honest proof verifies=True, tampered output verifies=False
 ...
 bettor 0x15d34AAf… bucket 4: payout 1.9800 WETH
 fee to owner 0.0200 WETH, left in market 0 wei
 ```
 
-The fork's RV (305) differs slightly from the real hour (324) because the replay holds one tick per
+The fork's RV (1322) differs slightly from the real hour (1353) because the replay holds one tick per
 segment, while the real pool moves within each segment. See [`docs/DEMO.md`](docs/DEMO.md) for the
 step-by-step script and the recording outline.
 

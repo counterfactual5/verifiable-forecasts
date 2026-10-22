@@ -91,6 +91,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - agent 调 Identity 的 `register(agentURI)` 得到 agentId（ERC-721），模型 operator 调 `linkAgent(modelId, agentId)` 绑定；调用者必须是该模型的 operator 且拥有该 agentId。
 - `settle` 对每个已绑定且 agentId 非零的预测者，取已存的 `logScore`（不重算），以 try/catch 调用
   `giveFeedback(agentId, int128(logScore), 18, "logScore", tag2, "", "", bytes32(0))`。`tag2` 由构造参数派生为 `vol-<delta>s-<nSegments>`（如 `vol-300s-12`）。注册表调用失败发 `ReputationWriteFailed`，不回滚结算与赔付。
+- 低 gas 防护：每次调用最多转发 `EXTERNAL_CALL_GAS = 500_000` gas（主网实测 `giveFeedback` 约 19.7 万，含 21000 基础费）。按 EIP-150，被调方最多拿到剩余 gas 的 63/64。调用失败时，如果调用前剩余的 gas 不到 `500_000 × (1 + 1/32)`（被调方可能没拿到完整上限），`settle` 以 `InsufficientGas` revert。不能改用“调用后剩余 ≤ 1/64”来判断：已部署的注册表是代理，内部还会调用 Identity，内层调用缺 gas 时外层会带着自己那 1/64 正常 revert，主网 fork 演示中这种情况确实出现过。因此没人能靠压低 gas 上限让写入被跳过；在拿满 50 万的情况下仍然 revert 的注册表只触发事件。gas 足够时写入成功，所以估算出的 gas 上限不会因为这条防护而变高。
 - 读取方以市场合约为唯一 client 过滤：`getSummary(agentId, [market], "logScore", tag2)`；第三方写的反馈不会混入。已部署的 Reputation 禁止 agent 的 owner/operator 自评，市场合约作为提交者不受影响。
 - 主网 fork 演示中三个 agent 在已部署的 Identity 上注册（演示那次得到 agentId 55212–55214，仅存在于 fork 上），结算后 `getSummary` 各返回 1 条、值等于链上 logScore。
 
@@ -99,6 +100,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - owner 通过 `setPriceFeed(feed)` 开启；未配置时按池子 RV 照常结算，作废与退款行为不变。
 - 配置后，`settle` 在覆盖率通过后读结算时刻前 Δ 秒的 `observe([Δ, 0])`，向负无穷取整得到平均 tick，用 `TickPriceMath` 换算成 8 位小数 ETH/USD；`latestRoundData()` 的 answer 按 `decimals()` 归一到 8 位后比较。
 - `answer ≤ 0`、`updatedAt` 在未来或早于 3900 s、喂价调用失败、或绝对偏差严格大于 200 bps 时，发 `PriceCheckFailed` 并作废该轮，沿用 `claim` 全额退款；恰为 200 bps 时通过。迟结算比较的是结算时刻的价格。主网喂价 `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`（8 位小数）。
+- `latestRoundData()` 与 `decimals()` 同样受 `EXTERNAL_CALL_GAS` 上限与上述检查约束（Chainlink 代理内部也会调用 aggregator）：gas 不足导致的调用失败会让 `settle` revert，而不是把这一轮作废。`_collect` 里的 `observe()`（批量与逐点兜底）不设上限，因为池子是构造参数，开轮时已经直接信任。Uniswap V3 的 `observe` 在自己的帧内读存储、没有子调用，所以这里沿用“失败后剩余 ≤ 调用前 1/64 即 revert”的检查，低 gas 不能让检查点被丢弃。
 - 不做 Chainlink Automation / CRE；`settle` 仍由任何人调用。
 
 ## 7. agents 与 analysis
@@ -115,7 +117,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - fork 区块：最近一次「至少早于当前 1 小时 + 10 分钟」的 Chainlink ETH/USD 更新所在区块（或 `FORK_BLOCK`）。fork 上喂价不会再更新，结算时它约 3690 s 旧，留在 3900 s 限制之内；区块时间戳按每块 1 s 推进，部署耗时不会让喂价变旧。
 - fork 上的准备：清掉 anvil 公共测试账户在主网上的 EIP-7702 委托代码（否则无法接收 ERC-721 身份），给交易账户发 ETH，并在 0.3% 池换出 USDC（不碰被考的 0.05% 池）。
 - 窗口回放：从主网最新区块的 `observe()` 读出该小时 12 段真实 TWAP tick；每个检查点先 `sample`，再用带价格上限的 `exactInputSingle` 把 fork 上的池子推到该段真实 tick。若该小时已不在主网观测历史内，退回固定的来回小额 swap。
-- `settle` 用固定 gas 上限发送：`cast` 估算 gas 时会找到让 `try giveFeedback` 走 catch 分支也能成功的最低 gas，导致部分信誉写入因 gas 不足失败（见第 10 节）。
+- `settle` 故意用 `cast` 估算的 gas 发送：估算结果是 `settle` 能接受的最低上限，合约会拒绝让外部调用缺 gas 的上限（见第 5 节），所以 3 条 ERC-8004 反馈必须全部写入；脚本在出现 `ReputationWriteFailed` 时直接报错。swap 仍用固定 gas，只是为了跳过 fork 上较慢的估算。
 - 输出 `demo/out/fork_round.json`（git-ignored）；`dashboard/index.html` 是无构建的静态页，只读该 JSON（缺省回退到提交的 `dashboard/sample-round.json`），不连钱包、不调用任何写接口。
 
 ## 9. 未实现
@@ -133,7 +135,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 | 只有模型 operator 能用该模型提交，复制证明无效 | owner 决定登记哪些模型（`registerModel` 仅 owner） |
 | 结算 RV、获胜桶、对数评分、赔付全部在合约内整数计算 | 区间边界由开轮方传入（当前为占位值） |
 | 观测缺失或喂价不符时作废并全额退款 | 验证合约的可信度依赖 EZKL 与 KZG SRS（构建时校验固定摘要） |
-| 信誉由市场合约写入，读取时可只认市场合约 | 信誉写入失败只发事件；结算调用者给的 gas 不足时，靠后的写入可能失败而结算照常成功 |
+| 信誉由市场合约写入，读取时可只认市场合约；结算 gas 不足以完成写入时整笔 revert，不会静默跳过 | 注册表自身 revert 或超过 50 万 gas 上限时只发 `ReputationWriteFailed`，该分数不进信誉 |
 
 另外：特征在 `createRound` 时快照，而预测截止在 `startTime`，两者之间的价格变化不在模型输入里；下注与预测都是公开的。
 
