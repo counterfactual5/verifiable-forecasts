@@ -1,5 +1,5 @@
 [project]
-name = "basefee-analysis"
+name = "vol-analysis"
 version = "0.1.0"
 description = "Offline analysis for the vol market: fetch Uniswap V3 Swap events, recompute the contract's realized-vol caliber, and calibrate the bucket bounds VolMarket.createRound consumes."
 readme = "README.md"

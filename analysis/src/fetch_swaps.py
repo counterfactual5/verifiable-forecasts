@@ -257,7 +257,7 @@ class RpcClient:
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "User-Agent": "basefee-analysis/0.1",
+                "User-Agent": "vol-analysis/0.1",
             },
             method="POST",
         )
