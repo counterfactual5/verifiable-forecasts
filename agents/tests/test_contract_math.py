@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -55,3 +56,15 @@ def test_synthetic_features_use_contract_formula():
             assert cm.features_from_segment_ticks(ticks) == x_int[i].tolist()
         window = np.concatenate([[0], np.cumsum(win[i])]).tolist()
         assert cm.bucket_of(cm.realized_vol(window)) == y[i]
+
+
+def test_commitment_preimage_matches_abi_encode():
+    outputs = [1, 2**200, 0, 3, cm.PROB_SCALE]
+    salt = bytes(range(32))
+    sender = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    want = subprocess.run(
+        ["cast", "abi-encode", "f(uint256,uint256,uint256[5],bytes32,address)", "7", "3",
+         "[" + ",".join(map(str, outputs)) + "]", "0x" + salt.hex(), sender],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert "0x" + cm.commitment_preimage(7, 3, outputs, salt, sender).hex() == want

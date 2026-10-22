@@ -6,6 +6,9 @@ x = x_int / 4096 (EZKL input_scale 12). Negative public inputs are encoded as R 
 
 Realized vol (VolMarket._realizedVol): over the nSegments + 1 checkpoints of the window,
 rv = floor(sum (mean_{i+1} - mean_i)^2 * (nSegments - 1) / m); bucket = #bounds <= rv.
+
+Commitment (VolMarket.commitPrediction): keccak256(abi.encode(roundId, modelId, outputs[5], salt,
+sender)); every field is a static 32-byte word, so the preimage is 9 words.
 """
 
 R = 21888242871839275222246405745257275088548364400416034343698204186575808495617
@@ -17,6 +20,8 @@ SCALE = 4096
 CLAMP = 64
 MULT = 128
 BOUNDS = (8, 20, 45, 110)
+PROB_SCALE = 10**18  # VolMarket probabilities: 1e18 = 1
+MAX_OUTPUT = (2**256 - 1) // PROB_SCALE  # VolMarket.MAX_OUTPUT, below R / 2
 
 
 def floor_div(a: int, b: int) -> int:
@@ -69,3 +74,18 @@ def encode(x: int) -> int:
 
 def le_hex_to_int(h: str) -> int:
     return int.from_bytes(bytes.fromhex(h.removeprefix("0x")), "little")
+
+
+def commitment_preimage(round_id: int, model_id: int, outputs, salt: bytes, sender: str) -> bytes:
+    """abi.encode(uint256, uint256, uint256[5], bytes32, address)."""
+    assert len(outputs) == BUCKETS and len(salt) == 32
+    words = [round_id, model_id, *outputs]
+    out = b"".join(int(w).to_bytes(32, "big") for w in words)
+    return out + salt + int(sender, 16).to_bytes(32, "big")
+
+
+def probs_from_outputs(outputs):
+    """VolMarket.revealPrediction: 1e18-scaled shares, the last bucket takes the remainder."""
+    total = sum(outputs)
+    probs = [o * PROB_SCALE // total for o in outputs[:-1]]
+    return probs + [PROB_SCALE - sum(probs)]

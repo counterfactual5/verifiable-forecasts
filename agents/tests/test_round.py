@@ -1,6 +1,7 @@
 """End to end on a local anvil: deploy, register one verifier per model, open a round, let every
-agent prove and submit, then settle and compare the agents by their onchain log scores. The
-settled round also shows each agent's log score in its ERC-8004 reputation."""
+agent prove and commit, reveal once commits close, then settle and compare the agents by their
+onchain log scores. The settled round also shows each agent's log score in its ERC-8004
+reputation."""
 
 import json
 
@@ -8,7 +9,15 @@ import pytest
 
 from vol_agents import contract_math as cm
 from vol_agents.chain import DEV_KEYS, Anvil, as_int
-from vol_agents.round import COMPARE, WINDOW_TICKS, deploy, open_round, settle_round, submit_all
+from vol_agents.round import (
+    COMPARE,
+    WINDOW_TICKS,
+    commit_all,
+    deploy,
+    open_round,
+    reveal_all,
+    settle_round,
+)
 
 PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)"
 SUMMARY_SIG = "getSummary(uint256,address[],string,string)(int256)"
@@ -22,10 +31,19 @@ def chain():
 
 
 @pytest.fixture(scope="module")
-def submitted(chain):
+def committed(chain):
     d = deploy(chain)
     rid = open_round(d)
-    submit_all(d, rid)
+    commit_all(d, rid)
+    return d, rid
+
+
+@pytest.fixture(scope="module")
+def submitted(committed):
+    """Reveal the committed forecasts. The resubmission test stays above this fixture on purpose:
+    a second commit is only possible while commits are open."""
+    d, rid = committed
+    reveal_all(d, rid)
     return d, rid
 
 
@@ -38,6 +56,16 @@ def settled(submitted):
     """
     d, rid = submitted
     return d, rid, settle_round(d, rid)
+
+
+def test_resubmission_rejected(committed):
+    d, rid = committed
+    a = d.agents[0]
+    hidden = d.chain.call(d.market, PREDICTION_SIG, rid, a.address)
+    assert hidden[0] is False or hidden[0] == "false", "forecast must stay hidden until revealed"
+    already_predicted = "0x3b9e91cf"  # cast sig "AlreadyPredicted()"
+    with pytest.raises(RuntimeError, match=f"AlreadyPredicted|{already_predicted}"):
+        a.commit(d.chain, d.market, rid, d.rounds[rid]["submissions"][a.name])
 
 
 def test_agent_proves_and_submits(submitted):
@@ -61,14 +89,10 @@ def test_agent_proves_and_submits(submitted):
             assert got == pytest.approx(out * 10**18 // total, abs=5)
             assert got / 1e18 == pytest.approx(ref, abs=0.03)
         assert a.timings["prove"]["seconds"] < 15 * 60
-
-
-def test_resubmission_rejected(submitted):
-    d, rid = submitted
     a = d.agents[0]
-    already_predicted = "0x3b9e91cf"  # cast sig "AlreadyPredicted()"
-    with pytest.raises(RuntimeError, match=f"AlreadyPredicted|{already_predicted}"):
-        a.forecast(d.chain, d.market, rid)
+    already_revealed = "0xa89ac151"  # cast sig "AlreadyRevealed()"
+    with pytest.raises(RuntimeError, match=f"AlreadyRevealed|{already_revealed}"):
+        a.reveal(d.chain, d.market, rid)
 
 
 def test_agents_compare_after_round(settled):

@@ -4,7 +4,8 @@ deploy(): MockERC20, MockPool, VolMarket(Δ=300, N=12), the ERC-8004 Lite identi
 registries and one EZKL verifier per model; each model is registered with its own agent as
 operator, and each agent registers an ERC-8004 identity that the market links to its model, so
 the settled log score reaches that agent's reputation. open_round(): set the pool's 17 history
-segments and 12 window segments, createRound at T0. Every agent then proves and submits.
+segments and 12 window segments, createRound at T0. commit_all(): every agent proves and commits
+a hash of its forecast; reveal_all(): once commits close, every agent reveals outputs and proof.
 settle_round(): sample every checkpoint, settle, read each agent's onchain log score and write
 out/compare_round.json.
 
@@ -28,6 +29,10 @@ WINDOW_TICKS = [
     196000, 196002, 195999, 196003, 196003, 196002, 196000, 196001, 195999, 195999, 196002, 196001,
 ]
 COMPARE = OUT / "compare_round.json"
+# Commits close COMMIT_LEAD s and reveals REVEAL_LEAD s before the round start (T0 + 2 * DELTA);
+# the commit phase must outlast the agents' proving, which advances anvil's wall-clock time.
+COMMIT_LEAD = 300
+REVEAL_LEAD = 60
 # ERC-8004 agent metadata URI: deterministic and never resolved, so a round stays reproducible.
 AGENT_URI = "https://example.invalid/agents/{name}"
 
@@ -82,7 +87,8 @@ def deploy(chain: Anvil, models=None) -> Deployment:
     token = chain.deploy(owner, "test/mocks/MockERC20.sol:MockERC20")
     pool = chain.deploy(owner, "test/mocks/MockPool.sol:MockPool")
     market = chain.deploy(
-        owner, "src/VolMarket.sol:VolMarket", token, 0, pool, cm.DELTA, cm.N_SEGMENTS
+        owner, "src/VolMarket.sol:VolMarket", token, 0, 0, pool, cm.DELTA, cm.N_SEGMENTS,
+        COMMIT_LEAD, REVEAL_LEAD,
     )
     identity = chain.deploy(owner, "src/erc8004/IdentityRegistryLite.sol:IdentityRegistryLite")
     reputation = chain.deploy(
@@ -138,9 +144,20 @@ def open_round(d: Deployment) -> int:
     return rid
 
 
-def submit_all(d: Deployment, rid: int):
+def commit_all(d: Deployment, rid: int):
     for a in d.agents:
-        d.rounds[rid]["submissions"][a.name] = a.forecast(d.chain, d.market, rid)
+        d.rounds[rid]["submissions"][a.name] = a.commit(d.chain, d.market, rid)
+
+
+def reveal_all(d: Deployment, rid: int):
+    d.chain.set_next_timestamp(max(d.chain.timestamp() + 1, d.rounds[rid]["start"] - COMMIT_LEAD))
+    for a in d.agents:
+        a.reveal(d.chain, d.market, rid)
+
+
+def submit_all(d: Deployment, rid: int):
+    commit_all(d, rid)
+    reveal_all(d, rid)
 
 
 def settle_round(d: Deployment, rid: int):

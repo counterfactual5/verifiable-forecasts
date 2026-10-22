@@ -106,6 +106,11 @@ def address_of(key):
     return _run(["cast", "wallet", "address", "--private-key", key])
 
 
+def keccak(data: bytes) -> str:
+    """keccak256 computed locally: a commitment must not reach an RPC node before it is sent."""
+    return _run(["cast", "keccak", "0x" + data.hex()])
+
+
 def as_int(v):
     """cast --json renders integers as strings, sometimes with a ' [1e18]' annotation."""
     if isinstance(v, int):

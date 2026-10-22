@@ -1,8 +1,11 @@
-"""A forecasting agent: read the round's onchain features, run its model inside EZKL, check that the
-witness public inputs equal the contract's encoding, prove, and submit the forecast with the proof.
+"""Forecasting agents enter a VolMarket round in two steps: commit a hash of the forecast while
+commits are open, then reveal it once they close. `Agent` runs its model inside EZKL, checks that
+the witness public inputs equal the contract's encoding and proves; its reveal carries the proof.
+Commit-only agents (`api_agent.ApiAgent`) share the commit/reveal steps and reveal without a proof.
 """
 
 import json
+import secrets
 import time
 from dataclasses import dataclass, field
 
@@ -11,27 +14,61 @@ import onnxruntime as ort
 
 from . import contract_math as cm
 from .build import run_step
-from .chain import Anvil, as_int
+from .chain import Anvil, as_int, keccak
 from .ezkl_step import OUT, ROOT
 
-SUBMIT_SIG = "submitPrediction(uint256,uint256,bytes,uint256[5])"
+COMMIT_SIG = "commitPrediction(uint256,uint256,bytes32)"
+REVEAL_SIG = "revealPrediction(uint256,bytes,uint256[5],bytes32)"
 
 
 @dataclass
-class Agent:
+class Forecaster:
     name: str
-    model: str
     key: str
     address: str
     model_id: int | None = None
     timings: dict = field(default_factory=dict)
+    # (market, round) -> {"outputs", "proof", "salt"}, kept until the reveal
+    pending: dict = field(default_factory=dict)
+
+    kind = "zk"
+
+    def prepare(self, chain: Anvil, market: str, round_id: int) -> dict:
+        """Compute the forecast; returns at least {"outputs": [5 ints], "proof": hex}."""
+        raise NotImplementedError
+
+    def commit(self, chain: Anvil, market: str, round_id: int, forecast: dict | None = None):
+        """Commit `forecast` (or a fresh `prepare`); returns the forecast."""
+        forecast = forecast or self.prepare(chain, market, round_id)
+        salt = secrets.token_bytes(32)
+        digest = keccak(cm.commitment_preimage(
+            round_id, self.model_id, forecast["outputs"], salt, self.address))
+        t0 = time.time()
+        chain.send(self.key, market, COMMIT_SIG, round_id, self.model_id, digest)
+        self.timings["commit_s"] = round(time.time() - t0, 2)
+        self.pending[(market.lower(), round_id)] = {**forecast, "salt": salt}
+        return forecast
+
+    def reveal(self, chain: Anvil, market: str, round_id: int):
+        p = self.pending[(market.lower(), round_id)]
+        t0 = time.time()
+        chain.send(
+            self.key, market, REVEAL_SIG, round_id, p["proof"],
+            "[" + ",".join(map(str, p["outputs"])) + "]", "0x" + p["salt"].hex(),
+        )
+        self.timings["reveal_s"] = round(time.time() - t0, 2)
+
+
+@dataclass
+class Agent(Forecaster):
+    model: str = ""
 
     def onnx_probs(self, x):
         sess = ort.InferenceSession(str(ROOT / "models" / self.model / "model.onnx"))
         return sess.run(None, {"x": np.asarray([x], np.float32)})[0][0].tolist()
 
-    def forecast(self, chain: Anvil, market: str, round_id: int):
-        """Prove the model on round `round_id` and submit; returns the submitted outputs."""
+    def prepare(self, chain: Anvil, market: str, round_id: int) -> dict:
+        """Prove the model on round `round_id`'s onchain features."""
         raw = chain.call(market, "getFeatures(uint256)(int256[16])", round_id)
         feats = [as_int(v) for v in raw[0]]
         work = OUT / "rounds" / f"{market.lower()}-{round_id}" / self.name
@@ -54,13 +91,7 @@ class Agent:
         if inst[: cm.N_FEATURES] != want or len(inst) != cm.N_FEATURES + cm.BUCKETS:
             raise RuntimeError(f"{self.name}: proof instances do not match the round features")
         outputs = inst[cm.N_FEATURES :]
-        if any(o >= cm.R // 2 for o in outputs) or sum(outputs) == 0:
+        if any(o > cm.MAX_OUTPUT for o in outputs) or sum(outputs) == 0:
             raise RuntimeError(f"{self.name}: outputs not acceptable onchain: {outputs}")
-
-        t0 = time.time()
-        chain.send(
-            self.key, market, SUBMIT_SIG, round_id, self.model_id, proof["hex_proof"],
-            "[" + ",".join(map(str, outputs)) + "]",
-        )
-        self.timings["submit_s"] = round(time.time() - t0, 2)
-        return {"features": feats, "outputs": outputs, "onnx_probs": self.onnx_probs(x)}
+        return {"features": feats, "outputs": outputs, "proof": proof["hex_proof"],
+                "onnx_probs": self.onnx_probs(x)}
