@@ -67,9 +67,16 @@ const badge = (ok, yes, no) => `<span class="badge ${ok ? "ok" : "bad"}">${ok ? 
 const fmtTime = (t) => new Date(t * 1000).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 const eth = (wei) => (Number(BigInt(wei) / 10n ** 12n) / 1e6).toFixed(4);
 
+const SCAN = "https://etherscan.io";
+const blockLink = (n) => `<a class="mono" href="${SCAN}/block/${n}" target="_blank" rel="noopener">${n.toLocaleString()}</a>`;
+const txLink = (h, text) => `<a class="mono" href="${SCAN}/tx/${h}" target="_blank" rel="noopener">${text ?? short(h)}</a>`;
+const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#a371f7", "#f778ba", "#79c0ff"];
+
 async function load() {
   const param = new URLSearchParams(location.search).get("data");
-  for (const src of [param, "../demo/out/fork_round.json", "sample-round.json"].filter(Boolean)) {
+  const sources = [param, "../demo/out/fork_replay.json", "sample-replay.json",
+                   "../demo/out/fork_round.json", "sample-round.json"];
+  for (const src of sources.filter(Boolean)) {
     try {
       const r = await fetch(src, { cache: "no-store" });
       if (r.ok) return { data: await r.json(), src };
@@ -204,7 +211,166 @@ function render({ data: d, src }) {
     `Data: ${src} · generated ${d.generated_at ? new Date(d.generated_at * 1000).toISOString() : "?"} · read-only view, no wallet, no writes.`;
 }
 
-load().then(render).catch((e) => {
+function lineChart(series, labels, { zero = null, fmt = (v) => v.toFixed(2), H = 240 } = {}) {
+  const vals = series.flatMap((s) => s.values).filter((v) => v != null).concat(zero ?? []);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const W = 1200, L = 70, R = 16, T = 10, B = 26;
+  const n = labels.length;
+  const x = (i) => L + (n === 1 ? (W - L - R) / 2 : i * (W - L - R) / (n - 1));
+  const y = (v) => T + (hi - v) * (H - T - B) / (hi - lo);
+  const ticks = [0, 1, 2, 3, 4].map((k) => lo + (hi - lo) * k / 4);
+  const grid = ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#21262d"/>
+    <text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`).join("");
+  const step = Math.max(1, Math.ceil(n / 12));
+  const xl = labels.map((t, i) => i % step ? "" : `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${t}</text>`).join("");
+  const lines = series.map((s) => {
+    let d = "", pen = false;
+    s.values.forEach((v, i) => {
+      if (v == null) { pen = false; return; }
+      d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; pen = true;
+    });
+    const dots = s.values.map((v, i) => v == null ? "" : `<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${s.color}"><title>${s.name} · ${labels[i]}: ${fmt(v)}</title></circle>`).join("");
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
+  }).join("");
+  const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-dasharray="5 4"/>` : "";
+  const legend = series.map((s) => `<span style="color:${s.color}">━</span> ${s.name}`).join(" &nbsp; ");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%">${grid}${zl}${lines}${xl}</svg><div class="sub">${legend}</div>`;
+}
+
+function renderReplay({ data: d, src }) {
+  const p = d.params, names = BUCKET_NAMES(p.bounds), s = d.summary, rp = d.replay;
+  const rounds = d.rounds, labels = rounds.map((r) => r.window_utc[0].slice(11, 16));
+  const agents = d.agents.map((a, i) => ({ ...a, color: PALETTE[i % PALETTE.length], sum: s.agents[a.agent],
+    forecast_source: a.forecast_source ?? rounds[0]?.agents[a.agent]?.forecast_source }));
+  const uniform = p.baseline_log_score_float;
+  const card = (title, html, cls = "") => `<section class="card ${cls}"><h2>${title}</h2>${html}</section>`;
+  const isZk = (a) => a.model_type === "zk";
+  const typeBadge = (a) => isZk(a)
+    ? `<span class="badge zk" title="each reveal carries an EZKL proof the contract verified">zk proof</span>`
+    : `<span class="badge commit" title="committed before the deadline; no proof of which model made it">commit-only · ${a.forecast_source ?? "?"}</span>`;
+  document.querySelector("h1").textContent = `Verifiable AI Forecasts · ${rp.hours} h mainnet replay`;
+  document.getElementById("subtitle").innerHTML =
+    `${d.network} · fork block ${blockLink(d.fork_block)} · ${rp.start_utc} → ${rp.end_utc} · ` +
+    `${s.settled} settled, ${s.voided ? `<span class="badge bad">${s.voided} voided</span>` : "0 voided"}`;
+
+  const voidList = Object.entries(s.void_reasons).map(([k, v]) => `${v} × ${k}`).join(", ") || "none";
+  const clOk = rp.chainlink_reports.filter((r) => r.ok).length;
+  const overview = card("Replay", `<dl class="kv">
+    <dt>Hours replayed</dt><dd>${rounds.length} consecutive rounds of ${p.n_segments} × ${p.delta_s} s</dd>
+    <dt>Pool path</dt><dd>${rp.segments_replayed} five-minute segments set to mainnet's real mean tick</dd>
+    <dt>Fork features = mainnet</dt><dd>${badge(s.features_match_mainnet, "all rounds", "mismatch")}</dd>
+    <dt>Fork RV = mainnet</dt><dd>${badge(s.rv_matches_mainnet, "all rounds", "mismatch")}</dd>
+    <dt>Chainlink reports</dt><dd>${clOk} / ${rp.chainlink_reports.length} real transmissions re-sent on the fork</dd>
+    <dt>Voided</dt><dd>${voidList}</dd>
+    <dt>Wall time</dt><dd>${d.elapsed_s != null ? `${Math.round(d.elapsed_s)} s` : "?"}</dd></dl>`);
+
+  const counts = s.bucket_counts, maxC = Math.max(1, ...counts);
+  const bucketCard = card("Winning buckets", `<div style="display:flex;gap:6px;align-items:flex-end;height:120px">
+    ${counts.map((c, i) => `<div style="flex:1;text-align:center"><div class="sub">${c}</div>
+      <div style="height:${c / maxC * 90}px;background:var(--win);opacity:.75;border-radius:4px 4px 0 0"></div></div>`).join("")}</div>
+    <div class="buckets">${names.map((n, i) => `<div>#${i}<br>${n}</div>`).join("")}</div>
+    <div class="sub" style="margin-top:8px">Bounds in tick², calibrated on training-period swaps only.</div>`);
+
+  const cumulative = (vals) => { let acc = 0; return vals.map((v) => v == null ? null : (acc += v)); };
+  const scoreOf = (r, a) => r.outcome.voided ? null : r.agents[a.agent]?.log_score_float ?? null;
+  const excess = agents.map((a) => ({ name: a.agent, color: a.color, dash: isZk(a) ? null : "6 4",
+    values: cumulative(rounds.map((r) => { const v = scoreOf(r, a); return v == null ? null : v - uniform; })) }));
+  const excessCard = card("Cumulative log score minus uniform baseline (nats)",
+    lineChart(excess, labels, { zero: 0 }) +
+    `<div class="sub">Above the dashed zero line = the agent has, in total, put more probability on the outcome than a
+    uniform 1/5 forecast (${uniform.toFixed(3)} per round). Voided rounds are not scored.</div>`, "wide");
+
+  const W = Math.min(6, rounds.length);
+  const rolling = (vals) => vals.map((_, i) => {
+    const win = vals.slice(Math.max(0, i - W + 1), i + 1).filter((v) => v != null);
+    return win.length ? win.reduce((x, y) => x + y, 0) / win.length : null;
+  });
+  const roll = agents.map((a) => ({ name: a.agent, color: a.color, dash: isZk(a) ? null : "6 4",
+    values: rolling(rounds.map((r) => scoreOf(r, a))) }));
+  const rollCard = card(`Rolling ${W}-round mean log score`, lineChart(roll, labels, { zero: uniform }) +
+    `<div class="sub">Dashed line: uniform baseline ln(1/5).</div>`, "wide");
+
+  const rvSeries = [{ name: "realized vol (tick²)", color: "#a371f7", values: rounds.map((r) => r.outcome.realized_vol ?? r.real_realized_vol) }];
+  const rvCard = card("Realized volatility per round",
+    lineChart(rvSeries, labels, { fmt: (v) => v.toFixed(0) }) +
+    `<div class="sub">Bucket bounds ${p.bounds.join(" / ")} tick². RV from the contract's settle, equal to the mainnet recompute.</div>`, "wide");
+
+  const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: isZk(a) ? null : "6 4",
+    values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
+  const rewardCard = card("Cumulative predictor fee share (WETH)", lineChart(rewards, labels, { fmt: (v) => v.toFixed(4) }) +
+    `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters above the uniform
+    baseline, pro rata to their excess log score.</div>`, "wide");
+
+  const tamper = Object.fromEntries(d.tamper_checks.map((t) => [t.agent, t]));
+  const agentRows = agents.map((a) => {
+    const m = a.sum, rep = m.erc8004, t = tamper[a.agent];
+    const proves = rounds.map((r) => r.agents[a.agent]?.prove_seconds).filter((v) => v != null);
+    const prove = proves.length ? (proves.reduce((x, y) => x + y, 0) / proves.length).toFixed(1) + " s" : "–";
+    const repVal = Number(rep.summary_value) / 10 ** rep.summary_decimals;
+    return `<tr><td><span style="color:${a.color}">●</span> <b>${a.agent}</b> ${typeBadge(a)}<div class="sub mono">${short(a.address)}</div></td>
+      <td class="num">${m.rounds_scored}</td><td class="num"><b>${m.total_log_score.toFixed(3)}</b></td>
+      <td class="num">${m.mean_log_score != null ? m.mean_log_score.toFixed(3) : "–"}</td>
+      <td class="num">${m.beat_baseline_rounds}</td><td class="num">${eth(m.predictor_reward_wei)}</td>
+      <td>${isZk(a) ? `${t ? badge(!t.tampered_output_verifies, "tampered proof rejected", "tamper accepted!") : ""}
+        <div class="sub">prove ${prove} avg${t?.verify_proof_gas ? ` · verifyProof ${t.verify_proof_gas.toLocaleString()} gas` : ""}</div>`
+        : `<div class="sub">no proof; reveal checked against commit only</div>`}</td>
+      <td>agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}<br>
+        <span class="mono">${rep.tag1} / ${rep.tag2}</span></div></td></tr>`;
+  }).join("");
+  const agentsCard = card("Agents over the replay", `<table><tr><th>Agent</th><th class="num">Scored</th>
+    <th class="num">Σ ln p</th><th class="num">Mean</th><th class="num">Rounds &gt; baseline</th><th class="num">Fee share (WETH)</th>
+    <th>Verification</th><th>ERC-8004 ${link(d.contracts.erc8004_reputation)}</th></tr>
+    <tr><td class="sub">uniform baseline</td><td class="num">${s.settled}</td><td class="num">${s.uniform_total_log_score.toFixed(3)}</td>
+    <td class="num">${uniform.toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>${agentRows}</table>`, "wide");
+
+  const roundRows = rounds.map((r) => {
+    const o = r.outcome, m = r.mainnet;
+    const scores = agents.map((a) => {
+      const v = scoreOf(r, a);
+      return `<td class="num" style="color:${v == null ? "var(--muted)" : v > uniform ? "var(--ok)" : "var(--bad)"}">${v == null ? "–" : v.toFixed(2)}</td>`;
+    }).join("");
+    return `<tr><td>#${r.id}</td><td class="mono">${r.window_utc[0].slice(5, 16)}</td>
+      <td>${blockLink(m.block_from)}–${blockLink(m.block_to)}</td>
+      <td class="num">${m.swap_count}${m.last_swap_tx ? `<div class="sub">last ${txLink(m.last_swap_tx)}</div>` : ""}</td>
+      <td class="num">${o.realized_vol ?? r.real_realized_vol} ${badge(r.rv_matches_mainnet, "=", "≠")}</td>
+      <td>${o.voided ? `<span class="badge bad" title="${o.void_reason}">void</span><div class="sub">${o.void_reason}</div>` : `#${o.winning_bucket}`}</td>
+      <td class="num">${r.chainlink?.feed_age_s ?? "–"} s<div class="sub">${r.chainlink?.deviation_bps ?? "–"} bps</div></td>
+      ${scores}<td class="num">${o.gas_used?.toLocaleString() ?? "–"}</td></tr>`;
+  }).join("");
+  const roundsCard = card("Rounds · mainnet blocks, swaps and scores", `<table><tr><th>Round</th><th>Window (UTC)</th>
+    <th>Mainnet blocks</th><th class="num">Swaps</th><th class="num">RV vs mainnet</th><th>Outcome</th><th class="num">Feed age / dev</th>
+    ${agents.map((a) => `<th class="num" style="color:${a.color}">${a.agent.replace("agent-", "")}</th>`).join("")}<th class="num">Settle gas</th></tr>
+    ${roundRows}</table>
+    <div class="sub" style="margin-top:8px">Block and transaction links point at Ethereum mainnet: the window's real blocks and its
+    last pool swap. The market itself lives only on the local fork. Green score = above the uniform baseline.</div>`, "wide");
+
+  const c = d.contracts;
+  const clRows = rp.chainlink_reports.map((x) => `<tr><td>${txLink(x.mainnet_tx)}</td><td>${blockLink(x.mainnet_block)}</td>
+    <td class="mono">${fmtTime(x.mainnet_updated_at)}</td><td class="num">$${x.answer_usd.toFixed(2)}</td>
+    <td>${badge(x.ok, "replayed", "failed")}</td></tr>`).join("");
+  const clCard = card("Chainlink ETH/USD reports replayed", `<div style="max-height:320px;overflow-y:auto"><table>
+    <tr><th>Mainnet tx</th><th>Block</th><th>Updated</th><th class="num">Answer</th><th></th></tr>${clRows}</table></div>
+    <div class="sub" style="margin-top:8px">Each real transmission is re-sent on the fork by its original transmitter at its
+    original timestamp, so the feed's answer and age at every settle are mainnet's.</div>`, "wide");
+  const contractsCard = card("Contracts", `<dl class="kv">
+    <dt>ERC-8004 Identity</dt><dd>${link(c.erc8004_identity)}</dd>
+    <dt>ERC-8004 Reputation</dt><dd>${link(c.erc8004_reputation)}</dd>
+    <dt>Chainlink ETH/USD</dt><dd>${link(c.chainlink_feed)}</dd>
+    <dt>Uniswap V3 pool</dt><dd>${link(c.pool)}</dd>
+    <dt>Settlement token</dt><dd>${link(c.settlement_token)} WETH</dd>
+    <dt>VolMarket</dt><dd class="mono">${short(c.market)} (deployed on the fork)</dd></dl>`);
+
+  const app = document.getElementById("app");
+  app.style.gridTemplateColumns = "repeat(auto-fit, minmax(400px, 1fr))";
+  app.innerHTML = overview + bucketCard + contractsCard + excessCard + rollCard +
+    agentsCard + rewardCard + rvCard + roundsCard + clCard;
+  document.getElementById("source").textContent =
+    `Data: ${src} · generated ${d.generated_at ? new Date(d.generated_at * 1000).toISOString() : "?"} · read-only view, no wallet, no writes.`;
+}
+
+load().then((x) => (x.data.schema === "vol-replay/v1" ? renderReplay : render)(x)).catch((e) => {
   document.getElementById("subtitle").textContent = "";
   document.getElementById("app").innerHTML = `<div id="error">${e.message}</div>`;
 });
