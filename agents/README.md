@@ -22,6 +22,8 @@ three circuits stay at logrows 15. EZKL settings pin `input_scale = 12` (the con
 4096), public inputs/outputs and fixed params. `models/<name>/` holds `model.onnx`, `meta.json`,
 `cal.json` and the pinned calibrated `settings.json`.
 
+Training details, synthetic-data results, limits and a judges' Q&A: [`MODEL_CARD.md`](MODEL_CARD.md).
+
 ## Usage
 
 ```bash
