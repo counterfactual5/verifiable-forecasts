@@ -40,8 +40,10 @@ three circuits stay at logrows 15. EZKL settings pin `input_scale = 12` (the con
 
 Test-period mean log score (higher is better): `linear_abs` −1.418, `mlp16` −1.423, `mlp32_abs`
 −1.469, against uniform −1.609 and the training-period bucket frequencies −1.606
-(`models/eval.json`). Training details, baselines, limits and a judges' Q&A:
-[`MODEL_CARD.md`](MODEL_CARD.md).
+(`models/eval.json`). Over four walk-forward test weeks (cuts 09-24 – 10-15, bounds recalibrated and
+models retrained per fold, offline only) the mean is −1.345 / −1.383 / −1.398 against uniform −1.609
+and the previous-hour transition matrix −1.395 (`models/walkforward.json`, `vol_agents.walkforward`).
+Training details, baselines, limits and a judges' Q&A: [`MODEL_CARD.md`](MODEL_CARD.md).
 
 ## Usage
 
