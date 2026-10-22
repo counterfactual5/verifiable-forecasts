@@ -18,11 +18,14 @@ tamper-proof scoreboard. (Cases and sources: "Problem evidence" below.)
 
 **0:30 What we built (40 s).** A public exam on Ethereum. The question: how volatile will the Uniswap
 V3 ETH/USDC pool be over the next hour, in five buckets. The contract computes the model's inputs
-from the pool's own oracle. An agent's forecast is accepted only with a zk proof, made with EZKL,
-that its registered model produced exactly these probabilities from exactly these inputs. After the
+from the pool's own oracle. Every agent first commits a hash of its forecast, then reveals it before
+the window opens. A zk agent's reveal is accepted only with a zk proof, made with EZKL, that its
+registered model produced exactly these probabilities from exactly these inputs; a commit-only agent
+(for example a large time-series model behind an API) proves timing but not provenance. After the
 hour, anyone can settle: the contract measures the realized volatility from the same pool, checks the
 pool price against Chainlink ETH/USD, gives each forecast a log score, and writes that score into the
-agent's ERC-8004 reputation as the market contract.
+agent's ERC-8004 reputation as the market contract. Forecasters that beat the uniform baseline share
+part of the round's fee.
 
 **1:10 Why trust it (30 s).** Four things nobody can fake: inputs come from the contract, not the
 forecaster; the proof binds model, inputs and outputs; the answer comes from the pool's onchain
@@ -31,8 +34,8 @@ instead of paying out on manipulated data. Reputation is written by the market, 
 by the market's address, so agents cannot pad their own record.
 
 **1:40 Demo (50 s).** On a mainnet fork: real pool, deployed ERC-8004 registries, real Chainlink feed.
-Three agents prove and submit; a tampered proof is rejected. We replay the real hour that followed,
-settle, and the dashboard shows each agent's log score, read back from ERC-8004.
+Three zk agents and one commit-only agent commit, then reveal; a tampered proof is rejected. We replay the real hour that followed,
+settle, and the dashboard shows each agent's log score, read back from ERC-8004, and its fee share.
 
 **2:30 Track fit and next (30 s).** Verifiable AI: onchain-verified inference on contract-derived
 inputs. Agent Infra: ERC-8004 identity plus a reputation signal nobody can self-report. Chainlink:
@@ -44,11 +47,11 @@ rounds with outside agents.
 
 **问题（30 秒）**：美国 SEC、CFTC 和司法部已多次处理“宣称用 AI 预测或交易、实际没有，或由人工冒充”的案件，相关战绩甚至用伪造的账户与余额撑场。对外部人来说，一个 AI agent 公布的预测战绩是否真由它声称的模型算出、是否经过挑选，今天基本无从核实：预测是不是事前做的、是不是它声称的模型、用的是不是它声称的输入，也没有公共、不可篡改的成绩单。（案例与出处见下文“痛点证据”。）
 
-**方案（40 秒）**：我们在以太坊上开一个公开考场。考题是 Uniswap V3 ETH/USDC 池子下一小时的波动率落在 5 个区间中的哪一个。模型输入由合约从池子自己的预言机算出；agent 的预测必须附带 EZKL 生成的 zk 证明，证明是它登记的模型、用这组输入、算出了这组概率，合约验证通过才接受。一小时后任何人都能结算：合约用同一个池子算实际波动率，先用 Chainlink ETH/USD 交叉校验池子价格，再给每个预测打对数分，并以市场合约的身份写入该 agent 的 ERC-8004 信誉。
+**方案（40 秒）**：我们在以太坊上开一个公开考场。考题是 Uniswap V3 ETH/USDC 池子下一小时的波动率落在 5 个区间中的哪一个。模型输入由合约从池子自己的预言机算出；每个 agent 先提交预测的哈希承诺，窗口开始前再公开；zk agent 公开时必须附带 EZKL 生成的 zk 证明，证明是它登记的模型、用这组输入、算出了这组概率，合约验证通过才接受；仅承诺的 agent（例如 API 背后的大型时序模型）只证明预测事前定下，不证明出处。一小时后任何人都能结算：合约用同一个池子算实际波动率，先用 Chainlink ETH/USD 交叉校验池子价格，再给每个预测打对数分，并以市场合约的身份写入该 agent 的 ERC-8004 信誉；得分高于均匀基线的预测者按超出部分分走该轮手续费的一部分。
 
 **为什么可信（30 秒）**：输入由合约算，不由预测者给；证明把模型、输入、输出绑在一起；答案来自池子的链上 TWAP；池子价格与 Chainlink 偏差超过 2% 就作废退款，不按可疑数据派彩。信誉由市场合约写，读取时只认市场合约地址，agent 无法自刷。
 
-**演示（50 秒）**：主网 fork 上用真实池子、已部署的 ERC-8004 注册表和真实 Chainlink 喂价。三个 agent 证明并提交，篡改过的证明被拒；回放随后真实的一小时，结算，看板展示各 agent 的对数分与从 ERC-8004 读回的信誉。
+**演示（50 秒）**：主网 fork 上用真实池子、已部署的 ERC-8004 注册表和真实 Chainlink 喂价。三个 zk agent 和一个仅承诺 agent 先承诺后公开，篡改过的证明被拒；回放随后真实的一小时，结算，看板展示各 agent 的对数分、从 ERC-8004 读回的信誉和手续费分成。
 
 **赛道与下一步（30 秒）**：Verifiable AI——链上验证的推理、合约自算的输入；Agent Infra——ERC-8004 身份加无法自报的信誉；Chainlink——喂价是结算护栏。局限：三个模型很小、用合成数据和占位区间训练；下一步按真实历史校准的区间重训，再开放给外部 agent 跑真实轮次。
 
@@ -69,33 +72,37 @@ rounds with outside agents.
    the spec is still Draft. zk proofs of small-model inference fit an onchain verifier: EZKL proof ≈ 9 s /
    1.23 GB, verifier 19,656 B under EIP-170, verification ≈ 795k gas (grade X, `spikes/ezkl/README.md`).
 4. **Solution.** The exam loop diagram from the README: pool `observe()` → features → agent proves →
-   `submitPrediction` verifies → window → `settle` → log score → ERC-8004.
+   `commitPrediction` → `revealPrediction` verifies → window → `settle` → log score → ERC-8004 →
+   fee share for forecasters above baseline.
 5. **Why it's trustworthy.** Four guarantees: contract-computed public inputs; proof binds model,
-   inputs, outputs and only the registered operator can submit; settlement from the pool's TWAP with
+   inputs, outputs and only the registered operator can commit; forecasts stay sealed until the
+   reveal phase, which ends before the window opens; settlement from the pool's TWAP with
    `sample()` fallback, voided under 90 % coverage; Chainlink cross-check (> 200 bps or > 3900 s stale
    voids). Plus: reputation written by the market and filtered by market address.
 6. **Demo.** Mainnet fork, real pool, deployed ERC-8004, real feed. Screenshot `docs/img/dashboard.png`
-   and the terminal summary: RV 305 tick² onchain = 305 off-chain, Chainlink deviation 34.6 bps,
-   three scores mirrored in `getSummary`, tampered proofs rejected (grade X, `docs/DEMO.md`).
+   and the terminal summary: RV 259 tick² onchain = 259 off-chain, Chainlink deviation 14.2 bps,
+   four scores mirrored in `getSummary` under zk and commit-only tags, tampered proofs rejected,
+   0.01 WETH forecaster share split exactly (grade X, `docs/DEMO.md`).
 7. **Track fit.** Verifiable AI (verified inference on contract-derived inputs), Agent Infra (ERC-8004
    identity + a reputation signal agents cannot self-report), Chainlink (feed as settlement guard).
 8. **Limits, stated plainly.** Synthetic training data and placeholder buckets `[8, 20, 45, 110]` tick²
    (real hourly RV calibrates to `[342, 620, 1124, 2052]`; grade X, `analysis/`), so today nearly every
    real round lands in the top bucket. The fork demo replays the real hour by swaps. Features are
-   snapshotted at `createRound`. Bets and forecasts are public. No Automation / CRE. Only small models
-   fit the zk path; TEE and commit-reveal tiers for larger models are roadmap only.
+   snapshotted at `createRound`. Bets are public; forecasts are public after reveal, which ends before
+   the window opens. No Automation / CRE. Only small models fit the zk path; larger models can join as
+   commit-only (timing, not provenance); a TEE tier is roadmap only.
 9. **Next.** Retrain on calibrated bounds and real history, rebuild verifiers; open model registration
-   to outside agents; sealed forecasts; Chainlink Automation for `settle`; ERC-8004 Validation
-   Registry once the spec settles; tiered verification so models too large for zk can still be held
-   accountable (roadmap, not implemented; see "Tiered verification" below).
+   to outside agents; Chainlink Automation for `settle`; ERC-8004 Validation Registry once the spec
+   settles; a TEE tier and submission stake (roadmap, not implemented; see "Tiered verification"
+   below).
 
-## Tiered verification (roadmap, not implemented) / 分级验证（路线图，未实现）
+## Tiered verification / 分级验证（zk 与仅承诺已实现，其余为路线图）
 
 Accountability has four layers. Three of them do not need zk at all:
 
 | Layer | Mechanism | Needs zk? |
 |---|---|---|
-| Committed before the outcome | onchain timestamp, deadline `startTime` | no |
+| Committed before the outcome | hash committed before `startTime − commitLead`, revealed before `startTime − revealLead` | no |
 | Objective settlement | contract reads `observe()`, cross-checked with Chainlink | no |
 | Portable record | score written to ERC-8004 by the market contract | no |
 | Provenance: this model really computed it | zk proof of inference | yes |
@@ -103,29 +110,33 @@ Accountability has four layers. Three of them do not need zk at all:
 So provenance can be offered in tiers, and readers choose which tier they trust:
 
 - **zk (implemented, small models).** What runs today: EZKL proof on contract-derived inputs.
+- **Commit-only (implemented).** Any model, registered with `verifier = address(0)`
+  (`isZkModel` returns false); proves timing, not provenance. The demo's commit-only agent calls a
+  configurable time-series model API, or a deterministic placeholder when none is configured.
 - **TEE remote attestation (not implemented).** For large models and LLMs; trusts the hardware vendor.
-- **Commit-reveal, commitment only (not implemented).** Any model; proves timing, not provenance.
-- opML (optimistic verification with fraud proofs) is another option for large models [not evaluated].
+- opML (optimistic verification with fraud proofs) is another option for large models [not evaluated,
+  roadmap].
 
-Non-zk tiers must use commit-reveal: forecasts are public once submitted, so without a sealed commit a
-late submitter could copy an earlier one. The zk tier does not have this problem: outputs are only
-accepted with a proof from the submitter's own registered model (fixed weights, contract-computed
-inputs), and the contract only lets that model's registered operator submit, so neither someone
-else's proof nor someone else's probabilities can be reused. The proof itself does not bind the
-sender; the `modelId → operator` check in `submitPrediction` does (`contracts/src/VolMarket.sol`).
+All agents, zk included, go through commit-reveal. The commitment is
+`keccak256(abi.encode(roundId, modelId, outputs, salt, msg.sender))`, so a copied commitment cannot be
+revealed by anyone else, and forecasts stay hidden until the reveal phase, which closes before the
+window opens. A zk agent's proof is checked at reveal; a commit-only reveal only has to match its
+hash. Only a model's registered operator may commit for it (`modelId → operator`), and a commitment
+that is never revealed is neither scored nor paid.
 
-When writing to ERC-8004, the tier can be recorded in a tag (today tag1 = `logScore`,
-tag2 = `vol-300s-12`), so `getSummary` filters by the tier a reader accepts. This follows ERC-8004's
+The tier is recorded in ERC-8004 tag2: zk models write `vol-300s-12`, commit-only models
+`vol-300s-12-commit` (tag1 = `logScore` for both), so `getSummary` filters by the tier a reader
+accepts. This follows ERC-8004's
 own design: "Trust models are pluggable and tiered", listing client-feedback reputation,
 stake-secured re-execution, zkML proofs and TEE oracles (grade A, EIP-8004).
 
-问责分四层：事前承诺（链上时间戳）、客观结算（`observe()` + Chainlink 交叉校验）、成绩可携带
+问责分四层：事前承诺（哈希承诺 + 公开截止）、客观结算（`observe()` + Chainlink 交叉校验）、成绩可携带
 （ERC-8004）都不依赖 zk；只有“出处：确实是该模型算的”依赖 zk。出处可以分级：zk（已实现，小模型）；
-TEE 远程证明（大模型 / LLM，需信任硬件厂商，未实现）；commit-reveal 仅承诺（任意模型，不保证出处，
-未实现）；opML 乐观验证也是一种选项（未评估）。非 zk 路径必须用 commit-reveal，否则后提交者可照抄先
-提交者的公开预测；zk 路径没有这个问题，因为输出必须附带提交者自己已登记模型的证明，且合约只允许该模型
-的 operator 提交（证明本身不绑定发送者，绑定靠合约的 `modelId → operator` 检查）。写入 ERC-8004 时用
-tag 记录验证等级，读取方按自己接受的等级过滤。
+仅承诺（已实现，任意模型，`verifier = 0` 登记，只证明时间不证明出处）；TEE 远程证明（大模型 / LLM，需信任
+硬件厂商，未实现）；opML 乐观验证也是一种选项（未评估，路线图）。所有 agent（含 zk）都先承诺后公开：承诺为
+`keccak256(abi.encode(roundId, modelId, outputs, salt, msg.sender))`，绑定发送者，抄来的承诺无法被他人公开；
+公开阶段在窗口开始前结束，zk 模型在公开时验证证明；未公开的预测不计分、不分钱。写入 ERC-8004 时 zk 用
+tag2 `vol-300s-12`，仅承诺用 `vol-300s-12-commit`，读取方按自己接受的等级过滤。
 
 ## Economics without a token / 不发币的经济模型
 
@@ -135,10 +146,15 @@ unvalidated hypothesis: nobody pays us today.
 **Today (implemented).** Bettors stake the market's ERC-20 (WETH in the demo) on one of five buckets
 before `startTime`; winners split the whole pool minus the protocol fee pro rata. `feeBps` is fixed at
 deployment (< 1000, 1 % in the demo); `collectFee` is callable by anyone once per round and sends the
-fee to `owner`; voided and no-winner rounds refund every stake and carry no fee. Forecasters get no
-tokens from the contract. They get a log score computed at settlement from the pool's own TWAP and
-written by the market contract into their ERC-8004 reputation, so the score comes from onchain
-settlement, not self-assessment.
+fee to `owner`; voided and no-winner rounds refund every stake and carry no fee. Every revealed
+forecast gets a log score computed at settlement from the pool's own TWAP and written by the market
+contract into its ERC-8004 reputation, so the score comes from onchain settlement, not
+self-assessment. A fixed share of each round's fee, `predictorShareBps` (constructor parameter,
+≤ 10000; 50 % in the demo), goes to forecasters whose log score is strictly above the uniform
+baseline `ln 0.2`, split pro rata to their excess score; each claims with `claimPredictorReward`, and
+the last claimer receives the rounding remainder so the pool is paid out exactly. If nobody beats the
+baseline, the whole fee goes to the owner. The share is paid in the betting token from bettors' fees;
+the contract mints nothing. It is small while betting volume is small.
 
 **Later payers (hypothesis).** LP range management, Uniswap v4 dynamic-fee hooks, options market
 makers, agent vaults. Payment by subscription as Synth does, or per request for an aggregated forecast
@@ -155,16 +171,18 @@ and replays real mainnet prices on a fork.
 | Mechanism | Status |
 |---|---|
 | EZKL proof binds outputs to the registered model on contract-computed inputs | implemented |
-| Forecasts only before `startTime`, one per predictor per round | implemented |
-| Only the model's registered operator may submit (`modelId → operator`) | implemented |
+| Forecasts committed as a sender-bound hash before `startTime − commitLead`, revealed before `startTime − revealLead`, one per predictor per round | implemented |
+| Only the model's registered operator may commit (`modelId → operator`) | implemented |
+| Fee share only for scores above the uniform baseline; unrevealed forecasts earn nothing | implemented |
 | Submission stake and slashing; penalty for missed rounds, participation rate | roadmap |
-| Commit-reveal channel for commitment-only agents (third-party time-series foundation model APIs) | roadmap |
+| Commit-only channel for agents without proofs (third-party time-series foundation model APIs), separate ERC-8004 tag | implemented |
 | Diversity score in the style of Numerai MMC (A, [Numerai docs](https://docs.numer.ai/numerai-tournament/scoring/meta-model-contribution-mmc)) | roadmap |
 | Weight cap per operator | roadmap |
 
 **Governance.** No token governance. Today the deployer is a fixed `owner` that registers models
 (`registerModel`), sets the Chainlink feed (`setPriceFeed`) and the ERC-8004 registries
-(`setReputation`), and receives fees; `feeBps`, pool, Δ and N are constructor parameters. `createRound`
+(`setReputation`), and receives the fee minus the forecasters' share; `feeBps`, `predictorShareBps`,
+the commit and reveal leads, pool, Δ and N are constructor parameters. `createRound`
 is permissionless: anyone can open a round with any four ascending bounds. Governance would at most
 cover allowed bound templates or relative-bound multiples and a fee cap. Opening rounds will not go to
 a token vote: a rogue actor who became a top-5 UMA staker swung a disputed Polymarket resolution
@@ -178,13 +196,17 @@ Polymarket's traders. A token appears only on the roadmap, as an optional tool f
 slashing, and only once outside payers exist.
 
 已实现：下注者押注 ERC-20，赢家按比例分走扣除手续费后的整个彩池；`feeBps` 部署时固定（< 1000，演示为
-1%），`collectFee` 任何人可调、每轮一次、转给 `owner`，作废或无人押中的轮次全额退款不收费。预测者从合约
-拿不到代币，只拿到结算时由池子 TWAP 算出、由市场合约写入 ERC-8004 的对数分，分数来自链上结算而非自评。
-防作弊已实现的是 EZKL 绑定模型输出、`startTime` 提交截止、只许已登记 operator 提交；当前 `owner` 负责
-登记模型、设喂价与 ERC-8004 注册表并收手续费，`createRound` 无许可。以下均为未验证的设想：未来付费方是
+1%），`collectFee` 任何人可调、每轮一次、转给 `owner`，作废或无人押中的轮次全额退款不收费。每个已公开的预测在
+结算时由池子 TWAP 算出对数分，由市场合约写入 ERC-8004，分数来自链上结算而非自评。手续费中
+`predictorShareBps`（构造参数，≤ 10000，演示为 50%）归得分严格高于均匀基线 `ln 0.2` 的预测者，按超出
+基线的分数比例分配，各自用 `claimPredictorReward` 领取，最后一位领取者拿取整余数，总额精确守恒；没人
+超过基线时整笔手续费归 owner。分成来自下注者的手续费，合约不增发任何代币，下注量小时分成也小。
+防作弊已实现的是 EZKL 绑定模型输出、绑定发送者的哈希承诺与公开截止、只许已登记 operator 承诺、仅高于
+基线才分钱、未公开不计分，以及仅承诺通道（单独的 ERC-8004 tag）；当前 `owner` 负责登记模型、设喂价与
+ERC-8004 注册表并收取扣除分成后的手续费，`createRound` 无许可。以下均为未验证的设想：未来付费方是
 LP 区间管理、Uniswap v4 动态费率 hook、期权做市、Agent 金库，按订阅或 x402 按次付费（“DeFi 已在为小时级
 分档概率付费”[待证据]；Synth 的付费订阅只说明存在类似需求）；冷启动靠团队自注彩池、自跑 3 个 agent、
-主网 fork 真实行情；路线图上的防作弊是提交质押与罚没、缺席惩罚、commit-reveal 仅承诺通道、MMC 式多样性
+主网 fork 真实行情；路线图上的防作弊是提交质押与罚没、缺席惩罚、MMC 式多样性
 分、单 operator 权重上限；治理最多管分桶边界模板和手续费上限，开轮权不交给代币投票（UMA 治理操纵事件）。
 不发币，因为同类协议增发补贴供给、收入远小于排放，可持续需求来自有盈亏的外部付费方；代币只作为路线图里
 可选的质押罚没工具，前提是先有外部付费。
@@ -197,13 +219,13 @@ Synth is Bittensor subnet 50 (A, [synth-subnet](https://github.com/synthdataco/s
 |---|---|---|
 | Scoring | validators score offchain with CRPS | settled onchain from Uniswap `observe()` TWAP, integer log score |
 | Provenance | cannot prove which model produced a forecast | EZKL proof binds outputs to a registered model; weights are fixed in the circuit (`param_visibility = fixed`), not hidden |
-| Incentive | subnet Alpha emissions | no token: betting pool and protocol fee; forecasters earn ERC-8004 reputation usable across apps |
+| Incentive | subnet Alpha emissions | no token: betting pool and protocol fee; forecasters above baseline share part of the fee and earn ERC-8004 reputation usable across apps |
 | Product | price-path distributions sold as an API | accountability layer for settlement and reputation; could give suppliers like Synth a verifiable track record |
 | Paying users | yes | none yet |
 
 Synth 由 validator 链下用 CRPS 打分，无法证明预测出自哪个模型，靠子网 Alpha 增发激励，卖价格路径分布
 API；我们链上按 `observe()` TWAP 结算、整数对数分，EZKL 证明绑定已登记模型（权重固定在电路里，不是隐藏
-模型），无代币，激励是彩池手续费与跨应用的 ERC-8004 信誉，定位是可问责的结算与信誉层，也可以反过来给
+模型），无代币，激励是彩池手续费（高于基线的预测者分一部分）与跨应用的 ERC-8004 信誉，定位是可问责的结算与信誉层，也可以反过来给
 Synth 这类供给方做可验证战绩。坦白说：Synth 已有真实付费用户，我们没有。
 
 ## Problem evidence / 痛点证据
@@ -248,7 +270,8 @@ BasisOS are grade C only and are deliberately not used.
 |---|---|---|
 | Proof time per agent (demo laptop) | 3.7–9.1 s | X, `demo/fork_round.py` run output |
 | EZKL prove / memory (spike) | ≈ 9 s / 1.23 GB | X, `spikes/ezkl/README.md` |
-| Settle gas, 3 agents, Chainlink check + 3 ERC-8004 writes | 851,443 (sent with the gas estimate) | X, demo run (`docs/DEMO.md`) |
+| Settle gas, 4 agents, Chainlink check + 4 ERC-8004 writes | 1,096,683 (sent with the gas estimate) | X, demo run (`docs/DEMO.md`) |
+| Settle gas, 32 revealed forecasters bound to ERC-8004 (Lite registry) | 4,415,928 | X, `forge test --match-test test_SettleGasWith32BoundPredictors` |
 | Pool observation history (worst case) | ≈ 2.41 h, so a 1 h window is always readable | X, `spikes/facts/FACTS.md` §1 |
 | Calibrated bounds | `[342, 620, 1124, 2052]` tick² over 2,010 hourly windows | X, `analysis/` |
 | SEC "AI washing" penalties, Delphia + Global Predictions | $400,000 total (2024-03-18) | A, [SEC 2024-36](https://www.sec.gov/newsroom/press-releases/2024-36) |

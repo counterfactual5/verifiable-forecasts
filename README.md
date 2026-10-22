@@ -32,10 +32,10 @@ flowchart LR
   feed["Chainlink ETH/USD<br/>latestRoundData()"]
   subgraph market["VolMarket.sol"]
     create["createRound<br/>16 features from observe()"]
-    submit["submitPrediction<br/>verify EZKL proof against<br/>the stored features"]
+    submit["commitPrediction → revealPrediction<br/>zk models: verify EZKL proof<br/>against the stored features"]
     settle["settle<br/>RV from observe() / sample()<br/>log score per forecast"]
   end
-  agents["agents/<br/>3 small models<br/>EZKL prove"]
+  agents["agents/<br/>3 zk models (EZKL prove)<br/>+ 1 commit-only API agent"]
   verifier["EZKL Halo2 verifier<br/>(one per model)"]
   id["ERC-8004 Identity"]
   rep["ERC-8004 Reputation"]
@@ -43,7 +43,7 @@ flowchart LR
 
   pool --> create
   create -- getFeatures --> agents
-  agents -- proof + outputs --> submit
+  agents -- hash, then proof + outputs --> submit
   submit --> verifier
   pool --> settle
   feed -- cross-check --> settle
@@ -57,16 +57,20 @@ flowchart LR
 The exam: realized volatility of the TWAP tick of the Uniswap V3 ETH/USDC 0.05% pool
 (`0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`) over the next hour, 12 segments of Δ = 300 s, measured as
 `RV = Σ (ā_k − ā_{k−1})²` over adjacent segment-mean ticks, in tick². Bettors stake on one of 5 buckets
-(parimutuel); AI agents submit a probability for each bucket.
+(parimutuel); AI agents commit, then reveal a probability for each bucket.
 
 1. **observe → features.** `createRound(startTime, bounds)` calls the pool's `observe()` for the last 17
    segments and stores 16 features (differences of segment-mean ticks, clamped to ±64 and scaled by 128).
 2. **EZKL proof.** Each agent reads `getFeatures(id)`, runs its small model (16 → … → 5, softmax) and
    proves the inference with EZKL (Halo2/KZG, logrows 15, about 4–9 s per proof on a laptop).
-3. **submitPrediction.** The agent submits `(modelId, proof, outputs[5])` before `startTime`. The contract
-   rebuilds the public inputs from *its own stored features* plus the outputs, calls that model's
-   EZKL-generated verifier, and records the normalized distribution only if the proof verifies. Only the
-   model's registered operator may submit with it, so a copied proof is useless.
+3. **commit → reveal.** Before `startTime − commitLead` the model's registered operator commits
+   `keccak256(abi.encode(id, modelId, outputs, salt, sender))`; between that deadline and
+   `startTime − revealLead` it reveals `(proof, outputs[5], salt)`. For a zk model the contract rebuilds
+   the public inputs from *its own stored features* plus the outputs, calls that model's EZKL-generated
+   verifier, and records the normalized distribution only if the proof verifies. A commit-only model
+   (registered with `verifier = 0`) only has to match its commitment: it proves timing, not provenance.
+   The commitment binds the sender, so a copied commitment or proof is useless; an unrevealed forecast
+   is neither scored nor paid.
 4. **settle.** After the window, `settle(id)` reads the 13 checkpoints via `observe()`. Anyone can call
    `sample(id, k)` during the window to store a checkpoint, which saves settlement if the pool's
    observation history rolls past the window. Up to one missing point is tolerated (normalized RV);
@@ -74,11 +78,15 @@ The exam: realized volatility of the TWAP tick of the Uniswap V3 ETH/USDC 0.05% 
 5. **Chainlink cross-check** (opt-in via `setPriceFeed`). Settlement compares the pool's TWAP price over
    the last Δ with Chainlink ETH/USD; more than 200 bps apart, or a feed answer older than 3900 s, voids
    the round.
-6. **log score.** Each forecast scores `max(ln p_win, −18)` (1e18-scaled). Winners claim their pro-rata
-   share of the pool minus fee; anyone can push the fee to the owner with `collectFee`.
+6. **log score and fee share.** Each revealed forecast scores `max(ln p_win, −18)` (1e18-scaled).
+   Winners claim their pro-rata share of the pool minus fee. `predictorShareBps` of the fee goes to
+   forecasters scoring strictly above the uniform baseline `ln 0.2`, pro rata to their excess score
+   (`claimPredictorReward`); `collectFee` sends the rest, or the whole fee if nobody beat the baseline,
+   to the owner.
 7. **ERC-8004 reputation** (opt-in via `setReputation`). Agents register an identity and the model
    operator links it with `linkAgent`. At settlement the market contract calls
-   `giveFeedback(agentId, logScore, 18, "logScore", "vol-300s-12", …)`; readers filter
+   `giveFeedback(agentId, logScore, 18, "logScore", "vol-300s-12", …)` (commit-only models:
+   `"vol-300s-12-commit"`); readers filter
    `getSummary(agentId, [market], "logScore", …)` to the market as the only client. A failing registry
    write emits an event and never blocks settlement. Each registry and feed call gets at most 500k gas,
    and `settle` reverts (`InsufficientGas`) when a call failed because the caller's gas limit starved
@@ -99,31 +107,39 @@ least an hour in the past, and then on the fork:
   (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`) and Reputation
   (`0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`) registries and the **real** Chainlink feed
   (`0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`), plus one EZKL verifier per model;
-- registers an ERC-8004 identity for each of the 3 agents and links it to its model;
-- opens a round (features come from the real pool's last 85 minutes), lets the agents from `agents/`
-  prove and submit, and checks that each verifier rejects the same proof with one output changed;
+- registers an ERC-8004 identity for each of the 3 zk agents and one commit-only agent (a configurable
+  time-series model API, or a deterministic placeholder when `VOL_TSFM_API_URL` is unset) and links it
+  to its model;
+- opens a round (features come from the real pool's last 85 minutes), lets every agent commit, then
+  reveal (zk agents with a proof), and checks that each verifier rejects the same proof with one output
+  changed;
 - replays the hour that followed on mainnet: at each 5-minute checkpoint a trader account swaps the
   forked pool to the real segment's TWAP tick (read from mainnet's own `observe`), and `sample` stores
   the checkpoint;
-- settles (Chainlink check, log scores, ERC-8004 feedback), lets the bettors claim and collects the fee.
+- settles (Chainlink check, log scores, ERC-8004 feedback), lets the bettors claim, pays the
+  forecasters' fee share and collects the rest of the fee.
 
-Output of one run (fork block 26,246,628; `settle` sent with `cast`'s gas estimate):
+Output of one run (fork block 26,247,424; `settle` sent with `cast`'s gas estimate):
 
 ```text
-realized vol 1322 tick^2 (off-chain recompute 1322, real mainnet hour 1353), bounds [8, 20, 45, 110], winning bucket 4, voided False
-Chainlink ETH/USD 2424.39 vs pool 2413.69: 44.12 bps (max 200), feed age 3689 s (max 3900)
-settle gas 851443 (estimated limit 856804), events {'price_check_failed': 0, 'reputation_write_failed': 0, 'erc8004_feedback_logs': 3}
-agent                  agentId   p_win  logScore  ERC-8004 getSummary
-agent-mlp32_abs          55214   0.853    -0.159  count=1 value=-0.159
-agent-linear_abs         55212   0.646    -0.437  count=1 value=-0.437
-agent-mlp16              55213   0.643    -0.442  count=1 value=-0.442
+realized vol 259 tick^2 (off-chain recompute 259, real mainnet hour 300), bounds [8, 20, 45, 110], winning bucket 4, voided False
+Chainlink ETH/USD 2406.75 vs pool 2403.34: 14.18 bps (max 200), feed age 3752 s (max 3900)
+settle gas 1096683 (estimated limit 1102040), events {'price_check_failed': 0, 'reputation_write_failed': 0, 'erc8004_feedback_logs': 4}
+agent               type            agentId   p_win  logScore  reward WETH  ERC-8004 getSummary
+agent-tsfm-api      commit-only       55250   0.972    -0.029     0.003194  count=1 value=-0.029 (vol-300s-12-commit)
+agent-mlp32_abs     zk proof          55249   0.941    -0.061     0.003129  count=1 value=-0.061 (vol-300s-12)
+agent-mlp16         zk proof          55248   0.497    -0.699     0.001840  count=1 value=-0.699 (vol-300s-12)
+agent-linear_abs    zk proof          55247   0.496    -0.700     0.001837  count=1 value=-0.700 (vol-300s-12)
+agent-tsfm-api: commit-only, forecast source placeholder
 agent-linear_abs: honest proof verifies=True, tampered output verifies=False
-...
+agent-mlp16: honest proof verifies=True, tampered output verifies=False
+agent-mlp32_abs: honest proof verifies=True, tampered output verifies=False
 bettor 0x15d34AAf… bucket 4: payout 1.9800 WETH
-fee to owner 0.0200 WETH, left in market 0 wei
+bettor 0x9965507D… bucket 3: payout 0.0000 WETH
+fee 0.0200 WETH: owner 0.0100, forecasters 0.0100 (5000 bps, above baseline -1.609), left in market 0 wei
 ```
 
-The fork's RV (1322) differs slightly from the real hour (1353) because the replay holds one tick per
+The fork's RV (259) differs slightly from the real hour (300) because the replay holds one tick per
 segment, while the real pool moves within each segment. See [`docs/DEMO.md`](docs/DEMO.md) for the
 step-by-step script and the recording outline.
 
@@ -139,14 +155,14 @@ step-by-step script and the recording outline.
 
 **Done**
 
-- `contracts/src/VolMarket.sol`: rounds, betting, zk-verified predictions, `observe`-based settlement with
-  `sample()` fallback, log scoring, claims, fee collection, ERC-8004 reputation writes, Chainlink
+- `contracts/src/VolMarket.sol`: rounds, betting, commit-reveal predictions (zk-verified or commit-only), `observe`-based settlement with
+  `sample()` fallback, log scoring, claims, fee collection with a forecaster share, ERC-8004 reputation writes, Chainlink
   cross-check. Shared math in `contracts/src/lib/MarketMath.sol`.
 - `contracts/src/verifier/`: one EZKL-generated Halo2 verifier per model.
 - `contracts/src/erc8004/`: minimal ERC-8004 v2.0.0 Identity/Reputation subset for tests and the
   offline round (the fork demo uses the deployed registries).
 - `agents/`: three structurally different models (`linear_abs`, `mlp16`, `mlp32_abs`), EZKL build with a
-  pinned SRS digest, and an end-to-end round on Anvil.
+  pinned SRS digest, a commit-only API agent, and an end-to-end round on Anvil.
 - `analysis/`: pulls `Swap` events, recomputes RV with the contract's rules and calibrates bounds
   (`[342, 620, 1124, 2052]` tick² from 2,010 hourly windows).
 - `demo/`: mainnet-fork round as above. `dashboard/`: static read-only view of the round.
@@ -180,7 +196,7 @@ Offline round (no RPC: `MockPool`, Lite registries, no Chainlink feed):
 
 ```bash
 cd agents
-uv run python -m vol_agents.round     # starts its own anvil: deploy, 3 agents prove + submit, settle
+uv run python -m vol_agents.round     # starts its own anvil: deploy, 3 agents prove, commit, reveal, settle
 cat out/compare_round.json            # agents sorted by onchain log score
 ```
 
@@ -219,7 +235,9 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for data flow and trust bound
   in the model inputs.
 - The cross-check compares one Δ-long TWAP price with one feed answer; it does not detect manipulation
   inside a segment.
-- Bets and forecasts are public (no sealed bidding), so they can be copied by later bettors.
+- Bets are public (no sealed bidding), and forecasts become public at reveal, before the window opens,
+  so later bettors can copy them. A commit-only forecast proves timing, not which model produced it.
+  Not revealing costs only the score and the fee share; there is no stake to slash.
 - At most 32 forecasts per round (bounds the scoring loop in `settle`).
 
 Out of scope: LMSR market making, blob-fee markets, FHE / commit-reveal betting, x402 payments, real funds,

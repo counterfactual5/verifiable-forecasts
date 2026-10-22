@@ -1,9 +1,21 @@
 # agents/
 
-Forecasters that enter VolMarket. Each agent runs a small model on the round's onchain features
-(`getFeatures`), proves the inference with EZKL, and submits the 5-bucket forecast together with the
-proof (`submitPrediction`). The contract verifies the proof against the features it derived itself
-and scores every forecast with the log score at settlement.
+Forecasters that enter VolMarket. Every agent works in two phases:
+
+1. **commit** before `startTime − commitLead`: `commitPrediction(id, modelId, commitment)` with
+   `commitment = keccak256(abi.encode(id, modelId, outputs[5], salt, sender))`. The hash is computed
+   locally (`cast keccak`), so the forecast never leaves the machine before it is committed; the salt
+   is random per round.
+2. **reveal** between `startTime − commitLead` and `startTime − revealLead`:
+   `revealPrediction(id, proof, outputs[5], salt)`.
+
+The zk agents (`agent.py`) run a small model on the round's onchain features (`getFeatures`) and
+prove the inference with EZKL; the contract verifies the proof at reveal against the features it
+derived itself. The commit-only agent (`api_agent.py`) asks a time-series model API and reveals with
+an empty proof; its model is registered with `verifier = address(0)`, so it proves timing, not
+provenance, and its ERC-8004 score carries tag2 `vol-<Δ>s-<N>-commit`. An unrevealed forecast is
+neither scored nor paid. Forecasts that score above the uniform baseline `ln 0.2` share
+`predictorShareBps` of the round's fee (`claimPredictorReward`).
 
 ## Models
 
@@ -31,7 +43,7 @@ uv sync
 uv run python -m vol_agents.train     # retrain -> models/<name>/ (deterministic)
 uv run python -m vol_agents.build     # EZKL build (cached in out/<name>/), verifiers -> contracts/src/verifier/
                                       #   [--srs PATH] [--force], see "EZKL SRS" below
-uv run python -m vol_agents.round     # anvil round: deploy, 3 agents prove + submit, settle, compare
+uv run python -m vol_agents.round     # anvil round: deploy, 3 agents prove, commit, reveal, settle
 uv run pytest -v                      # unit + EZKL export + end-to-end round on anvil
 ```
 
@@ -57,6 +69,62 @@ The round writes `out/compare_round.json` (agents sorted by onchain log score, 1
 Each EZKL step runs in its own process under `/usr/bin/time -l`; wall time and peak RSS are appended
 to `out/<name>/timing.jsonl`.
 
+## Commit-only API agent
+
+`ApiAgent` is configured from the environment (see `.env.example`; never commit real values):
+
+| variable | meaning |
+|---|---|
+| `VOL_TSFM_API_URL` | POST endpoint. Unset: the agent uses a deterministic placeholder forecast (quantiles at 0.4×, 1×, 2.2× the trailing realized vol for levels 0.1/0.5/0.9) and reports `forecast_source = "placeholder"` |
+| `VOL_TSFM_API_KEY` | optional; sent as `Authorization: Bearer <key>` |
+| `VOL_TSFM_API_KEY_HEADER` | optional; send the key raw under this header instead (e.g. `X-API-Key`) |
+| `VOL_TSFM_TIMEOUT_S` | request timeout, default 30 |
+
+Error messages never contain the key or the response body. Tests use a local mock HTTP server only.
+
+**Request** (`Content-Type: application/json`), built from the contract's own features:
+
+```json
+{
+  "schema": "vol-forecast-request/v1",
+  "target": "realized_vol_tick2",
+  "round": {"market": "0x…", "id": 0, "start": 1792663437, "delta_s": 300, "n_segments": 12},
+  "bounds_tick2": [8, 20, 45, 110],
+  "history": {
+    "step_s": 300,
+    "segment_mean_tick_diffs": [-12, -4, 0, 4, 17, 2, 9, -14, 13, 10, -6, 5, 4, -15, -7, -8],
+    "relative_segment_mean_ticks": [0, -12, -16, -16, -12, 5, 7, 16, 2, 15, 25, 19, 24, 28, 13, 6, -2],
+    "clamp_ticks": 64
+  },
+  "quantile_levels": [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+}
+```
+
+`segment_mean_tick_diffs` are the 16 contract features divided by 128 (differences of adjacent
+Δ-second mean ticks, clamped to ±64); `relative_segment_mean_ticks` is their running sum from 0, i.e.
+the last 17 segment-mean ticks relative to the oldest. The target is the next window's realized vol
+`RV = Σ (ā_k − ā_{k−1})²` over `n_segments` segment-mean ticks, in tick², bucketed half-open by
+`bounds_tick2` (bucket 0: `RV < b0`, bucket 4: `RV ≥ b3`).
+
+**Response**, either form:
+
+```json
+{"bucket_probs": [0.05, 0.15, 0.3, 0.3, 0.2]}
+```
+
+five non-negative numbers with a positive sum (normalized by the agent), or
+
+```json
+{"quantiles": [{"level": 0.1, "value": 12.0}, {"level": 0.5, "value": 40.0}, {"level": 0.9, "value": 130.0}]}
+```
+
+at least two quantiles of RV in tick², levels strictly increasing in (0, 1), values non-decreasing.
+The `quantile_levels` in the request are a hint; any levels are accepted. The agent builds a CDF:
+linear from (0, 0) to the lowest quantile, linear between quantiles, and an exponential upper tail
+fitted through the top two; bucket probabilities are the CDF differences at the bounds. Probabilities
+are then floored at 1e-6 (a zero bucket would score the −18 floor if it wins) and quantized to
+1e18-scaled integers that sum exactly to 1e18 (largest remainder), which are the revealed outputs.
+
 ## Layout
 
 | module | role |
@@ -66,8 +134,9 @@ to `out/<name>/timing.jsonl`.
 | `vol_agents/ezkl_step.py` | one EZKL step per process |
 | `vol_agents/build.py` | idempotent per-model build and verifier install |
 | `vol_agents/chain.py` | anvil / forge / cast subprocess wrappers |
-| `vol_agents/agent.py` | read features → witness → check public inputs → prove → submit |
-| `vol_agents/round.py` | deploy, open, submit, settle, compare |
+| `vol_agents/agent.py` | `Forecaster` (commit / reveal); zk `Agent`: read features → witness → check public inputs → prove |
+| `vol_agents/api_agent.py` | commit-only `ApiAgent`: API request, quantile → bucket conversion, 1e18 quantization |
+| `vol_agents/round.py` | deploy, open, commit, reveal, settle, compare |
 
 ## Boundary
 

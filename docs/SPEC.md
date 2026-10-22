@@ -9,7 +9,7 @@
 
 ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 
-**状态**：已完成核心链路（`VolMarket` 合约 + EZKL 验证合约 + 3 个预测 agent，本地 anvil 端到端跑通）、ERC-8004 信誉、Chainlink 交叉校验、区间校准、主网 fork 演示与看板；尚未按校准边界重训模型。
+**状态**：已完成核心链路（`VolMarket` 合约 + EZKL 验证合约 + 3 个预测 agent，本地 anvil 端到端跑通）、ERC-8004 信誉、Chainlink 交叉校验、先承诺后公开 / 仅承诺模型 / 预测者分成（R4）、区间校准、主网 fork 演示与看板；尚未按校准边界重训模型。
 
 **问题**：AI 预测者可以事后挑选好看的结果来宣传，评委和用户无法核实「这个预测确实是这个模型在事前、对这些输入算出来的」，也没有公开、不可篡改的成绩记录。
 
@@ -24,9 +24,9 @@ ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 | 波动率市场合约：开轮存特征、下注、`sample` 检查点、`settle`（`observe` 批量 + 逐点兜底，缺点归一，覆盖率 < 90% 作废退款）、`claim` | 已完成 | `contracts/src/VolMarket.sol` |
 | 彩池 / 分桶 / 对数评分数学 | 已完成 | `contracts/src/lib/MarketMath.sol` |
 | zk 证明校验：每个模型一份 EZKL 生成的验证合约；`registerModel(verifier, operator)`；公开时证明通过才记录 | 已完成 | `contracts/src/verifier/`、`VolMarket.revealPrediction` |
-| 先承诺后公开：`commitPrediction` 在 `startTime − commitLead` 前提交承诺，`revealPrediction` 在 `startTime − revealLead` 前公开；未公开的不计分不分钱 | 进行中（R4） | `VolMarket.commitPrediction` / `revealPrediction` |
-| 仅承诺模型：`registerModel(address(0), operator)`，公开时不验证证明，ERC-8004 tag2 加 `-commit`；agents 的 TSFM API 适配器 | 进行中（R4） | `VolMarket`、`agents/vol_agents/api_agent.py` |
-| 预测者分成：手续费的 `predictorShareBps` 按超过均匀基线的对数分比例分给预测者，`claimPredictorReward` 自取 | 进行中（R4） | `VolMarket.settle` / `claimPredictorReward` / `collectFee` |
+| 先承诺后公开：`commitPrediction` 在 `startTime − commitLead` 前提交承诺，`revealPrediction` 在 `startTime − revealLead` 前公开；未公开的不计分不分钱 | 已完成（R4） | `VolMarket.commitPrediction` / `revealPrediction` |
+| 仅承诺模型：`registerModel(address(0), operator)`，公开时不验证证明，ERC-8004 tag2 加 `-commit`；agents 的 TSFM API 适配器 | 已完成（R4） | `VolMarket`、`agents/vol_agents/api_agent.py` |
+| 预测者分成：手续费的 `predictorShareBps` 按超过均匀基线的对数分比例分给预测者，`claimPredictorReward` 自取 | 已完成（R4） | `VolMarket.settle` / `claimPredictorReward` / `collectFee` |
 | 预测 agent：3 个模型（`linear_abs` / `mlp16` / `mlp32_abs`）训练、EZKL 构建、读特征→证明→提交→结算→比较链上分数 | 已完成（本地 anvil + MockPool） | `agents/` |
 | 合约 / agents 共享口径 fixture（tickCumulative → 段均值 → RV → 桶） | 已完成 | `contracts/test/fixtures/vol_rv_cases.json` |
 | `make verify` 接入 agents 的 ruff 与 pytest | 已完成 | `Makefile` |
