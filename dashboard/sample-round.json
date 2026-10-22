@@ -1,0 +1,319 @@
+{
+  "network": "anvil fork of Ethereum mainnet",
+  "fork_block": 26246328,
+  "fork_timestamp": 1792650071,
+  "generated_at": 1792657869,
+  "contracts": {
+    "market": "0x024361c0eC3c1A9ED415E6ef3c859b48935DBe78",
+    "pool": "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640",
+    "chainlink_feed": "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419",
+    "erc8004_identity": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+    "erc8004_reputation": "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
+    "settlement_token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+  },
+  "round": {
+    "id": 0,
+    "start": 1792650150,
+    "delta_s": 300,
+    "n_segments": 12,
+    "bounds": [
+      8,
+      20,
+      45,
+      110
+    ],
+    "features": [
+      -512,
+      1408,
+      384,
+      1024,
+      -768,
+      -1152,
+      1792,
+      256,
+      640,
+      896,
+      1152,
+      -384,
+      -640,
+      -1536,
+      896,
+      128
+    ],
+    "fee_bps": 100
+  },
+  "window": {
+    "mode": "replay",
+    "real_segment_ticks": [
+      198346,
+      198354,
+      198359,
+      198360,
+      198362,
+      198366,
+      198359,
+      198357,
+      198361,
+      198370,
+      198378,
+      198378
+    ],
+    "real_realized_vol": 324
+  },
+  "outcome": {
+    "settle_block": 26246382,
+    "settle_ts": 1792653760,
+    "gas_used": 838431,
+    "settled": true,
+    "voided": false,
+    "winning_bucket": 4,
+    "realized_vol": 305,
+    "total_stake_wei": "2000000000000000000",
+    "pools_wei": [
+      "0",
+      "0",
+      "0",
+      "1000000000000000000",
+      "1000000000000000000"
+    ],
+    "events": {
+      "price_check_failed": 0,
+      "reputation_write_failed": 0,
+      "erc8004_feedback_logs": 3
+    }
+  },
+  "offchain_recompute": {
+    "segment_mean_ticks": [
+      198345,
+      198353,
+      198358,
+      198359,
+      198361,
+      198365,
+      198359,
+      198357,
+      198360,
+      198369,
+      198377,
+      198378
+    ],
+    "realized_vol": 305,
+    "bucket": 4
+  },
+  "chainlink": {
+    "feed": "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419",
+    "feed_price_usd": 2434.95,
+    "feed_updated_at": 1792650071,
+    "feed_age_s": 3689,
+    "pool_mean_tick": 198378,
+    "pool_price_usd": 2426.51885631,
+    "deviation_bps": 34.63,
+    "max_deviation_bps": 200,
+    "max_age_s": 3900
+  },
+  "agents": [
+    {
+      "agent": "agent-mlp32_abs",
+      "model": "mlp32_abs",
+      "address": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+      "model_id": 2,
+      "agent_id": 55214,
+      "verifier": "0xA1F657a42985b74cB8F5203dab285dA30bEEB8ac",
+      "proof_verified_onchain": true,
+      "probs": [
+        0.002196729314132291,
+        0.002196729314132291,
+        0.004881620698071759,
+        0.12228459848669758,
+        0.868440322186966
+      ],
+      "p_win": 0.868440322186966,
+      "log_score": "-141056409321090610",
+      "log_score_float": -0.14105640932109062,
+      "prove_seconds": 8.63,
+      "prove_peak_mb": 872.2,
+      "reputation": {
+        "tag1": "logScore",
+        "tag2": "vol-300s-12",
+        "count": 1,
+        "summary_value": "-141056409321090610",
+        "summary_decimals": 18
+      }
+    },
+    {
+      "agent": "agent-mlp16",
+      "model": "mlp16",
+      "address": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "model_id": 1,
+      "agent_id": 55213,
+      "verifier": "0x7b929026F0933B809953f6d1CcfE27e2c210688d",
+      "proof_verified_onchain": true,
+      "probs": [
+        0.001220703125,
+        0.001220703125,
+        0.00634765625,
+        0.49560546875,
+        0.49560546875
+      ],
+      "p_win": 0.49560546875,
+      "log_score": "-701975094683510693",
+      "log_score_float": -0.7019750946835106,
+      "prove_seconds": 8.9,
+      "prove_peak_mb": 880.0,
+      "reputation": {
+        "tag1": "logScore",
+        "tag2": "vol-300s-12",
+        "count": 1,
+        "summary_value": "-701975094683510693",
+        "summary_decimals": 18
+      }
+    },
+    {
+      "agent": "agent-linear_abs",
+      "model": "linear_abs",
+      "address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "model_id": 0,
+      "agent_id": 55212,
+      "verifier": "0x03EB60791E0267B7a8d44bEeB1fbf959F6C595D7",
+      "proof_verified_onchain": true,
+      "probs": [
+        0.001220703125,
+        0.001220703125,
+        0.00927734375,
+        0.494140625,
+        0.494140625
+      ],
+      "p_win": 0.494140625,
+      "log_score": "-704935136311987545",
+      "log_score_float": -0.7049351363119876,
+      "prove_seconds": 9.09,
+      "prove_peak_mb": 699.4,
+      "reputation": {
+        "tag1": "logScore",
+        "tag2": "vol-300s-12",
+        "count": 1,
+        "summary_value": "-704935136311987545",
+        "summary_decimals": 18
+      }
+    }
+  ],
+  "tamper_checks": [
+    {
+      "agent": "agent-linear_abs",
+      "honest_proof_verifies": true,
+      "tampered_output_verifies": false
+    },
+    {
+      "agent": "agent-mlp16",
+      "honest_proof_verifies": true,
+      "tampered_output_verifies": false
+    },
+    {
+      "agent": "agent-mlp32_abs",
+      "honest_proof_verifies": true,
+      "tampered_output_verifies": false
+    }
+  ],
+  "bets": [
+    {
+      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+      "bucket": 4,
+      "amount_wei": "1000000000000000000",
+      "payout_wei": "1980000000000000000"
+    },
+    {
+      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+      "bucket": 3,
+      "amount_wei": "1000000000000000000",
+      "payout_wei": "0"
+    }
+  ],
+  "swaps": [
+    {
+      "segment": 0,
+      "side": "sell WETH",
+      "tick_before": 198340,
+      "tick_after": 198346,
+      "target_tick": 198346
+    },
+    {
+      "segment": 1,
+      "side": "sell WETH",
+      "tick_before": 198346,
+      "tick_after": 198354,
+      "target_tick": 198354
+    },
+    {
+      "segment": 2,
+      "side": "sell WETH",
+      "tick_before": 198354,
+      "tick_after": 198359,
+      "target_tick": 198359
+    },
+    {
+      "segment": 3,
+      "side": "sell WETH",
+      "tick_before": 198359,
+      "tick_after": 198360,
+      "target_tick": 198360
+    },
+    {
+      "segment": 4,
+      "side": "sell WETH",
+      "tick_before": 198360,
+      "tick_after": 198362,
+      "target_tick": 198362
+    },
+    {
+      "segment": 5,
+      "side": "sell WETH",
+      "tick_before": 198362,
+      "tick_after": 198366,
+      "target_tick": 198366
+    },
+    {
+      "segment": 6,
+      "side": "sell USDC",
+      "tick_before": 198366,
+      "tick_after": 198359,
+      "target_tick": 198359
+    },
+    {
+      "segment": 7,
+      "side": "sell USDC",
+      "tick_before": 198359,
+      "tick_after": 198357,
+      "target_tick": 198357
+    },
+    {
+      "segment": 8,
+      "side": "sell WETH",
+      "tick_before": 198357,
+      "tick_after": 198361,
+      "target_tick": 198361
+    },
+    {
+      "segment": 9,
+      "side": "sell WETH",
+      "tick_before": 198361,
+      "tick_after": 198370,
+      "target_tick": 198370
+    },
+    {
+      "segment": 10,
+      "side": "sell WETH",
+      "tick_before": 198370,
+      "tick_after": 198378,
+      "target_tick": 198378
+    },
+    {
+      "segment": 11,
+      "side": "hold",
+      "tick_before": 198378,
+      "tick_after": 198378,
+      "target_tick": 198378
+    }
+  ],
+  "fee_collected_wei": "20000000000000000",
+  "market_balance_after_wei": "0"
+}

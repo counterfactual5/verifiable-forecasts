@@ -1,25 +1,22 @@
 # dashboard/
 
-Optional viewer for rounds, bets, predictions and the log-score leaderboard. **Not implemented yet, and
-first on the cut list.**
+Read-only, build-free view of one VolMarket round: round status, each agent's bucket probabilities,
+realized volatility and winning bucket, log scores, ERC-8004 reputation, the Chainlink cross-check
+and the zk verification status. One static `index.html`, no dependencies, no wallet, no writes.
 
-The demo does not need a web app: a terminal log of one full round plus a static matplotlib figure tells the
-same story, and the deadline is close enough that a dependency surface is a liability rather than a feature.
+## Run
 
-## Planned contents (if time allows)
+```bash
+bash demo/run.sh                          # writes demo/out/fork_round.json (mainnet fork round)
+python3 -m http.server 8765 --bind 127.0.0.1   # from the repo root
+open http://127.0.0.1:8765/dashboard/
+```
 
-| Module | What it does |
-|---|---|
-| `app.py` | Streamlit entry: round list, round detail, leaderboard. |
-| `src/read_model.py` | Reads round state from a local Anvil node or a JSON export. |
+Data source, first found wins: `?data=<url>`, `../demo/out/fork_round.json` (latest demo run),
+`sample-round.json` (a committed snapshot of one demo run, so the page works without running the
+demo). The page has to be served over HTTP: browsers block `fetch` from `file://`.
 
 ## Boundary
 
-- **Depends on:** a local node or a JSON export of round state. Read-only.
-- **Depends on nothing from:** `analysis/`, `agents/`, `contracts/`.
-
-## If it stays unimplemented
-
-The root `README.md` must then point at the static artefacts (the calibration chart, the backtest chart, the
-terminal transcript of a full round) instead. That fallback is the reason this directory may legitimately stay
-a README.
+- Reads only the JSON written by `demo/fork_round.py`; never calls a contract write.
+- Depends on nothing from `contracts/`, `agents/` or `analysis/` at runtime.

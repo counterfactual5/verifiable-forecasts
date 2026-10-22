@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verifiable AI Forecasts · round dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --muted: #8b949e;
+    --accent: #58a6ff; --ok: #3fb950; --bad: #f85149; --warn: #d29922; --win: #a371f7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 24px 32px 8px; }
+  h1 { margin: 0; font-size: 22px; }
+  .sub { color: var(--muted); margin-top: 4px; }
+  main { display: grid; gap: 16px; padding: 16px 32px 32px;
+         grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px;
+          min-width: 0; overflow-x: auto; }
+  .card.wide { grid-column: 1 / -1; }
+  .card h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--muted); font-weight: 600; }
+  .big { font-size: 30px; font-weight: 650; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.ok { background: rgba(63,185,80,.15); color: var(--ok); }
+  .badge.bad { background: rgba(248,81,73,.15); color: var(--bad); }
+  .badge.warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num, th.num { text-align: right; }
+  .probs { display: flex; gap: 3px; align-items: flex-end; height: 40px; }
+  .probs div { width: 20px; background: #2d333b; border-radius: 3px 3px 0 0; position: relative; }
+  .probs div.win { background: var(--win); }
+  .buckets { display: flex; gap: 4px; margin-top: 8px; }
+  .buckets div { flex: 1; padding: 8px 4px; text-align: center; border-radius: 6px; background: #21262d;
+                 font-size: 12px; color: var(--muted); }
+  .buckets div.win { background: rgba(163,113,247,.2); color: var(--text); outline: 1px solid var(--win); }
+  .meter { height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; margin: 4px 0 10px; }
+  .meter > div { height: 100%; }
+  a { color: var(--accent); text-decoration: none; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  footer { color: var(--muted); padding: 0 32px 24px; font-size: 12px; }
+  #error { color: var(--bad); padding: 32px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Verifiable AI Forecasts · VolMarket round</h1>
+  <div class="sub" id="subtitle">loading…</div>
+</header>
+<main id="app"></main>
+<footer id="source"></footer>
+<script>
+const BUCKET_NAMES = (b) => [`< ${b[0]}`, `${b[0]}–${b[1]}`, `${b[1]}–${b[2]}`, `${b[2]}–${b[3]}`, `≥ ${b[3]}`];
+const ETHERSCAN = "https://etherscan.io/address/";
+const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
+const link = (a) => `<a class="mono" href="${ETHERSCAN}${a}" target="_blank" rel="noopener">${short(a)}</a>`;
+const badge = (ok, yes, no) => `<span class="badge ${ok ? "ok" : "bad"}">${ok ? yes : no}</span>`;
+const fmtTime = (t) => new Date(t * 1000).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+const eth = (wei) => (Number(BigInt(wei) / 10n ** 12n) / 1e6).toFixed(4);
+
+async function load() {
+  const param = new URLSearchParams(location.search).get("data");
+  for (const src of [param, "../demo/out/fork_round.json", "sample-round.json"].filter(Boolean)) {
+    try {
+      const r = await fetch(src, { cache: "no-store" });
+      if (r.ok) return { data: await r.json(), src };
+    } catch (_) { /* try the next source */ }
+  }
+  throw new Error("No round data found. Run `bash demo/run.sh`, or serve the repo root over HTTP.");
+}
+
+function segmentChart(fork, real) {
+  const all = fork.concat(real || []);
+  const lo = Math.min(...all) - 2, hi = Math.max(...all) + 2;
+  const W = 1200, H = 220, P = 64;
+  const x = (i) => P + i * (W - 2 * P) / (fork.length - 1);
+  const y = (v) => H - 22 - (v - lo) * (H - 40) / (hi - lo);
+  const path = (s) => s.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const dots = (s, c) => s.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${c}"/>`).join("");
+  const labels = fork.map((_, i) => `<text x="${x(i)}" y="${H - 4}" text-anchor="middle">${i + 1}</text>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%">
+    <text x="0" y="${y(hi - 2) + 4}">${hi - 2}</text><text x="0" y="${y(lo + 2) + 4}">${lo + 2}</text>
+    ${real ? `<path d="${path(real)}" fill="none" stroke="#8b949e" stroke-dasharray="4 4"/>` : ""}
+    <path d="${path(fork)}" fill="none" stroke="#58a6ff" stroke-width="2"/>${dots(fork, "#58a6ff")}
+    ${labels}</svg>
+    <div class="sub"><span style="color:#58a6ff">━</span> segment mean tick on the fork (from VolMarket checkpoints)
+    ${real ? ` &nbsp; <span>┅</span> real mainnet 5-min TWAP tick (replay target)` : ""}</div>`;
+}
+
+function render({ data: d, src }) {
+  const o = d.outcome, r = d.round, cl = d.chainlink, names = BUCKET_NAMES(r.bounds);
+  const status = o.voided ? badge(false, "", "Voided · refunds") : o.settled
+    ? badge(true, "Settled", "") : `<span class="badge warn">Open</span>`;
+  document.getElementById("subtitle").innerHTML =
+    `${d.network} · fork block ${d.fork_block.toLocaleString()} · round #${r.id} ${status}`;
+  const priceOk = cl.deviation_bps <= cl.max_deviation_bps && cl.feed_age_s <= cl.max_age_s;
+  const tamper = Object.fromEntries(d.tamper_checks.map((t) => [t.agent, t]));
+  const card = (title, html, cls = "") => `<section class="card ${cls}"><h2>${title}</h2>${html}</section>`;
+
+  const roundCard = card("Round", `<dl class="kv">
+    <dt>Status</dt><dd>${status}</dd>
+    <dt>Window</dt><dd>${fmtTime(r.start)} + ${r.n_segments} × ${r.delta_s} s</dd>
+    <dt>Pool</dt><dd>${link(d.contracts.pool)} Uniswap V3 ETH/USDC 0.05%</dd>
+    <dt>Market</dt><dd class="mono">${short(d.contracts.market)} (fork-local)</dd>
+    <dt>Features</dt><dd class="mono">${r.features.map((f) => f / 128).join(" ")}</dd>
+    <dt>Window path</dt><dd>${d.window.mode === "replay" ? "real mainnet hour replayed" : "scripted swaps"}</dd>
+    <dt>Settle gas</dt><dd>${o.gas_used.toLocaleString()}</dd></dl>
+    <div class="sub">Features: 16 differences of 5-min mean ticks, computed by the contract from the pool's
+    <span class="mono">observe()</span> at round creation (the zk public inputs).</div>`);
+
+  const rvCard = card("Realized volatility", `
+    <div class="big">${o.realized_vol} <span class="sub">tick²</span></div>
+    <dl class="kv"><dt>Off-chain recompute</dt><dd>${d.offchain_recompute.realized_vol}
+      ${d.offchain_recompute.realized_vol === o.realized_vol ? badge(true, "match", "") : badge(false, "", "mismatch")}</dd>
+    ${d.window.real_realized_vol != null ? `<dt>Real mainnet hour</dt><dd>${d.window.real_realized_vol}</dd>` : ""}
+    <dt>Winning bucket</dt><dd>#${o.winning_bucket} (${names[o.winning_bucket]} tick²)</dd></dl>
+    <div class="buckets">${names.map((n, i) => `<div class="${i === o.winning_bucket ? "win" : ""}">#${i}<br>${n}</div>`).join("")}</div>`);
+
+  const devPct = Math.min(100, cl.deviation_bps / cl.max_deviation_bps * 100);
+  const agePct = Math.min(100, cl.feed_age_s / cl.max_age_s * 100);
+  const clCard = card("Chainlink cross-check", `
+    <div>${badge(priceOk && !o.events.price_check_failed, "Pool price matches feed", "Check failed · round voided")}</div>
+    <dl class="kv" style="margin-top:10px">
+    <dt>Chainlink ETH/USD</dt><dd>$${cl.feed_price_usd.toFixed(2)} ${link(cl.feed)}</dd>
+    <dt>Pool TWAP (last Δ)</dt><dd>$${cl.pool_price_usd.toFixed(2)} (tick ${cl.pool_mean_tick})</dd></dl>
+    <div class="sub" style="margin-top:8px">Deviation ${cl.deviation_bps} bps / max ${cl.max_deviation_bps}</div>
+    <div class="meter"><div style="width:${devPct}%;background:${devPct < 100 ? "var(--ok)" : "var(--bad)"}"></div></div>
+    <div class="sub">Feed age ${cl.feed_age_s} s / max ${cl.max_age_s}</div>
+    <div class="meter"><div style="width:${agePct}%;background:${agePct < 100 ? "var(--warn)" : "var(--bad)"}"></div></div>`);
+
+  const rows = d.agents.map((a) => {
+    const max = Math.max(...a.probs);
+    const bars = a.probs.map((p, i) => `<div class="${i === o.winning_bucket ? "win" : ""}"
+      style="height:${Math.max(2, p / max * 40)}px" title="#${i} ${names[i]}: ${(p * 100).toFixed(2)}%"></div>`).join("");
+    const rep = a.reputation, repVal = Number(rep.summary_value) / 10 ** rep.summary_decimals;
+    const t = tamper[a.agent];
+    return `<tr><td><b>${a.agent}</b><div class="sub mono">${short(a.address)}</div></td>
+      <td><div class="probs">${bars}</div></td>
+      <td class="num">${(a.p_win * 100).toFixed(1)}%</td>
+      <td class="num"><b>${a.log_score_float.toFixed(3)}</b></td>
+      <td>${badge(a.proof_verified_onchain, "verified onchain", "missing")}<br>
+        ${t ? badge(!t.tampered_output_verifies, "tampered proof rejected", "tamper accepted!") : ""}
+        <div class="sub">prove ${a.prove_seconds ?? "?"} s · ${a.prove_peak_mb ?? "?"} MB</div></td>
+      <td>agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}
+        <br><span class="mono">${rep.tag1} / ${rep.tag2}</span></div></td></tr>`;
+  }).join("");
+  const agentsCard = card("Agents · forecasts, scores and ERC-8004 reputation", `<table>
+    <tr><th>Agent</th><th>Bucket probabilities (purple = outcome)</th><th class="num">p(outcome)</th>
+    <th class="num">Log score</th><th>zk proof (EZKL)</th><th>ERC-8004 reputation ${link(d.contracts.erc8004_reputation)}</th></tr>
+    ${rows}</table>
+    <div class="sub" style="margin-top:8px">Log score = max(ln p_outcome, −18), computed in VolMarket.settle and written by the
+    market contract to the deployed ERC-8004 Reputation Registry (summary filtered to the market as the only client).</div>`, "wide");
+
+  const chartCard = card("Window · 12 segments of 5 minutes",
+    segmentChart(d.offchain_recompute.segment_mean_ticks, d.window.real_segment_ticks), "wide");
+
+  const betRows = d.bets.map((b) => `<tr><td class="mono">${short(b.bettor)}</td><td>#${b.bucket}</td>
+    <td class="num">${eth(b.amount_wei)}</td><td class="num">${eth(b.payout_wei)}</td></tr>`).join("");
+  const betsCard = card("Parimutuel bets (WETH)", `<table><tr><th>Bettor</th><th>Bucket</th>
+    <th class="num">Stake</th><th class="num">Payout</th></tr>${betRows}</table>
+    <div class="sub" style="margin-top:8px">Fee ${r.fee_bps / 100}% of the pool${d.fee_collected_wei != null
+      ? `: ${eth(d.fee_collected_wei)} WETH collected to the owner, ${d.market_balance_after_wei} wei left in the market` : ""}.
+    Bettor 0 followed the agents' consensus.</div>`);
+
+  const c = d.contracts;
+  const contractsCard = card("Contracts", `<dl class="kv">
+    <dt>ERC-8004 Identity</dt><dd>${link(c.erc8004_identity)}</dd>
+    <dt>ERC-8004 Reputation</dt><dd>${link(c.erc8004_reputation)}</dd>
+    <dt>Chainlink ETH/USD</dt><dd>${link(c.chainlink_feed)}</dd>
+    <dt>Uniswap V3 pool</dt><dd>${link(c.pool)}</dd>
+    <dt>Settlement token</dt><dd>${link(c.settlement_token)} WETH</dd>
+    <dt>VolMarket</dt><dd class="mono">${short(c.market)} (deployed on the fork)</dd></dl>`);
+
+  document.getElementById("app").innerHTML =
+    roundCard + rvCard + clCard + agentsCard + chartCard + betsCard + contractsCard;
+  document.getElementById("source").textContent =
+    `Data: ${src} · generated ${d.generated_at ? new Date(d.generated_at * 1000).toISOString() : "?"} · read-only view, no wallet, no writes.`;
+}
+
+load().then(render).catch((e) => {
+  document.getElementById("subtitle").textContent = "";
+  document.getElementById("app").innerHTML = `<div id="error">${e.message}</div>`;
+});
+</script>
+</body>
+</html>
