@@ -41,7 +41,10 @@ uv run python src/fetch_swaps.py --rpc https://mainnet.gateway.tenderly.co --fro
 uv run python src/vol_calibrate.py --swaps data/swaps.csv
 ```
 
-`--delta` and `--n-segments` default to the contract's 300 s × 12; `bounds` in `data/vol_params.json` is
+`--until <unix>` calibrates on the swaps before that time only, so the bounds of a train/test split
+come from the training period alone (the agents use `--until 1791417600`, 2026-10-08 00:00 UTC, written
+to `data/train/vol_params.json`; `--export-grid` still covers every swap). `--delta` and `--n-segments`
+default to the contract's 300 s × 12; `bounds` in `data/vol_params.json` is
 passed verbatim as the `bounds` argument of `VolMarket.createRound`.
 
 The pool is dense (about 1 Swap per block), so a 10k-block segment can reach the gateway's 10,000-log

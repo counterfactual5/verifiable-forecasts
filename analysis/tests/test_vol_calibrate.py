@@ -415,6 +415,26 @@ def test_cli_exports_the_cumulative_grid(tmp_path: Path) -> None:
     assert rows == cumulative_grid(collapse_swaps(load_swaps(path)), 60)
 
 
+def test_cli_until_calibrates_on_the_earlier_swaps_only(tmp_path: Path) -> None:
+    rows = irregular_rows()
+    path = write_csv(tmp_path, rows)
+    until = rows[300][2]
+    out = tmp_path / "vol_params.json"
+    grid_path = tmp_path / "grid.csv"
+    assert main(["--swaps", str(path), "--out", str(out), "--until", str(until),
+                 "--export-grid", str(grid_path)]) == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    earlier = [swap for swap in load_swaps(path) if swap.timestamp < until]
+    expected = calibrate(earlier)
+    assert payload["bounds"] == list(expected.bounds)
+    assert payload["windows"] == len(expected.rvs)
+    assert payload["windows"] < len(calibrate(load_swaps(path)).rvs)
+    assert payload["swapCount"] == 300
+    assert payload["until"] == until
+    lines = grid_path.read_text(encoding="utf-8").splitlines()[1:]
+    assert len(lines) == len(cumulative_grid(collapse_swaps(load_swaps(path)), 60))
+
+
 def test_cli_reports_a_history_that_covers_no_window(tmp_path: Path, capsys) -> None:
     path = write_csv(tmp_path, [(100, 100, START_TIME)])
     assert main(["--swaps", str(path), "--out", str(tmp_path / "vol_params.json")]) == 1

@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from vol_agents import contract_math as cm
+from vol_agents import dataset as ds
 from vol_agents.train import synth
 
 FIXTURES = Path(__file__).resolve().parents[2] / "contracts" / "test" / "fixtures"
@@ -33,7 +34,6 @@ def test_features_floor_negative_non_divisible():
 
 def test_realized_vol_matches_shared_cases():
     cases = json.loads((FIXTURES / "vol_rv_cases.json").read_text())
-    assert tuple(cases["bounds"]) == cm.BOUNDS
     checked = 0
     for c in cases["cases"]:
         tl = c["timeline"]
@@ -41,9 +41,25 @@ def test_realized_vol_matches_shared_cases():
         if c["missing"] or not regular:
             continue
         assert cm.realized_vol(tl["ticks"]) == c["rv"], c["name"]
-        assert cm.bucket_of(c["rv"]) == c["bucket"], c["name"]
+        assert cm.bucket_of(c["rv"], cases["bounds"]) == c["bucket"], c["name"]
         checked += 1
     assert checked >= 2
+
+
+def test_realized_vol_from_cumulatives_matches_shared_cases():
+    cases = json.loads((FIXTURES / "vol_rv_cases.json").read_text())
+    checked = 0
+    for c in cases["cases"]:
+        if c["missing"]:
+            continue
+        assert cm.realized_vol_from_cumulatives(c["tickCumulatives"], cases["delta"]) == c["rv"]
+        checked += 1
+    assert checked >= 4  # includes negative_floor, whose ticks change inside a segment
+
+
+def test_bounds_are_four_strictly_increasing():
+    assert len(cm.BOUNDS) == cm.BUCKETS - 1
+    assert all(a < b for a, b in zip(cm.BOUNDS, cm.BOUNDS[1:], strict=False))
 
 
 def test_synthetic_features_use_contract_formula():
@@ -68,3 +84,53 @@ def test_commitment_preimage_matches_abi_encode():
         capture_output=True, text=True, check=True,
     ).stdout.strip()
     assert "0x" + cm.commitment_preimage(7, 3, outputs, salt, sender).hex() == want
+
+
+def _tick_path(seconds, rng):
+    """Pool tick per second, changing at irregular moments (as Swaps do); it starts at 0 so that
+    segment means cross zero and floorDiv differs from truncation."""
+    ticks = np.empty(seconds, np.int64)
+    t, tick = 0, 0
+    while t < seconds:
+        run = int(rng.integers(1, 400))
+        ticks[t : t + run] = tick
+        tick += int(rng.integers(-90, 91))
+        t += run
+    return ticks
+
+
+def test_real_samples_follow_the_contract_round():
+    rng = np.random.default_rng(3)
+    t0 = 1_700_000_040  # a multiple of 60, like the exported grid
+    ticks = _tick_path(6 * 3600, rng)
+    cum = np.concatenate([[0], np.cumsum(ticks)])
+    grid = {t0 + k: int(cum[k]) for k in range(0, len(cum), 60)}
+    s = ds.build_samples(grid, stride=600)
+    assert len(s) > 10
+
+    def means(start, n):
+        # segment means straight from the per-second ticks, floored like the contract
+        return [int(ticks[start + j * cm.DELTA : start + (j + 1) * cm.DELTA].sum()) // cm.DELTA
+                for j in range(n)]
+
+    clamped = 0
+    for i in range(len(s)):
+        t = int(s.t_open[i]) - t0
+        hist = means(t - 17 * cm.DELTA, 17)
+        assert s.x_int[i].tolist() == cm.features_from_segment_ticks(hist)
+        assert s.raw_diff[i].tolist() == [b - a for a, b in zip(hist, hist[1:], strict=False)]
+        assert s.rv[i] == cm.realized_vol(means(t + ds.LEAD_S, cm.N_SEGMENTS))
+        assert s.lag_rv[i] == cm.realized_vol(hist[-cm.N_SEGMENTS:])
+        clamped += int(np.any(np.abs(s.raw_diff[i]) > cm.CLAMP))
+    assert clamped > 0  # the path is rough enough to exercise CLAMP
+
+
+def test_time_split_periods_share_no_second():
+    t_open = np.arange(0, 2000) * 60 + 1_700_000_000
+    cuts = [1_700_030_000, 1_700_060_000]
+    masks = ds.split_by_time(t_open, cuts)
+    assert len(masks) == 3 and all(m.sum() > 0 for m in masks)
+    assert not np.any(masks[0] & masks[1]) and not np.any(masks[1] & masks[2])
+    for i, cut in enumerate(cuts):
+        first, last = ds.reads(t_open)
+        assert last[masks[i]].max() < cut <= first[masks[i + 1]].min()

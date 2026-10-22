@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import dataclasses
 import json
 import sys
 from collections.abc import Sequence
@@ -113,6 +114,7 @@ class CalibrationResult:
     rvs: tuple[int, ...]
     swap_count: int
     skipped_windows: int
+    until: int | None = None  # exclusive end of the calibration history, unix seconds
 
     def as_params(self) -> dict[str, object]:
         """Serialisable parameters; ``bounds`` is top level, as the contract consumes it."""
@@ -127,6 +129,7 @@ class CalibrationResult:
             "quantiles": list(self.raw_quantiles),
             "swapCount": self.swap_count,
             "skippedWindows": self.skipped_windows,
+            "until": self.until,
             "rvMin": min(self.rvs),
             "rvMax": max(self.rvs),
             "rvMean": sum(self.rvs) // len(self.rvs),
@@ -625,7 +628,9 @@ def render_report(result: CalibrationResult, history: str | Path | None = None) 
         "",
         f"- Method: {METHOD}",
         f"- History: {history if history is not None else 'unknown'} "
-        f"({result.swap_count} swaps)",
+        f"({result.swap_count} swaps"
+        + (f" before unix {result.until}" if result.until is not None else "")
+        + ")",
         f"- Window: {result.n_segments} segments of {result.delta} s "
         f"({result.n_segments * result.delta} s)",
         f"- Samples (windows): {len(result.rvs)}",
@@ -737,6 +742,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="window step in seconds (default: the segment length)",
     )
     parser.add_argument(
+        "--until",
+        type=int,
+        default=None,
+        help="calibrate on the swaps before this unix timestamp only, e.g. the end of a "
+        "training period (the grid export still covers every swap)",
+    )
+    parser.add_argument(
         "--export-grid",
         default=None,
         help="also write timestamp,tick_cumulative at every --grid-step seconds to this CSV",
@@ -752,13 +764,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         levels = tuple(float(part.strip()) for part in args.quantiles.split(",") if part.strip())
         swaps = load_swaps(args.swaps)
+        earlier = swaps if args.until is None else [s for s in swaps if s.timestamp < args.until]
         result = calibrate(
-            swaps,
+            earlier,
             delta=args.delta,
             n_segments=args.n_segments,
             quantiles=levels,
             step=args.step,
         )
+        result = dataclasses.replace(result, until=args.until)
     except ValueError as exc:
         print(f"calibration failed: {exc}", file=sys.stderr)
         return 1

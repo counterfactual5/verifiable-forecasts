@@ -64,6 +64,12 @@ def realized_vol(window_ticks, n_segments=N_SEGMENTS):
     return sum(d * d for d in diffs) * (n_segments - 1) // m
 
 
+def realized_vol_from_cumulatives(c, delta=DELTA):
+    """RV of a fully readable window from its nSegments + 1 checkpoint tickCumulatives."""
+    means = [floor_div(c[k + 1] - c[k], delta) for k in range(len(c) - 1)]
+    return realized_vol(means, len(means))
+
+
 def bucket_of(rv, bounds=BOUNDS):
     return sum(1 for b in bounds if b <= rv)
 
