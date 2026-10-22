@@ -127,6 +127,85 @@ TEE 远程证明（大模型 / LLM，需信任硬件厂商，未实现）；comm
 的 operator 提交（证明本身不绑定发送者，绑定靠合约的 `modelId → operator` 检查）。写入 ERC-8004 时用
 tag 记录验证等级，读取方按自己接受的等级过滤。
 
+## Economics without a token / 不发币的经济模型
+
+Only the items marked implemented exist in `contracts/src/VolMarket.sol`. The business model is an
+unvalidated hypothesis: nobody pays us today.
+
+**Today (implemented).** Bettors stake the market's ERC-20 (WETH in the demo) on one of five buckets
+before `startTime`; winners split the whole pool minus the protocol fee pro rata. `feeBps` is fixed at
+deployment (< 1000, 1 % in the demo); `collectFee` is callable by anyone once per round and sends the
+fee to `owner`; voided and no-winner rounds refund every stake and carry no fee. Forecasters get no
+tokens from the contract. They get a log score computed at settlement from the pool's own TWAP and
+written by the market contract into their ERC-8004 reputation, so the score comes from onchain
+settlement, not self-assessment.
+
+**Later payers (hypothesis).** LP range management, Uniswap v4 dynamic-fee hooks, options market
+makers, agent vaults. Payment by subscription as Synth does, or per request for an aggregated forecast
+over x402. That DeFi already pays for hourly bucketed probabilities is [待证据]. What is sourced: a
+paid subscription for a similar product exists. Synth's API plans are $49 / $199 / $499 per month (A,
+[Synth docs](https://docs.synthdata.co/getting-started/credits-and-pricing)), and community reporting
+puts its Q1 2026 MRR at about $70k (C, [TAO Daily](https://taodaily.io/james-ross-gives-synths-q1-report-on-community-call/)).
+
+**Cold start.** The team seeds the betting pool with its own stakes, runs the three agents itself,
+and replays real mainnet prices on a fork.
+
+**Anti-gaming.**
+
+| Mechanism | Status |
+|---|---|
+| EZKL proof binds outputs to the registered model on contract-computed inputs | implemented |
+| Forecasts only before `startTime`, one per predictor per round | implemented |
+| Only the model's registered operator may submit (`modelId → operator`) | implemented |
+| Submission stake and slashing; penalty for missed rounds, participation rate | roadmap |
+| Commit-reveal channel for commitment-only agents (third-party time-series foundation model APIs) | roadmap |
+| Diversity score in the style of Numerai MMC (A, [Numerai docs](https://docs.numer.ai/numerai-tournament/scoring/meta-model-contribution-mmc)) | roadmap |
+| Weight cap per operator | roadmap |
+
+**Governance.** No token governance. Today the deployer is a fixed `owner` that registers models
+(`registerModel`), sets the Chainlink feed (`setPriceFeed`) and the ERC-8004 registries
+(`setReputation`), and receives fees; `feeBps`, pool, Δ and N are constructor parameters. `createRound`
+is permissionless: anyone can open a round with any four ascending bounds. Governance would at most
+cover allowed bound templates or relative-bound multiples and a fee cap. Opening rounds will not go to
+a token vote: a rogue actor who became a top-5 UMA staker swung a disputed Polymarket resolution
+through UMA's token vote (B, [CoinDesk 2025-03-26](https://www.coindesk.com/markets/2025/03/26/polymarket-suffers-uma-governance-attack-after-rouge-actor-becomes-top-5-token-staker)).
+Polymarket itself runs without a platform token (A, [Polymarket help](https://help.polymarket.com/en/articles/13364250-does-polymarket-have-a-token)).
+
+**Why no token.** In comparable protocols emissions subsidize supply while revenue stays far below
+emissions (Bittensor subnets, B, [Crypto Briefing](https://cryptobriefing.com/bittensor-subnets-annualized-revenue/)).
+Durable demand comes from outside payers with their own P&L: Numerai's fund, Synth's subscribers,
+Polymarket's traders. A token appears only on the roadmap, as an optional tool for submission stake and
+slashing, and only once outside payers exist.
+
+已实现：下注者押注 ERC-20，赢家按比例分走扣除手续费后的整个彩池；`feeBps` 部署时固定（< 1000，演示为
+1%），`collectFee` 任何人可调、每轮一次、转给 `owner`，作废或无人押中的轮次全额退款不收费。预测者从合约
+拿不到代币，只拿到结算时由池子 TWAP 算出、由市场合约写入 ERC-8004 的对数分，分数来自链上结算而非自评。
+防作弊已实现的是 EZKL 绑定模型输出、`startTime` 提交截止、只许已登记 operator 提交；当前 `owner` 负责
+登记模型、设喂价与 ERC-8004 注册表并收手续费，`createRound` 无许可。以下均为未验证的设想：未来付费方是
+LP 区间管理、Uniswap v4 动态费率 hook、期权做市、Agent 金库，按订阅或 x402 按次付费（“DeFi 已在为小时级
+分档概率付费”[待证据]；Synth 的付费订阅只说明存在类似需求）；冷启动靠团队自注彩池、自跑 3 个 agent、
+主网 fork 真实行情；路线图上的防作弊是提交质押与罚没、缺席惩罚、commit-reveal 仅承诺通道、MMC 式多样性
+分、单 operator 权重上限；治理最多管分桶边界模板和手续费上限，开轮权不交给代币投票（UMA 治理操纵事件）。
+不发币，因为同类协议增发补贴供给、收入远小于排放，可持续需求来自有盈亏的外部付费方；代币只作为路线图里
+可选的质押罚没工具，前提是先有外部付费。
+
+## Compared with Synth / 与 Synth 的区别
+
+Synth is Bittensor subnet 50 (A, [synth-subnet](https://github.com/synthdataco/synth-subnet/)).
+
+| | Synth (SN50) | This project |
+|---|---|---|
+| Scoring | validators score offchain with CRPS | settled onchain from Uniswap `observe()` TWAP, integer log score |
+| Provenance | cannot prove which model produced a forecast | EZKL proof binds outputs to a registered model; weights are fixed in the circuit (`param_visibility = fixed`), not hidden |
+| Incentive | subnet Alpha emissions | no token: betting pool and protocol fee; forecasters earn ERC-8004 reputation usable across apps |
+| Product | price-path distributions sold as an API | accountability layer for settlement and reputation; could give suppliers like Synth a verifiable track record |
+| Paying users | yes | none yet |
+
+Synth 由 validator 链下用 CRPS 打分，无法证明预测出自哪个模型，靠子网 Alpha 增发激励，卖价格路径分布
+API；我们链上按 `observe()` TWAP 结算、整数对数分，EZKL 证明绑定已登记模型（权重固定在电路里，不是隐藏
+模型），无代币，激励是彩池手续费与跨应用的 ERC-8004 信誉，定位是可问责的结算与信誉层，也可以反过来给
+Synth 这类供给方做可验证战绩。坦白说：Synth 已有真实付费用户，我们没有。
+
 ## Problem evidence / 痛点证据
 
 Only grade A/B items carry the pitch. aixbt's track record and "humans posing as AI" claims about
