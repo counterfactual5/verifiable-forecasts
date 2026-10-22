@@ -1,27 +1,43 @@
-"""One VolMarket round on an anvil fork of Ethereum mainnet.
+"""VolMarket on an anvil fork of Ethereum mainnet, replaying HOURS consecutive real hours.
 
 The market reads the real Uniswap V3 ETH/USDC 0.05% pool, writes scores to the deployed ERC-8004
-registries and cross-checks the pool price against the Chainlink ETH/USD feed. The three EZKL agents
-from agents/ prove on the round's onchain features (the pool's real last 85 minutes), and a fourth,
+registries and cross-checks the pool price against the Chainlink ETH/USD feed. Each hour is one
+round: the three EZKL agents from agents/ prove on the round's onchain features, and a fourth,
 commit-only agent asks a time-series forecasting API (VOL_TSFM_API_URL; a deterministic local
-placeholder when unset). Every agent commits a hash first and reveals once commits close; the zk
-agents' reveals carry the proof. Forecasts above the uniform baseline share half of the fee.
+placeholder when unset, reported as forecast_source "placeholder"). Every agent commits a hash
+first and reveals once commits close; the zk agents' reveals carry the proof. Forecasts above the
+uniform baseline share half of each round's fee.
 
-The fork starts at a Chainlink update at least an hour in the past, so the round window is an hour
-that already happened on mainnet. During the window a trader swaps the forked pool to the real
-5-minute TWAP tick of each segment (read from mainnet's own `observe`), replaying the real price
-path; `sample`/`settle` then close the round as anyone could, and the bettors claim. If that hour is
-no longer in mainnet's observation history (an old pinned FORK_BLOCK) the trader instead swaps a
-small fixed back-and-forth pattern. Everything happens on the local fork: nothing is broadcast.
+One fork, one deployment, so ERC-8004 reputation and the market accumulate across the hours:
+- The fork starts before the replayed hours. From then on the forked pool follows mainnet at the
+  5-minute grid the contract reads: at each grid time t, in a block stamped exactly t, a trader
+  swaps the pool to the real floor mean tick of [t, t + 300 s), taken from mainnet's own
+  `observe()` (archive calls). The pool then holds that tick for the whole segment, so every
+  segment mean the contract reads equals mainnet's, and so do the round features and the
+  realized vol. Replay starts 18 segments before the first round so its features are replayed too.
+- Chainlink ETH/USD reports are replayed from mainnet: each real `transmit` transaction in the
+  range is re-sent by its original transmitter (impersonated) at its original timestamp, so the
+  feed answer and its age at every settlement are mainnet's.
+- Round h covers [start_h, start_h + 1 h); it is created one segment before start_h, so its 17
+  feature segments are grid segments too. Commits, reveals and bets fall between grid times;
+  createRound, swaps and samples that share a grid time are mined in one block.
 
-Usage: bash demo/run.sh   (writes demo/out/fork_round.json for the dashboard)
+Everything happens on the local fork: nothing is broadcast.
+
+Environment: MAINNET_RPC_URL (archive; default the public tenderly gateway), HOURS (default 24),
+REPLAY_START (unix seconds or ISO-8601 UTC, a full hour; default 2026-10-21T06:00:00Z, inside the
+models' test period). Usage: bash demo/run.sh   (writes demo/out/fork_replay.json)
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
+from datetime import UTC, datetime
 from decimal import Decimal, getcontext
 from pathlib import Path
 
@@ -33,16 +49,19 @@ from vol_agents.chain import DEV_KEYS, Anvil, address_of, as_int
 from vol_agents.ezkl_step import OUT as AGENTS_OUT
 
 REPO = Path(__file__).resolve().parent.parent
-RESULT = REPO / "demo" / "out" / "fork_round.json"
+RESULT = REPO / "demo" / "out" / "fork_replay.json"
 
 POOL = "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640"  # Uniswap V3 ETH/USDC 0.05%, token0 USDC
-FEED = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"  # Chainlink ETH/USD, 8 decimals
+FEED = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"  # Chainlink ETH/USD proxy, 8 decimals
 IDENTITY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"  # ERC-8004 v2.0.0 Identity (mainnet)
 REPUTATION = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63"  # ERC-8004 v2.0.0 Reputation (mainnet)
 WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+USDC_BALANCE_SLOT = 9  # FiatTokenV2_2 balanceAndBlacklistStates mapping
 SWAP_ROUTER = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"  # Uniswap SwapRouter02
 DEFAULT_RPC = "https://mainnet.gateway.tenderly.co"
+DEFAULT_START = "2026-10-21T06:00:00Z"
+DEFAULT_HOURS = 24
 
 # anvil dev accounts 4 and 5 (same public mnemonic as chain.DEV_KEYS); fork-local only
 BETTOR_KEYS = [
@@ -51,42 +70,73 @@ BETTOR_KEYS = [
 ]
 # anvil dev account 6, operator of the commit-only agent; fork-local only
 API_AGENT_KEY = "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e"
+# anvil dev accounts 7 and 8 (unlocked on the fork): the pool trader and the checkpoint sampler
+TRADER_INDEX, SAMPLER_INDEX = 7, 8
 FEE_BPS = 100
 PREDICTOR_SHARE_BPS = 5000
-# Commits close COMMIT_LEAD s and reveals REVEAL_LEAD s before the round start. Kept short: the
-# whole lead counts against the feed's 3900 s staleness limit at settlement.
+# Commits close COMMIT_LEAD s and reveals REVEAL_LEAD s before the round start.
 COMMIT_LEAD = 90
 REVEAL_LEAD = 30
 BET_WEI = 10**18
-# The placeholder bounds the models were trained on (agents/vol_agents/contract_math.py).
 BOUNDS = cm.BOUNDS
-# Trader inventory: WETH, plus USDC bought on the 0.3% pool so the 0.05% pool is untouched before
-# the round. Swaps carry a price limit, so only the amount needed to reach the target is spent.
-TRADER_WETH = 20_000
-TRADER_USDC_FROM_ETH = 2_000
-# Fallback pattern: ETH sold at the start of even segments, bought back in odd ones, so the price
-# ends where it started and the Chainlink cross-check compares like with like.
-SCRIPTED_SWAP_ETH = [3, 5, 2, 4, 6, 3]
-# Blocks advance one second each so that deployment wall time does not age the Chainlink answer
-# (settle voids the round once the answer is older than 3900 s).
-BLOCK_INTERVAL_S = 1
-ROUND_LEAD_S = 120
+# createRound one segment before startTime keeps the feature segments on the replay grid
+ROUND_LEAD_S = cm.DELTA
 SETTLE_AFTER_S = 10
-# Seconds between the fork block and the round start (deployment blocks plus ROUND_LEAD_S), with
-# room to spare; the fork block is chosen so that start + window is still in mainnet's past.
+# Fork this long before the replay grid starts: room for the deployment blocks (one second each).
 SETUP_MARGIN_S = 600
-FIXED_GAS = 8_000_000
+# Fork-local trader inventory, far above what a day of price moves in this pool takes.
+TRADER_WETH = 10**6 * 10**18
+TRADER_USDC = 10**12 * 10**6
+BLOCK_INTERVAL_S = 1
+SWAP_GAS, CREATE_GAS, SAMPLE_GAS = 3_000_000, 2_000_000, 500_000
+SWAP_LOG_SAMPLE = 3  # swap tx hashes listed per hour
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 EXACT_INPUT = "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))"
 ROUND_SIG = "getRound(uint256)(uint64,bool,bool,uint256,uint256,uint256,uint256[5],uint256[])"
 FEED_SIG = "latestRoundData()(uint80,int256,uint256,uint256,uint80)"
 OBSERVE_SIG = "observe(uint32[])(int56[],uint160[])"
+PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)"
+SWAP_TOPIC = "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+ANSWER_UPDATED_TOPIC = "0x0559884fd3a460db3073b7fc896cc77986f16e378210ded43186175bf646fc5f"
+VOID_REASONS = {1: "pool tick out of range", 2: "Chainlink answer stale or invalid",
+                3: "Chainlink decimals", 4: "pool price deviates from Chainlink",
+                5: "Chainlink call failed"}
 
 getcontext().prec = 60
 
 
 def log(msg):
     print(f"[demo] {msg}", flush=True)
+
+
+def utc(t):
+    return datetime.fromtimestamp(t, UTC).strftime("%Y-%m-%d %H:%M:%SZ")
+
+
+def parse_start(v):
+    if v.isdigit():
+        return int(v)
+    return int(datetime.fromisoformat(v.replace("Z", "+00:00")).timestamp())
+
+
+def rpc(url, method, *params, timeout=180):
+    """JSON-RPC over HTTP; errors never include the URL, which may carry an API key."""
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": list(params)})
+    last = None
+    for attempt in range(6):
+        req = urllib.request.Request(url, data=body.encode(),
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                out = json.loads(r.read())
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            last = type(e).__name__ + (f" {e.code}" if hasattr(e, "code") else "")
+            time.sleep(2 * (attempt + 1))
+            continue
+        if "error" in out:
+            raise RuntimeError(f"{method}: {out['error']}")
+        return out["result"]
+    raise RuntimeError(f"{method} failed after retries: {last}")
 
 
 def cast(*args, timeout=600):
@@ -96,45 +146,88 @@ def cast(*args, timeout=600):
     return r.stdout.strip()
 
 
-def cast_json(*args):
-    return json.loads(cast(*args, "--json"))
+def calldata(sig, *args):
+    return cast("calldata", sig, *args)
 
 
-def replayable_feed_update_block(rpc):
-    """Block of the latest Chainlink answer old enough that the whole round window lies in
-    mainnet's past; forking right at an update leaves the most headroom before the 3900 s
-    staleness limit at settlement."""
-    latest_ts = int(cast("block", "latest", "--field", "timestamp", "--rpc-url", rpc))
-    round_id = as_int(cast_json("call", FEED, FEED_SIG, "--rpc-url", rpc)[0])
-    for back in range(48):
-        r = cast_json("call", FEED, "getRoundData(uint80)(uint80,int256,uint256,uint256,uint80)",
-                      round_id - back, "--rpc-url", rpc)
-        updated_at = as_int(r[3])
-        if updated_at + SETUP_MARGIN_S + cm.N_SEGMENTS * cm.DELTA <= latest_ts:
-            break
-    else:
-        raise RuntimeError("no Chainlink answer old enough to replay the window")
-    block = int(cast("find-block", updated_at, "--rpc-url", rpc))
-    for b in (block, block + 1):
-        got = as_int(cast_json("call", FEED, FEED_SIG, "--rpc-url", rpc, "--block", b)[3])
-        if got == updated_at:
-            return b
-    raise RuntimeError(f"no block found for Chainlink update at {updated_at}")
+def observe_calldata(secs):
+    return calldata("observe(uint32[])", "[" + ",".join(map(str, secs)) + "]")
 
 
-def real_segment_ticks(rpc, start):
-    """The real pool's mean tick in each window segment, from mainnet's own observe(); None when
-    the window is not (or no longer) in mainnet's observation history."""
-    now = int(cast("block", "latest", "--field", "timestamp", "--rpc-url", rpc))
-    ends = [start + k * cm.DELTA for k in range(cm.N_SEGMENTS + 1)]
-    if ends[-1] > now:
-        return None
-    secs = "[" + ",".join(str(now - t) for t in ends) + "]"
-    try:
-        cums = [as_int(v) for v in cast_json("call", POOL, OBSERVE_SIG, secs, "--rpc-url", rpc)[0]]
-    except RuntimeError:
-        return None
-    return [cm.floor_div(cums[k + 1] - cums[k], cm.DELTA) for k in range(cm.N_SEGMENTS)]
+def decode_observe(data):
+    out = json.loads(cast("abi-decode", OBSERVE_SIG, data, "--json"))
+    return [as_int(v) for v in out[0]]
+
+
+class Mainnet:
+    """Archive reads on mainnet over plain JSON-RPC."""
+
+    def __init__(self, url):
+        self.url = url
+        self._ts = {}
+
+    def call(self, method, *params):
+        return rpc(self.url, method, *params)
+
+    def latest(self):
+        return int(self.call("eth_blockNumber"), 16)
+
+    def ts(self, n):
+        if n not in self._ts:
+            self._ts[n] = int(self.call("eth_getBlockByNumber", hex(n), False)["timestamp"], 16)
+        return self._ts[n]
+
+    def block_at_or_after(self, t):
+        """First block stamped >= t. Slots are 12 s and missed slots only remove blocks, so the
+        slot-count estimate back from the head never overshoots."""
+        head = self.latest()
+        if self.ts(head) < t:
+            raise RuntimeError(f"{utc(t)} is not in mainnet's past yet")
+        n = head - (self.ts(head) - t) // 12
+        while self.ts(n) < t:
+            n += max(1, (t - self.ts(n)) // 12)
+        while self.ts(n - 1) >= t:
+            n -= 1
+        return n
+
+    def observe(self, block, secs):
+        data = self.call("eth_call", {"to": POOL, "data": observe_calldata(secs)}, hex(block))
+        return decode_observe(data)
+
+    def logs(self, address, topic, first, last):
+        return self.call("eth_getLogs", {"address": address, "topics": [topic],
+                                         "fromBlock": hex(first), "toBlock": hex(last)})
+
+
+def real_cumulatives(mainnet, grid, ends):
+    """Pool tickCumulative at every grid time from mainnet observe(): one call per chunk of grid
+    times up to each of `ends`, at the first block stamped at or after that end (a chunk spans at
+    most 1.5 h, inside the pool's observation history). Also returns that block per end."""
+    cums, block_at = {}, {}
+    i = 0
+    for end in ends:
+        part = [t for t in grid[i:] if t <= end]
+        i += len(part)
+        block = mainnet.block_at_or_after(end)
+        block_at[part[-1]] = block
+        ts = mainnet.ts(block)
+        for t, c in zip(part, mainnet.observe(block, [ts - t for t in part]), strict=True):
+            cums[t] = c
+    return cums, block_at
+
+
+def feed_reports(mainnet, aggregator, first, last):
+    """Real Chainlink transmissions on the aggregator, in block order, with the transaction that
+    carried each (re-sent by its transmitter on the fork)."""
+    out = []
+    for lg in mainnet.logs(aggregator, ANSWER_UPDATED_TOPIC, first, last):
+        tx = mainnet.call("eth_getTransactionByHash", lg["transactionHash"])
+        out.append({"block": int(lg["blockNumber"], 16), "tx": lg["transactionHash"],
+                    "updated_at": int(lg["data"], 16), "answer": int(lg["topics"][1], 16),
+                    "from": tx["from"], "to": tx["to"], "input": tx["input"],
+                    "gas": tx["gas"]})
+    out.sort(key=lambda r: (r["block"], r["updated_at"]))
+    return out
 
 
 def sqrt_price_x96(tick):
@@ -164,25 +257,60 @@ class ForkAnvil(Anvil):
             self.close()
             raise RuntimeError("forked anvil did not start")
         self.rpc_call("anvil_setBlockTimestampInterval", BLOCK_INTERVAL_S)
+        accounts = self.rpc_call("eth_accounts")
+        self.trader, self.sampler = accounts[TRADER_INDEX], accounts[SAMPLER_INDEX]
         # On mainnet anvil's public test keys carry EIP-7702 sweeper delegations; as plain EOAs
         # again they can receive the ERC-721 identity mint and keep their fork-local ETH.
-        for key in DEV_KEYS + BETTOR_KEYS + [API_AGENT_KEY]:
-            self.rpc_call("anvil_setCode", address_of(key), "0x")
+        for who in [address_of(k) for k in DEV_KEYS + BETTOR_KEYS + [API_AGENT_KEY]] + [
+                self.trader, self.sampler]:
+            self.rpc_call("anvil_setCode", who, "0x")
         return self
 
     def rpc_call(self, method, *params):
-        return cast("rpc", method, *params, "--rpc-url", self.rpc)
+        return rpc(self.rpc, method, *params)
 
     def call_at(self, block, to, sig, *args):
-        return cast_json("call", to, sig, *args, "--rpc-url", self.rpc, "--block", block)
+        return json.loads(cast("call", to, sig, *args, "--rpc-url", self.rpc, "--block", block,
+                               "--json"))
 
-    def send_gas(self, key, to, sig, *args, gas=FIXED_GAS):
-        """A send with a fixed gas limit: pool swaps skip the slow fork estimate."""
-        receipt = cast_json("send", to, sig, *args, "--private-key", key, "--rpc-url", self.rpc,
-                            "--gas-limit", gas)
-        if receipt.get("status") not in ("0x1", 1, "1"):
-            raise RuntimeError(f"{sig} reverted: {receipt}")
-        return receipt
+    def latest_ts(self):
+        return int(self.rpc_call("eth_getBlockByNumber", "latest", False)["timestamp"], 16)
+
+    def wait_receipt(self, tx_hash):
+        """A forked anvil mines automined transactions asynchronously, after
+        eth_sendTransaction has already returned the hash."""
+        deadline = time.time() + 60
+        while (r := self.rpc_call("eth_getTransactionReceipt", tx_hash)) is None:
+            if time.time() > deadline:
+                raise RuntimeError(f"transaction {tx_hash} was never mined")
+            time.sleep(0.05)
+        return r
+
+    def receipt(self, tx_hash):
+        r = self.wait_receipt(tx_hash)
+        if r["status"] != "0x1":
+            raise RuntimeError(f"transaction {tx_hash} failed: {r}")
+        return r
+
+    def mine_batch(self, ts, txs):
+        """Mine `txs` ({from, to, data, gas}) in one block stamped exactly `ts`."""
+        if self.latest_ts() >= ts:
+            raise RuntimeError(f"chain time already at {self.latest_ts()}, cannot mine at {ts}")
+        self.rpc_call("evm_setAutomine", False)
+        try:
+            hashes = [self.rpc_call("eth_sendTransaction", {**tx, "gas": hex(tx["gas"])})
+                      for tx in txs]
+            self.rpc_call("evm_setNextBlockTimestamp", ts)
+            self.rpc_call("evm_mine")
+        finally:
+            self.rpc_call("evm_setAutomine", True)
+        return [self.receipt(h) for h in hashes]
+
+    def advance_to(self, ts):
+        """The next mined block is stamped ts, or one second after the last block if that is
+        later."""
+        if self.latest_ts() + 1 < ts:
+            self.rpc_call("evm_setNextBlockTimestamp", ts)
 
 
 def topic(event_sig):
@@ -238,48 +366,66 @@ def deploy(c, owner):
     return market, agents, agent_ids, verifiers
 
 
-def fund_trader(c, key):
-    trader = address_of(key)
-    c.rpc_call("anvil_setBalance", trader, hex((TRADER_WETH + TRADER_USDC_FROM_ETH + 100) * 10**18))
-    c.send(key, WETH, "deposit()", "--value", f"{TRADER_WETH + TRADER_USDC_FROM_ETH}ether")
-    c.send(key, WETH, "approve(address,uint256)", SWAP_ROUTER, 2**256 - 1)
-    c.send(key, USDC, "approve(address,uint256)", SWAP_ROUTER, 2**256 - 1)
-    c.send_gas(key, SWAP_ROUTER, EXACT_INPUT,
-               f"({WETH},{USDC},3000,{trader},{TRADER_USDC_FROM_ETH * 10**18},0,0)")
+def fund_trader(c):
+    """Fork-local inventory: ETH wrapped to WETH, USDC written into its balance slot."""
+    t = c.trader
+    c.rpc_call("anvil_setBalance", t, hex(TRADER_WETH + 100 * 10**18))
+    approve = calldata("approve(address,uint256)", SWAP_ROUTER, 2**256 - 1)
+    for tx in ({"from": t, "to": WETH, "data": calldata("deposit()"), "value": hex(TRADER_WETH)},
+               {"from": t, "to": WETH, "data": approve}, {"from": t, "to": USDC, "data": approve}):
+        c.receipt(c.rpc_call("eth_sendTransaction", tx))
+    slot = cast("index", "address", t, USDC_BALANCE_SLOT)
+    c.rpc_call("anvil_setStorageAt", USDC, slot, "0x" + TRADER_USDC.to_bytes(32, "big").hex())
+    if balance(c, USDC, t) != TRADER_USDC:
+        raise RuntimeError("USDC balance slot layout changed; cannot fund the trader")
 
 
-def open_round(c, owner, market):
-    start = c.timestamp() + ROUND_LEAD_S
-    receipt = c.send(owner, market, "createRound(uint64,uint256[])", start,
-                     "[" + ",".join(map(str, BOUNDS)) + "]")
-    rid = as_int(c.call(market, "roundCount()(uint256)")[0]) - 1
-    feats = [as_int(v) for v in c.call(market, "getFeatures(uint256)(int256[16])", rid)[0]]
-    block = int(receipt["blockNumber"], 0)
-    secs = "[" + ",".join(str((cm.N_FEATURES + 1 - i) * cm.DELTA)
-                          for i in range(cm.N_FEATURES + 2)) + "]"
-    cums = [as_int(v) for v in c.call_at(block, POOL, OBSERVE_SIG, secs)[0]]
-    if cm.features_from_cumulatives(cums) != feats:
-        raise RuntimeError(f"contract features differ from the pool's observe(): {feats}")
-    return rid, start, feats
+def pool_tick(c):
+    return as_int(c.call(POOL, "slot0()(uint160,int24,uint16,uint16,uint16,uint8,bool)")[1])
 
 
-def tamper_check(c, agent, verifier, market, rid, sub):
-    """The verifier accepts the submitted proof and rejects it once one output is changed."""
-    work = AGENTS_OUT / "rounds" / f"{market.lower()}-{rid}" / agent.name
-    proof = json.loads((work / "proof.json").read_text())["hex_proof"]
-    inst = [cm.encode(v) for v in sub["features"]] + list(sub["outputs"])
-    tampered = inst[:-1] + [inst[-1] + 1]
+def balance(c, token, who):
+    return as_int(c.call(token, "balanceOf(address)(uint256)", who)[0])
 
-    def verify(instances):
-        try:
-            out = c.call(verifier, "verifyProof(bytes,uint256[])(bool)", proof,
-                         "[" + ",".join(map(str, instances)) + "]")
-            return truthy(out[0])
-        except RuntimeError:
-            return False
 
-    return {"agent": agent.name, "honest_proof_verifies": verify(inst),
-            "tampered_output_verifies": verify(tampered)}
+def swap_tx(c, now, target):
+    """Swap that moves the forked pool from tick `now` to `target`: selling WETH raises the tick,
+    selling USDC lowers it; the price limit stops it inside `target`."""
+    up = target > now
+    token_in, token_out, amount = (WETH, USDC, TRADER_WETH) if up else (USDC, WETH, TRADER_USDC)
+    data = calldata(EXACT_INPUT, f"({token_in},{token_out},500,{c.trader},{amount},0,"
+                                 f"{sqrt_price_x96(target)})")
+    return {"from": c.trader, "to": SWAP_ROUTER, "data": data, "gas": SWAP_GAS}
+
+
+class FeedReplay:
+    """Re-sends mainnet's Chainlink transmissions on the fork in timestamp order."""
+
+    def __init__(self, c, reports):
+        self.c, self.pending, self.done = c, list(reports), []
+        for who in {r["from"] for r in reports}:
+            c.rpc_call("anvil_impersonateAccount", who)
+            c.rpc_call("anvil_setBalance", who, hex(100 * 10**18))
+
+    def before(self, t):
+        """Replay every report stamped before t that still fits before t."""
+        while self.pending and self.pending[0]["updated_at"] < t:
+            r = self.pending[0]
+            at = max(r["updated_at"], self.c.latest_ts() + 1)
+            if at >= t:
+                return
+            self.pending.pop(0)
+            self.c.rpc_call("evm_setNextBlockTimestamp", at)
+            h = self.c.rpc_call("eth_sendTransaction", {"from": r["from"], "to": r["to"],
+                                                        "data": r["input"], "gas": r["gas"]})
+            status = self.c.wait_receipt(h)["status"]
+            got = as_int(self.c.call(FEED, FEED_SIG)[3])
+            self.done.append({"mainnet_tx": r["tx"], "mainnet_block": r["block"],
+                              "mainnet_updated_at": r["updated_at"], "replayed_at": at,
+                              "ok": status == "0x1" and got == at,
+                              "answer_usd": r["answer"] / 1e8})
+            if not self.done[-1]["ok"]:
+                log(f"Chainlink report {r['tx']} did not replay (status {status})")
 
 
 def place_bets(c, market, rid, agents_probs):
@@ -296,72 +442,25 @@ def place_bets(c, market, rid, agents_probs):
     return bets
 
 
-def pool_tick(c):
-    return as_int(c.call(POOL, "slot0()(uint160,int24,uint16,uint16,uint16,uint8,bool)")[1])
+def tamper_check(c, agent, verifier, market, rid, sub):
+    """The verifier accepts the revealed proof and rejects it once one output is changed."""
+    work = AGENTS_OUT / "rounds" / f"{market.lower()}-{rid}" / agent.name
+    proof = json.loads((work / "proof.json").read_text())["hex_proof"]
+    inst = [cm.encode(v) for v in sub["features"]] + list(sub["outputs"])
+    tampered = inst[:-1] + [inst[-1] + 1]
 
+    def verify(instances):
+        try:
+            out = c.call(verifier, "verifyProof(bytes,uint256[])(bool)", proof,
+                         "[" + ",".join(map(str, instances)) + "]")
+            return truthy(out[0])
+        except RuntimeError:
+            return False
 
-def balance(c, token, who):
-    return as_int(c.call(token, "balanceOf(address)(uint256)", who)[0])
-
-
-def swap_to_tick(c, key, target):
-    """Swap the forked pool to `target`; selling WETH raises the tick, selling USDC lowers it."""
-    trader, now = address_of(key), pool_tick(c)
-    if target == now:
-        return "hold"
-    up = target > now
-    token_in, token_out = (WETH, USDC) if up else (USDC, WETH)
-    amount = balance(c, token_in, trader)
-    c.send_gas(key, SWAP_ROUTER, EXACT_INPUT,
-               f"({token_in},{token_out},500,{trader},{amount},0,{sqrt_price_x96(target)})")
-    return "sell WETH" if up else "sell USDC"
-
-
-def scripted_swap(c, key, k, usdc_reserve):
-    """Odd segments buy back with only the USDC the even segment's sale brought in."""
-    trader = address_of(key)
-    if k % 2 == 0:
-        amount = SCRIPTED_SWAP_ETH[k // 2] * 10**18
-        token_in, token_out, side = WETH, USDC, f"sell {SCRIPTED_SWAP_ETH[k // 2]} WETH"
-    else:
-        amount = balance(c, USDC, trader) - usdc_reserve
-        token_in, token_out, side = USDC, WETH, "buy it back"
-    c.send_gas(key, SWAP_ROUTER, EXACT_INPUT,
-               f"({token_in},{token_out},500,{trader},{amount},0,0)")
-    return side
-
-
-def run_window(c, trader_key, market, rid, start, targets):
-    """Sample every checkpoint as soon as it passes and trade the pool in between."""
-    usdc_reserve = balance(c, USDC, address_of(trader_key))
-    swaps = []
-    for k in range(cm.N_SEGMENTS + 1):
-        c.set_next_timestamp(start + k * cm.DELTA + 1)
-        c.send(trader_key, market, "sample(uint256,uint256)", rid, k)
-        if k == cm.N_SEGMENTS:
-            break
-        before = pool_tick(c)
-        if targets:
-            side = swap_to_tick(c, trader_key, targets[k])
-        else:
-            side = scripted_swap(c, trader_key, k, usdc_reserve)
-        after = pool_tick(c)
-        swaps.append({"segment": k, "side": side, "tick_before": before, "tick_after": after,
-                      "target_tick": targets[k] if targets else None})
-        goal = f" (real {targets[k]})" if targets else ""
-        log(f"segment {k:2d}: {side:<12} tick {before} -> {after}{goal}")
-    return swaps
-
-
-def offchain_rv(c, market, rid):
-    cums = []
-    for k in range(cm.N_SEGMENTS + 1):
-        sampled, cum = c.call(market, "getCheckpoint(uint256,uint256)(bool,int56)", rid, k)
-        assert truthy(sampled)
-        cums.append(as_int(cum))
-    means = [cm.floor_div(cums[k] - cums[k - 1], cm.DELTA) for k in range(1, len(cums))]
-    rv = cm.realized_vol(means)
-    return {"segment_mean_ticks": means, "realized_vol": rv, "bucket": cm.bucket_of(rv, BOUNDS)}
+    gas = as_int(cast("estimate", verifier, "verifyProof(bytes,uint256[])", proof,
+                      "[" + ",".join(map(str, inst)) + "]", "--rpc-url", c.rpc))
+    return {"agent": agent.name, "honest_proof_verifies": verify(inst),
+            "tampered_output_verifies": verify(tampered), "verify_proof_gas": gas}
 
 
 def chainlink_check(c, market, block, settle_ts):
@@ -370,39 +469,74 @@ def chainlink_check(c, market, block, settle_ts):
     cums = c.call_at(block, POOL, OBSERVE_SIG, f"[{cm.DELTA},0]")[0]
     tick = cm.floor_div(as_int(cums[1]) - as_int(cums[0]), cm.DELTA)
     pool_price = as_int(c.call_at(block, market, "priceForTick(int24)(uint256)", tick)[0])
-    deviation_bps = abs(pool_price - answer) * 10_000 / answer
-    return {
-        "feed": FEED, "feed_price_usd": answer / 1e8, "feed_updated_at": updated_at,
-        "feed_age_s": settle_ts - updated_at, "pool_mean_tick": tick,
-        "pool_price_usd": pool_price / 1e8, "deviation_bps": round(deviation_bps, 2),
-        "max_deviation_bps": 200, "max_age_s": 3900,
-    }
+    return {"feed_price_usd": answer / 1e8, "feed_updated_at": updated_at,
+            "feed_age_s": settle_ts - updated_at, "pool_mean_tick": tick,
+            "pool_price_usd": pool_price / 1e8,
+            "deviation_bps": round(abs(pool_price - answer) * 10_000 / answer, 2)}
 
 
-def settle(c, owner, market, rid, start):
-    settle_ts = start + cm.N_SEGMENTS * cm.DELTA + SETTLE_AFTER_S
-    c.set_next_timestamp(settle_ts)
+def settle(c, owner, market, rid):
     # Estimated gas on purpose: the estimate is the lowest limit settle accepts, and settle reverts
     # rather than skip an external call that limit would starve.
     receipt = c.send(owner, market, "settle(uint256)", rid)
-    gas_limit = as_int(cast("tx", receipt["transactionHash"], "gas", "--rpc-url", c.rpc))
     r = c.call(market, ROUND_SIG, rid)
-    events = {
-        "price_check_failed": len(logs_with(
-            receipt, market, "PriceCheckFailed(uint256,int24,int256,int256,uint8)")),
-        "reputation_write_failed": len(logs_with(
-            receipt, market, "ReputationWriteFailed(uint256,address,uint256,bytes32)")),
-        "erc8004_feedback_logs": sum(1 for lg in receipt.get("logs") or []
-                                     if lg["address"].lower() == REPUTATION.lower()),
-    }
-    return {
-        "settle_block": int(receipt["blockNumber"], 0), "settle_ts": settle_ts,
-        "gas_used": int(receipt["gasUsed"], 0), "gas_limit": gas_limit,
-        "settled": truthy(r[1]), "voided": truthy(r[2]),
-        "winning_bucket": as_int(r[3]), "realized_vol": as_int(r[4]),
-        "total_stake_wei": str(as_int(r[5])), "pools_wei": [str(as_int(v)) for v in r[6]],
-        "events": events,
-    }
+    failed = logs_with(receipt, market, "PriceCheckFailed(uint256,int24,int256,int256,uint8)")
+    voided = truthy(r[2])
+    reason = None
+    if voided:
+        reason = (VOID_REASONS.get(int(failed[0]["data"][-64:], 16), "price check")
+                  if failed else "fewer than 90% of checkpoints readable")
+    rep_failed = logs_with(receipt, market,
+                           "ReputationWriteFailed(uint256,address,uint256,bytes32)")
+    if rep_failed:
+        raise RuntimeError(f"settle skipped ERC-8004 writes in round {rid}")
+    return {"settle_block": int(receipt["blockNumber"], 0),
+            "settle_tx": receipt["transactionHash"], "gas_used": int(receipt["gasUsed"], 0),
+            "voided": voided, "void_reason": reason, "winning_bucket": as_int(r[3]),
+            "realized_vol": as_int(r[4]), "total_stake_wei": str(as_int(r[5])),
+            "pools_wei": [str(as_int(v)) for v in r[6]],
+            "erc8004_feedback_logs": sum(1 for lg in receipt.get("logs") or []
+                                         if lg["address"].lower() == REPUTATION.lower())}
+
+
+def refund_all(outcome):
+    return outcome["voided"] or as_int(outcome["pools_wei"][outcome["winning_bucket"]]) == 0
+
+
+def claims(c, market, rid, bets, outcome):
+    paid = []
+    for key, bet in zip(BETTOR_KEYS, bets, strict=True):
+        if not refund_all(outcome) and bet["bucket"] != outcome["winning_bucket"]:
+            paid.append({**bet, "payout_wei": "0"})
+            continue
+        before = balance(c, WETH, bet["bettor"])
+        c.send(key, market, "claim(uint256)", rid)
+        paid.append({**bet, "payout_wei": str(balance(c, WETH, bet["bettor"]) - before)})
+    return paid
+
+
+def claim_predictor_rewards(c, market, rid, agents, scores, base):
+    """Every forecaster above the uniform baseline pulls its share of the predictor pool."""
+    pool = as_int(c.call(market, "predictorPool(uint256)(uint256)", rid)[0])
+    paid = {}
+    for a in agents:
+        if pool == 0 or scores[a.name] is None or scores[a.name] <= base:
+            paid[a.name] = "0"
+            continue
+        before = balance(c, WETH, a.address)
+        c.send(a.key, market, "claimPredictorReward(uint256)", rid)
+        paid[a.name] = str(balance(c, WETH, a.address) - before)
+    return pool, paid
+
+
+def collect_fee(c, owner, market, rid, outcome, pool):
+    fee = 0 if refund_all(outcome) else as_int(outcome["total_stake_wei"]) * FEE_BPS // 10_000
+    if fee - pool == 0:
+        return fee, 0
+    who = address_of(owner)
+    before = balance(c, WETH, who)
+    c.send(owner, market, "collectFee(uint256)", rid)
+    return fee, balance(c, WETH, who) - before
 
 
 def reputation_of(c, market, agent_id, kind):
@@ -414,186 +548,268 @@ def reputation_of(c, market, agent_id, kind):
             "summary_value": str(as_int(value)), "summary_decimals": as_int(decimals)}
 
 
-def claims(c, market, rid, bets, outcome):
-    paid = []
-    refund_all = outcome["voided"] or as_int(outcome["pools_wei"][outcome["winning_bucket"]]) == 0
-    for key, bet in zip(BETTOR_KEYS, bets, strict=True):
-        if not refund_all and bet["bucket"] != outcome["winning_bucket"]:
-            paid.append({**bet, "payout_wei": "0"})
-            continue
-        before = balance(c, WETH, bet["bettor"])
-        c.send(key, market, "claim(uint256)", rid)
-        paid.append({**bet, "payout_wei": str(balance(c, WETH, bet["bettor"]) - before)})
-    return paid
+class Replay:
+    def __init__(self, c, mainnet, owner, start, hours):
+        self.c, self.mainnet, self.owner = c, mainnet, owner
+        self.start, self.hours = start, hours
+        self.rounds = {}  # round index h -> record
+        self.tamper = []
+
+    def round_start(self, h):
+        return self.start + h * cm.N_SEGMENTS * cm.DELTA
+
+    def open_round(self, h, g, real_feats):
+        """createRound at grid time g, mined with the grid's swap; returns the batch tx."""
+        start = self.round_start(h)
+        data = calldata("createRound(uint64,uint256[])", start,
+                        "[" + ",".join(map(str, BOUNDS)) + "]")
+        self.rounds[h] = {"h": h, "start": start, "created_at": g, "id": h,
+                          "features_real": real_feats}
+        return {"from": address_of(self.owner), "to": self.market, "data": data,
+                "gas": CREATE_GAS}
+
+    def enter(self, h, feed):
+        """Commit (after proving), reveal once commits close, then bet; all before start."""
+        rec, c = self.rounds[h], self.c
+        rid, start = rec["id"], rec["start"]
+        feats = [as_int(v) for v in c.call(self.market, "getFeatures(uint256)(int256[16])", rid)[0]]
+        rec["features"] = feats
+        rec["features_match_mainnet"] = feats == rec["features_real"]
+        subs, prove = {}, {}
+        for a in self.agents:
+            feed.before(c.latest_ts() + 2)
+            subs[a.name] = a.commit(c, self.market, rid)
+            prove[a.name] = a.timings.get("prove", {}).get("seconds") if a.kind == "zk" else None
+        feed.before(start - COMMIT_LEAD)
+        c.advance_to(start - COMMIT_LEAD)
+        reveal_gas = {}
+        for a in self.agents:
+            reveal_gas[a.name] = int(a.reveal(c, self.market, rid)["gasUsed"], 0)
+        probs = {}
+        for a in self.agents:
+            p = c.call(self.market, PREDICTION_SIG, rid, a.address)
+            probs[a.name] = [as_int(v) / 1e18 for v in p[2]]
+        rec["bets"] = place_bets(c, self.market, rid, list(probs.values()))
+        if c.latest_ts() >= start:
+            raise RuntimeError(f"round {rid}: entering ran past the round start")
+        if not self.tamper:
+            self.tamper = [tamper_check(c, a, self.verifiers[a.name], self.market, rid,
+                                        subs[a.name]) for a in self.agents if a.kind == "zk"]
+        rec["agents"] = {a.name: {"probs": probs[a.name], "prove_seconds": prove[a.name],
+                                  "reveal_gas": reveal_gas[a.name],
+                                  "forecast_source": subs[a.name].get("source", "ezkl")}
+                         for a in self.agents}
+
+    def close(self, h, real_window_ticks, mainnet_info):
+        rec, c = self.rounds[h], self.c
+        rid = rec["id"]
+        c.advance_to(rec["start"] + cm.N_SEGMENTS * cm.DELTA + SETTLE_AFTER_S)
+        outcome = settle(c, self.owner, self.market, rid)
+        settle_ts = c.latest_ts()
+        real_rv = cm.realized_vol(real_window_ticks)
+        price = chainlink_check(c, self.market, outcome["settle_block"], settle_ts)
+        preds = {a.name: c.call(self.market, PREDICTION_SIG, rid, a.address) for a in self.agents}
+        scores = {n: as_int(p[3]) if truthy(p[0]) and not outcome["voided"] else None
+                  for n, p in preds.items()}
+        paid = claims(c, self.market, rid, rec["bets"], outcome)
+        pred_pool, rewards = claim_predictor_rewards(c, self.market, rid, self.agents, scores,
+                                                     self.baseline)
+        fee, owner_got = collect_fee(c, self.owner, self.market, rid, outcome, pred_pool)
+        win = outcome["winning_bucket"]
+        for a in self.agents:
+            row = rec["agents"][a.name]
+            s = scores[a.name]
+            row.update({"p_win": None if outcome["voided"] else row["probs"][win],
+                        "log_score": None if s is None else str(s),
+                        "log_score_float": None if s is None else s / 1e18,
+                        "beat_baseline": s is not None and s > self.baseline,
+                        "predictor_reward_wei": rewards[a.name]})
+        rec.update({
+            "end": rec["start"] + cm.N_SEGMENTS * cm.DELTA,
+            "window_utc": [utc(rec["start"]), utc(rec["start"] + cm.N_SEGMENTS * cm.DELTA)],
+            "mainnet": mainnet_info,
+            "real_segment_ticks": real_window_ticks, "real_realized_vol": real_rv,
+            "real_bucket": cm.bucket_of(real_rv, BOUNDS),
+            "rv_matches_mainnet": outcome["voided"] or outcome["realized_vol"] == real_rv,
+            "outcome": outcome, "chainlink": price, "bets": paid,
+            "fee_split": {"fee_wei": str(fee), "owner_wei": str(owner_got),
+                          "predictors_wei": str(pred_pool)},
+        })
+        rec.pop("features_real")
+        status = f"VOID ({outcome['void_reason']})" if outcome["voided"] else (
+            f"RV {outcome['realized_vol']} (mainnet {real_rv}) bucket {win}")
+        best = ", ".join(f"{n.removeprefix('agent-')} {r['log_score_float']:.3f}"
+                         for n, r in rec["agents"].items() if r["log_score_float"] is not None)
+        log(f"round {rid} {utc(rec['start'])}: {status}; feed age {price['feed_age_s']} s, "
+            f"dev {price['deviation_bps']} bps; {best}")
 
 
-def collect_fee(c, owner, market, rid, outcome):
-    """Anyone may push the owner's part of the round's fee to the market owner; refunded rounds
-    carry none, and with every forecaster above the baseline and a 100 % share it is 0."""
-    fee = 0 if outcome["voided"] or as_int(outcome["pools_wei"][outcome["winning_bucket"]]) == 0 \
-        else as_int(outcome["total_stake_wei"]) * FEE_BPS // 10_000
-    pool = as_int(c.call(market, "predictorPool(uint256)(uint256)", rid)[0])
-    if fee - pool == 0:
-        return "0"
-    who = address_of(owner)
-    before = balance(c, WETH, who)
-    c.send(owner, market, "collectFee(uint256)", rid)
-    return str(balance(c, WETH, who) - before)
-
-
-def claim_predictor_rewards(c, market, rid, agents, scores):
-    """Every forecaster above the uniform baseline pulls its share of the predictor pool."""
-    pool = as_int(c.call(market, "predictorPool(uint256)(uint256)", rid)[0])
-    base = as_int(c.call(market, "baselineLogScore()(int256)")[0])
-    paid = {}
+def summarize(rounds, agents, final_rep):
+    settled = [r for r in rounds if not r["outcome"]["voided"]]
+    reasons = {}
+    for r in rounds:
+        if r["outcome"]["voided"]:
+            reasons[r["outcome"]["void_reason"]] = reasons.get(r["outcome"]["void_reason"], 0) + 1
+    counts = [0] * cm.BUCKETS
+    for r in settled:
+        counts[r["outcome"]["winning_bucket"]] += 1
+    out = {}
     for a in agents:
-        if pool == 0 or scores[a.name] <= base:
-            paid[a.name] = "0"
-            continue
-        before = balance(c, WETH, a.address)
-        c.send(a.key, market, "claimPredictorReward(uint256)", rid)
-        paid[a.name] = str(balance(c, WETH, a.address) - before)
-    return pool, base, paid
+        s = [r["agents"][a.name]["log_score_float"] for r in settled]
+        out[a.name] = {
+            "rounds_scored": len(s), "total_log_score": round(sum(s), 4),
+            "mean_log_score": round(sum(s) / len(s), 4) if s else None,
+            "beat_baseline_rounds": sum(r["agents"][a.name]["beat_baseline"] for r in settled),
+            "predictor_reward_wei": str(sum(int(r["agents"][a.name]["predictor_reward_wei"])
+                                            for r in rounds)),
+            "erc8004": final_rep[a.name],
+        }
+    return {"rounds": len(rounds), "settled": len(settled), "voided": len(rounds) - len(settled),
+            "void_reasons": reasons, "bucket_counts": counts,
+            "uniform_total_log_score": round(len(settled) * math.log(1 / cm.BUCKETS), 4),
+            "features_match_mainnet": all(r["features_match_mainnet"] for r in rounds),
+            "rv_matches_mainnet": all(r["rv_matches_mainnet"] for r in rounds),
+            "agents": out}
 
 
 def main():
+    t_wall = time.time()
     os.environ.setdefault("ETH_RPC_TIMEOUT", "300")
-    rpc = os.environ.get("MAINNET_RPC_URL") or DEFAULT_RPC
-    fork_block = int(os.environ.get("FORK_BLOCK") or replayable_feed_update_block(rpc))
-    log(f"forking mainnet at block {fork_block}")
+    rpc_url = os.environ.get("MAINNET_RPC_URL") or DEFAULT_RPC
+    hours = int(os.environ.get("HOURS") or DEFAULT_HOURS)
+    start = parse_start(os.environ.get("REPLAY_START") or DEFAULT_START)
+    if hours < 1 or start % 3600:
+        raise SystemExit("HOURS must be >= 1 and REPLAY_START a full hour")
+    step, hour = cm.DELTA, cm.N_SEGMENTS * cm.DELTA
+    end = start + hours * hour
+    warm = start - ROUND_LEAD_S - (cm.N_FEATURES + 1) * step
+    grid = list(range(warm, end + 1, step))
+    mainnet = Mainnet(rpc_url)
+
+    log(f"replaying {hours} h from {utc(start)}: reading mainnet observe() on "
+        f"{len(grid)} grid points")
+    cums, block_at = real_cumulatives(mainnet, grid, [start + h * hour for h in range(hours + 1)])
+    ticks = {t: cm.floor_div(cums[t + step] - cums[t], step) for t in grid[:-1]}
+    fork_block = mainnet.block_at_or_after(warm - SETUP_MARGIN_S) - 1
+    aggregator = json.loads(cast("call", FEED, "aggregator()(address)", "--rpc-url", rpc_url,
+                                 "--block", fork_block, "--json"))[0]
+    last_block = mainnet.block_at_or_after(end + SETTLE_AFTER_S + 60)
+    reports = feed_reports(mainnet, aggregator, fork_block + 1, last_block)
+    log(f"forking mainnet at block {fork_block} ({utc(mainnet.ts(fork_block))}); "
+        f"{len(reports)} Chainlink reports to replay")
+
     owner = DEV_KEYS[0]
-    with ForkAnvil(rpc, fork_block) as c:
-        fork_ts = c.timestamp()
+    with ForkAnvil(rpc_url, fork_block) as c:
+        fork_ts = c.latest_ts()
         market, agents, agent_ids, verifiers = deploy(c, owner)
-        fund_trader(c, owner)
-        rid, start, feats = open_round(c, owner, market)
-        log(f"round {rid}: start {start}, features from the real pool {feats}")
+        fund_trader(c)
+        feed = FeedReplay(c, reports)
+        rp = Replay(c, mainnet, owner, start, hours)
+        rp.market, rp.agents, rp.verifiers = market, agents, verifiers
+        rp.baseline = as_int(c.call(market, "baselineLogScore()(int256)")[0])
+        tick_now = pool_tick(c)
+        log(f"deployed in {c.latest_ts() - fork_ts} s of chain time; replay grid starts "
+            f"{utc(warm)}")
 
-        subs = {}
-        for a in agents:
-            subs[a.name] = a.commit(c, market, rid)
-            how = (f"prove {a.timings['prove']['seconds']} s" if a.kind == "zk"
-                   else f"commit-only, forecast from {subs[a.name]['source']}")
-            log(f"{a.name}: committed ({how})")
-        c.set_next_timestamp(start - COMMIT_LEAD)
-        for a in agents:
-            a.reveal(c, market, rid)
-            log(f"{a.name}: revealed" + (", proof verified onchain" if a.kind == "zk"
-                                          else ", no proof (commit-only)"))
-        checks = [tamper_check(c, a, verifiers[a.name], market, rid, subs[a.name])
-                  for a in agents if a.kind == "zk"]
-        probs = {}
-        for a in agents:
-            p = c.call(market, "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)",
-                       rid, a.address)
-            probs[a.name] = [as_int(v) / 1e18 for v in p[2]]
-        bets = place_bets(c, market, rid, list(probs.values()))
+        for g in grid:
+            feed.before(g)
+            batch = []
+            if g in ticks and ticks[g] != tick_now:
+                batch.append(swap_tx(c, tick_now, ticks[g]))
+            h_open = (g + ROUND_LEAD_S - start) // hour
+            opening = (g + ROUND_LEAD_S - start) % hour == 0 and 0 <= h_open < hours
+            if opening:
+                points = [g - (cm.N_FEATURES + 1 - i) * step for i in range(cm.N_FEATURES + 2)]
+                real_feats = cm.features_from_cumulatives([cums[t] for t in points])
+                batch.append(rp.open_round(h_open, g, real_feats))
+            for h, rec in rp.rounds.items():
+                k, rem = divmod(g - rec["start"], step)
+                if rem == 0 and 0 <= k <= cm.N_SEGMENTS:
+                    batch.append({"from": c.sampler, "to": market, "gas": SAMPLE_GAS,
+                                  "data": calldata("sample(uint256,uint256)", h, k)})
+            if batch:
+                c.mine_batch(g, batch)
+            if g in ticks:
+                tick_now = pool_tick(c)
+                if tick_now != ticks[g]:
+                    raise RuntimeError(f"pool at tick {tick_now}, replay target {ticks[g]}")
+            h_end = (g - start) // hour - 1
+            if (g - start) % hour == 0 and 0 <= h_end < hours:
+                s = rp.round_start(h_end)
+                feed.before(g + SETTLE_AFTER_S)
+                window = [ticks[s + k * step] for k in range(cm.N_SEGMENTS)]
+                first, nxt = block_at[s], block_at[s + hour]
+                swaps = mainnet.logs(POOL, SWAP_TOPIC, first, nxt - 1)
+                info = {"block_from": first, "block_to": nxt - 1, "swap_count": len(swaps),
+                        "swap_txs": [lg["transactionHash"] for lg in swaps[:SWAP_LOG_SAMPLE]],
+                        "last_swap_tx": swaps[-1]["transactionHash"] if swaps else None}
+                rp.close(h_end, window, info)
+            if opening:
+                rp.enter(h_open, feed)
 
-        targets = real_segment_ticks(rpc, start)
-        real_rv = cm.realized_vol(targets) if targets else None
-        log("window: replaying the real pool's 5-minute TWAP path" if targets
-            else "window: real hour unavailable, scripted swaps")
-        swaps = run_window(c, owner, market, rid, start, targets)
-        outcome = settle(c, owner, market, rid, start)
-        if outcome["events"]["reputation_write_failed"]:
-            raise RuntimeError(f"settle skipped ERC-8004 writes: {outcome['events']}")
-        log(f"settled={outcome['settled']} voided={outcome['voided']} "
-            f"RV={outcome['realized_vol']} bucket={outcome['winning_bucket']}")
-        offchain = offchain_rv(c, market, rid)
-        price = chainlink_check(c, market, outcome["settle_block"], outcome["settle_ts"])
-
-        preds = {a.name: c.call(
-            market, "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)", rid,
-            a.address) for a in agents}
-        scores = {name: as_int(p[3]) for name, p in preds.items()}
-        paid = claims(c, market, rid, bets, outcome)
-        pred_pool, baseline, rewards = claim_predictor_rewards(c, market, rid, agents, scores)
-        fee = collect_fee(c, owner, market, rid, outcome)
+        final_rep = {a.name: reputation_of(c, market, agent_ids[a.name], a.kind) for a in agents}
         market_left = balance(c, WETH, market)
 
-        rows = []
-        for a in agents:
-            p = preds[a.name]
-            rows.append({
-                "agent": a.name, "model": getattr(a, "model", None) or "tsfm-api",
-                "model_type": a.kind, "forecast_source": subs[a.name].get("source", "ezkl"),
-                "address": a.address, "model_id": a.model_id, "agent_id": agent_ids[a.name],
-                "verifier": verifiers[a.name], "revealed": truthy(p[0]),
-                "proof_verified_onchain": a.kind == "zk" and truthy(p[0]),
-                "probs": probs[a.name], "p_win": probs[a.name][outcome["winning_bucket"]],
-                "log_score": str(scores[a.name]), "log_score_float": scores[a.name] / 1e18,
-                "beat_baseline": scores[a.name] > baseline,
-                "predictor_reward_wei": rewards[a.name],
-                "prove_seconds": a.timings.get("prove", {}).get("seconds"),
-                "prove_peak_mb": a.timings.get("prove", {}).get("peak_mb"),
-                "reputation": reputation_of(c, market, agent_ids[a.name], a.kind),
-            })
-        rows.sort(key=lambda r: r["log_score_float"], reverse=True)
-        round_fee = 0 if outcome["voided"] or as_int(
-            outcome["pools_wei"][outcome["winning_bucket"]]) == 0 \
-            else as_int(outcome["total_stake_wei"]) * FEE_BPS // 10_000
-
-        result = {
-            "network": "anvil fork of Ethereum mainnet", "fork_block": fork_block,
-            "fork_timestamp": fork_ts, "generated_at": int(time.time()),
-            "contracts": {"market": market, "pool": POOL, "chainlink_feed": FEED,
-                          "erc8004_identity": IDENTITY, "erc8004_reputation": REPUTATION,
-                          "settlement_token": WETH},
-            "round": {"id": rid, "start": start, "delta_s": cm.DELTA, "n_segments": cm.N_SEGMENTS,
-                      "bounds": list(BOUNDS), "features": feats, "fee_bps": FEE_BPS,
-                      "predictor_share_bps": PREDICTOR_SHARE_BPS,
-                      "commit_deadline": start - COMMIT_LEAD,
-                      "reveal_deadline": start - REVEAL_LEAD},
-            "window": {"mode": "replay" if targets else "scripted", "real_segment_ticks": targets,
-                       "real_realized_vol": real_rv},
-            "outcome": outcome, "offchain_recompute": offchain, "chainlink": price,
-            "agents": rows, "tamper_checks": checks, "bets": paid, "swaps": swaps,
-            "fee_collected_wei": fee, "market_balance_after_wei": str(market_left),
-            "fee_split": {"fee_wei": str(round_fee), "owner_wei": fee,
-                          "predictors_wei": str(pred_pool), "predictor_share_bps":
-                          PREDICTOR_SHARE_BPS, "baseline_log_score": str(baseline),
-                          "baseline_log_score_float": baseline / 1e18},
-        }
+    rounds = [rp.rounds[h] for h in sorted(rp.rounds)]
+    result = {
+        "schema": "vol-replay/v1",
+        "network": "anvil fork of Ethereum mainnet", "fork_block": fork_block,
+        "fork_timestamp": fork_ts, "generated_at": int(time.time()),
+        "elapsed_s": round(time.time() - t_wall),
+        "replay": {"hours": hours, "start": start, "end": end, "start_utc": utc(start),
+                   "end_utc": utc(end), "grid_start": warm, "grid_step_s": step,
+                   "segments_replayed": len(ticks),
+                   "pool_source": "mainnet observe() 5-minute floor mean ticks (archive calls)",
+                   "chainlink_reports": feed.done},
+        "contracts": {"market": market, "pool": POOL, "chainlink_feed": FEED,
+                      "chainlink_aggregator": aggregator, "erc8004_identity": IDENTITY,
+                      "erc8004_reputation": REPUTATION, "settlement_token": WETH},
+        "params": {"delta_s": cm.DELTA, "n_segments": cm.N_SEGMENTS, "bounds": list(BOUNDS),
+                   "fee_bps": FEE_BPS, "predictor_share_bps": PREDICTOR_SHARE_BPS,
+                   "commit_lead_s": COMMIT_LEAD, "reveal_lead_s": REVEAL_LEAD,
+                   "round_lead_s": ROUND_LEAD_S, "bet_wei": str(BET_WEI),
+                   "baseline_log_score": str(rp.baseline),
+                   "baseline_log_score_float": rp.baseline / 1e18},
+        "agents": [{"agent": a.name, "model": getattr(a, "model", None) or "tsfm-api",
+                    "model_type": a.kind, "address": a.address, "model_id": a.model_id,
+                    "agent_id": agent_ids[a.name], "verifier": verifiers[a.name]}
+                   for a in agents],
+        "tamper_checks": rp.tamper,
+        "rounds": rounds,
+        "summary": summarize(rounds, agents, final_rep),
+        "market_balance_after_wei": str(market_left),
+    }
     RESULT.parent.mkdir(parents=True, exist_ok=True)
-    RESULT.write_text(json.dumps(result, indent=2) + "\n")
+    RESULT.write_text(json.dumps(result, indent=1) + "\n")
     print_summary(result)
 
 
 def print_summary(r):
-    o, p, w = r["outcome"], r["chainlink"], r["window"]
-    print("\n=== VolMarket round on a mainnet fork ===")
-    print(f"fork block {r['fork_block']}  market {r['contracts']['market']}  window {w['mode']}")
-    real = "" if w["real_realized_vol"] is None else f", real mainnet hour {w['real_realized_vol']}"
-    print(f"realized vol {o['realized_vol']} tick^2 (off-chain recompute "
-          f"{r['offchain_recompute']['realized_vol']}{real}), bounds {r['round']['bounds']}, "
-          f"winning bucket {o['winning_bucket']}, voided {o['voided']}")
-    print(f"Chainlink ETH/USD {p['feed_price_usd']:.2f} vs pool {p['pool_price_usd']:.2f}: "
-          f"{p['deviation_bps']} bps (max 200), feed age {p['feed_age_s']} s (max 3900)")
-    print(f"settle gas {o['gas_used']} (estimated limit {o['gas_limit']}), events {o['events']}")
-    print(f"{'agent':<20}{'type':<13}{'agentId':>10}{'p_win':>8}{'logScore':>10}"
-          f"{'reward WETH':>13}  ERC-8004 getSummary")
-    for a in r["agents"]:
-        rep = a["reputation"]
-        val = int(rep["summary_value"]) / 10 ** rep["summary_decimals"]
-        kind = "zk proof" if a["model_type"] == "zk" else "commit-only"
-        print(f"{a['agent']:<20}{kind:<13}{a['agent_id']:>10}{a['p_win']:>8.3f}"
-              f"{a['log_score_float']:>10.3f}{int(a['predictor_reward_wei']) / 1e18:>13.6f}"
-              f"  count={rep['count']} value={val:.3f} ({rep['tag2']})")
-    api = [a for a in r["agents"] if a["model_type"] == "commit-only"]
-    for a in api:
-        print(f"{a['agent']}: commit-only, forecast source {a['forecast_source']}")
+    s = r["summary"]
+    print(f"\n=== VolMarket replay on a mainnet fork: {r['replay']['hours']} h from "
+          f"{r['replay']['start_utc']} ===")
+    print(f"fork block {r['fork_block']}, market {r['contracts']['market']}, "
+          f"{len(r['replay']['chainlink_reports'])} Chainlink reports replayed, "
+          f"{r['elapsed_s']} s wall time")
+    print(f"rounds {s['rounds']}: settled {s['settled']}, voided {s['voided']} "
+          f"{s['void_reasons']}; "
+          f"features match mainnet {s['features_match_mainnet']}, RV matches mainnet "
+          f"{s['rv_matches_mainnet']}; winning buckets {s['bucket_counts']}")
+    print(f"{'agent':<20}{'rounds':>7}{'total ln p':>12}{'mean':>9}{'>base':>7}{'reward WETH':>13}"
+          f"  ERC-8004 count")
+    print(f"{'uniform baseline':<20}{s['settled']:>7}{s['uniform_total_log_score']:>12.3f}"
+          f"{math.log(0.2):>9.3f}")
+    for name, a in s["agents"].items():
+        mean = f"{a['mean_log_score']:.3f}" if a["mean_log_score"] is not None else "-"
+        print(f"{name:<20}{a['rounds_scored']:>7}{a['total_log_score']:>12.3f}{mean:>9}"
+              f"{a['beat_baseline_rounds']:>7}{int(a['predictor_reward_wei']) / 1e18:>13.6f}"
+              f"  {a['erc8004']['count']} ({a['erc8004']['tag2']})")
     for t in r["tamper_checks"]:
-        print(f"{t['agent']}: honest proof verifies={t['honest_proof_verifies']}, "
-              f"tampered output verifies={t['tampered_output_verifies']}")
-    for b in r["bets"]:
-        print(f"bettor {b['bettor'][:10]}… bucket {b['bucket']}: payout "
-              f"{int(b['payout_wei']) / 1e18:.4f} WETH")
-    fs = r["fee_split"]
-    print(f"fee {int(fs['fee_wei']) / 1e18:.4f} WETH: owner {int(fs['owner_wei']) / 1e18:.4f}, "
-          f"forecasters {int(fs['predictors_wei']) / 1e18:.4f} ({fs['predictor_share_bps']} bps, "
-          f"above baseline {fs['baseline_log_score_float']:.3f}), left in market "
-          f"{int(r['market_balance_after_wei'])} wei")
-    print(f"wrote {RESULT.relative_to(REPO)}")
+        print(f"{t['agent']}: honest proof verifies={t['honest_proof_verifies']}, tampered "
+              f"output verifies={t['tampered_output_verifies']}, verifyProof gas "
+              f"{t['verify_proof_gas']}")
+    print(f"left in market {int(r['market_balance_after_wei'])} wei; wrote "
+          f"{RESULT.relative_to(REPO)}")
 
 
 if __name__ == "__main__":

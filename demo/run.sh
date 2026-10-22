@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# One VolMarket round on a local anvil fork of Ethereum mainnet; see demo/fork_round.py.
-# Reads MAINNET_RPC_URL (and optional FORK_BLOCK) from the environment or the repo's .env.
+# Replays HOURS (default 24) consecutive real hours of VolMarket rounds on one local anvil fork of
+# Ethereum mainnet; see demo/fork_round.py. Reads MAINNET_RPC_URL and optional HOURS /
+# REPLAY_START from the environment or the repo's .env.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ -f "$REPO/.env" ]]; then set -a; source "$REPO/.env"; set +a; fi

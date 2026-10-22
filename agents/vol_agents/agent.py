@@ -52,11 +52,12 @@ class Forecaster:
     def reveal(self, chain: Anvil, market: str, round_id: int):
         p = self.pending[(market.lower(), round_id)]
         t0 = time.time()
-        chain.send(
+        receipt = chain.send(
             self.key, market, REVEAL_SIG, round_id, p["proof"],
             "[" + ",".join(map(str, p["outputs"])) + "]", "0x" + p["salt"].hex(),
         )
         self.timings["reveal_s"] = round(time.time() - t0, 2)
+        return receipt
 
 
 @dataclass
