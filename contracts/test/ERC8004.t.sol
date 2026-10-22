@@ -49,6 +49,56 @@ contract RevertingReputationRegistry is IERC8004Reputation {
     }
 }
 
+/// @dev Reputation registry whose feedback write costs `burn` gas before it records; `burn` at or
+///      above the market's per-call cap makes every write fail by running out of gas. The gas is
+///      burnt in a sub-call whose failure is re-raised, as the deployed registry's proxy and identity
+///      lookups do: the registry itself keeps 1/64 back and reverts without running out of gas.
+contract GasHungryReputationRegistry is IERC8004Reputation {
+    uint256 public immutable burn;
+    uint256 public writes;
+
+    constructor(uint256 burn_) {
+        burn = burn_;
+    }
+
+    function burnGas() external view {
+        uint256 start = gasleft();
+        while (start - gasleft() < burn) {}
+    }
+
+    function giveFeedback(
+        uint256,
+        int128,
+        uint8,
+        string calldata,
+        string calldata,
+        string calldata,
+        string calldata,
+        bytes32
+    ) external override {
+        this.burnGas();
+        ++writes;
+    }
+
+    function getSummary(uint256, address[] calldata, string calldata, string calldata)
+        external
+        pure
+        override
+        returns (int256)
+    {
+        return 0;
+    }
+
+    function readFeedback(uint256, address)
+        external
+        pure
+        override
+        returns (int128[] memory, uint8[] memory, string[] memory, string[] memory)
+    {
+        return (new int128[](0), new uint8[](0), new string[](0), new string[](0));
+    }
+}
+
 contract ERC8004Test is Test {
     IdentityRegistryLite identity;
     ReputationRegistryLite reputation;
@@ -407,6 +457,62 @@ contract ERC8004Test is Test {
         vm.prank(alice);
         market.claim(id);
         assertEq(token.balanceOf(alice) - balanceBefore, 100e18);
+    }
+
+    /// @dev Round with one predictor whose agent is bound, ready to settle against `registry`.
+    function _roundWithBoundAgent(address registry) internal returns (uint256 id) {
+        _deployMarket();
+        market.setReputation(address(identity), registry);
+        uint256 agentId = _registerAgent();
+        uint256 modelId = market.registerModel(address(new SpikeModelVerifier()), agentOwner);
+        vm.prank(agentOwner);
+        market.linkAgent(modelId, agentId);
+        id = _create();
+        vm.prank(agentOwner);
+        market.submitPrediction(id, modelId, _proof(), _outputs());
+        vm.warp(END + 10);
+    }
+
+    /// @dev Sweeps settle's gas limit through the range where the 300k-gas write gets less than it
+    ///      needs: every limit must either revert or settle with the write recorded.
+    function test_LowGasSettleCannotSkipReputationWrite() public {
+        GasHungryReputationRegistry hungry = new GasHungryReputationRegistry(300_000);
+        uint256 id = _roundWithBoundAgent(address(hungry));
+
+        uint256 settled;
+        uint256 guarded;
+        for (uint256 gasLimit = 150_000; gasLimit <= 900_000; gasLimit += 4_000) {
+            uint256 snap = vm.snapshotState();
+            vm.recordLogs();
+            (bool ok, bytes memory ret) = address(market).call{gas: gasLimit}(abi.encodeCall(VolMarket.settle, (id)));
+            Vm.Log[] memory logs = vm.getRecordedLogs();
+            if (ok) {
+                ++settled;
+                assertEq(_countWriteFailures(logs), 0, "settled with the reputation write skipped");
+                assertEq(hungry.writes(), 1, "settled without the reputation write");
+            } else if (bytes4(ret) == VolMarket.InsufficientGas.selector) {
+                ++guarded;
+            }
+            vm.revertToState(snap);
+        }
+        assertGt(settled, 0, "some limit settles");
+        assertGt(guarded, 0, "some limit is stopped by the gas guard");
+    }
+
+    /// @dev A registry that eats any gas it is given still fails like a reverting one: the per-call
+    ///      cap leaves settle enough gas to report it and finish.
+    function test_GasBurningRegistryDoesNotBlockSettle() public {
+        GasHungryReputationRegistry burning = new GasHungryReputationRegistry(type(uint256).max);
+        uint256 id = _roundWithBoundAgent(address(burning));
+
+        vm.recordLogs();
+        market.settle{gas: 2_000_000}(id);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(_countWriteFailures(logs), 1);
+        assertEq(burning.writes(), 0);
+        (bool voided,,) = _round(id);
+        assertFalse(voided);
     }
 
     function test_NoReputationConfiguredKeepsBehavior() public {

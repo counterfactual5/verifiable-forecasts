@@ -165,8 +165,7 @@ class ForkAnvil(Anvil):
         return cast_json("call", to, sig, *args, "--rpc-url", self.rpc, "--block", block)
 
     def send_gas(self, key, to, sig, *args, gas=FIXED_GAS):
-        """A send with a fixed gas limit: no slow fork estimate for pool swaps, and settle gets
-        enough gas for every reputation write instead of the estimate's bare minimum."""
+        """A send with a fixed gas limit: pool swaps skip the slow fork estimate."""
         receipt = cast_json("send", to, sig, *args, "--private-key", key, "--rpc-url", self.rpc,
                             "--gas-limit", gas)
         if receipt.get("status") not in ("0x1", 1, "1"):
@@ -366,7 +365,10 @@ def chainlink_check(c, market, block, settle_ts):
 def settle(c, owner, market, rid, start):
     settle_ts = start + cm.N_SEGMENTS * cm.DELTA + SETTLE_AFTER_S
     c.set_next_timestamp(settle_ts)
-    receipt = c.send_gas(owner, market, "settle(uint256)", rid)
+    # Estimated gas on purpose: the estimate is the lowest limit settle accepts, and settle reverts
+    # rather than skip an external call that limit would starve.
+    receipt = c.send(owner, market, "settle(uint256)", rid)
+    gas_limit = as_int(cast("tx", receipt["transactionHash"], "gas", "--rpc-url", c.rpc))
     r = c.call(market, ROUND_SIG, rid)
     events = {
         "price_check_failed": len(logs_with(
@@ -378,7 +380,7 @@ def settle(c, owner, market, rid, start):
     }
     return {
         "settle_block": int(receipt["blockNumber"], 0), "settle_ts": settle_ts,
-        "gas_used": int(receipt["gasUsed"], 0),
+        "gas_used": int(receipt["gasUsed"], 0), "gas_limit": gas_limit,
         "settled": truthy(r[1]), "voided": truthy(r[2]),
         "winning_bucket": as_int(r[3]), "realized_vol": as_int(r[4]),
         "total_stake_wei": str(as_int(r[5])), "pools_wei": [str(as_int(v)) for v in r[6]],
@@ -449,6 +451,8 @@ def main():
             else "window: real hour unavailable, scripted swaps")
         swaps = run_window(c, owner, market, rid, start, targets)
         outcome = settle(c, owner, market, rid, start)
+        if outcome["events"]["reputation_write_failed"]:
+            raise RuntimeError(f"settle skipped ERC-8004 writes: {outcome['events']}")
         log(f"settled={outcome['settled']} voided={outcome['voided']} "
             f"RV={outcome['realized_vol']} bucket={outcome['winning_bucket']}")
         offchain = offchain_rv(c, market, rid)
@@ -502,7 +506,7 @@ def print_summary(r):
           f"winning bucket {o['winning_bucket']}, voided {o['voided']}")
     print(f"Chainlink ETH/USD {p['feed_price_usd']:.2f} vs pool {p['pool_price_usd']:.2f}: "
           f"{p['deviation_bps']} bps (max 200), feed age {p['feed_age_s']} s (max 3900)")
-    print(f"settle gas {o['gas_used']}, events {o['events']}")
+    print(f"settle gas {o['gas_used']} (estimated limit {o['gas_limit']}), events {o['events']}")
     print(f"{'agent':<20}{'agentId':>10}{'p_win':>8}{'logScore':>10}  ERC-8004 getSummary")
     for a in r["agents"]:
         rep = a["reputation"]

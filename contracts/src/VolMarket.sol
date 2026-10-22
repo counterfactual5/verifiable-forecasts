@@ -43,6 +43,7 @@ contract VolMarket {
     error TransferFailed();
     error ReputationNotConfigured();
     error AgentNotOwned();
+    error InsufficientGas();
 
     // ---------------------------------------------------------------- events
     event ModelRegistered(uint256 indexed modelId, address verifier, address operator);
@@ -135,6 +136,16 @@ contract VolMarket {
     uint256 private constant BPS = 10_000;
     TickPriceMath public immutable tickPriceMath;
     AggregatorV3Interface public priceFeed;
+
+    /// @dev Gas cap on each call settle makes to the reputation registry or the price feed: one that
+    ///      burns all gas it gets then fails like a reverting one instead of starving settle. Measured
+    ///      on mainnet (spikes/facts/FACTS.md): ERC-8004 giveFeedback ~197k and Chainlink
+    ///      latestRoundData ~37k, both including the 21k base fee; 500k leaves 2.5x headroom.
+    uint256 public constant EXTERNAL_CALL_GAS = 500_000;
+    /// @dev Gas a capped call needs left before it for the callee to receive the whole cap: EIP-150
+    ///      keeps 1/64 back, and the argument encoding and account access between the gasleft()
+    ///      snapshot and the CALL stay under a further 1/64 of the cap (~7.8k gas).
+    uint256 private constant MIN_GAS_FOR_CAPPED_CALL = EXTERNAL_CALL_GAS + EXTERNAL_CALL_GAS / 32;
 
     // ---------------------------------------------------------------- modifiers
     modifier roundExists(uint256 id) {
@@ -401,15 +412,20 @@ contract VolMarket {
             return false;
         }
         uint256 poolPrice = _priceForTick(int24(meanTick));
-        try priceFeed.latestRoundData() returns (uint80, int256 answer, uint256, uint256 updatedAt, uint80) {
+        uint256 gasBefore = gasleft();
+        try priceFeed.latestRoundData{gas: EXTERNAL_CALL_GAS}() returns (
+            uint80, int256 answer, uint256, uint256 updatedAt, uint80
+        ) {
             if (answer <= 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > MAX_FEED_AGE) {
                 emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), answer, 2);
                 return false;
             }
             uint8 feedDecimals;
-            try priceFeed.decimals() returns (uint8 d) {
+            gasBefore = gasleft();
+            try priceFeed.decimals{gas: EXTERNAL_CALL_GAS}() returns (uint8 d) {
                 feedDecimals = d;
             } catch {
+                _revertIfCapStarved(gasBefore);
                 emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), answer, 3);
                 return false;
             }
@@ -427,9 +443,26 @@ contract VolMarket {
             }
             return true;
         } catch {
+            _revertIfCapStarved(gasBefore);
             emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), 0, 5);
             return false;
         }
+    }
+
+    /// @dev First statement in the catch of a capped call. A callee handed less than the cap may have
+    ///      failed only because settle was sent with too little gas, and the gas settle has left
+    ///      afterwards cannot tell: a proxy or a nested call fails once its own sub-call starves, and
+    ///      reverts with its 1/64 still unspent. Reverting stops a caller from choosing a gas limit
+    ///      that skips the call; a callee that fails with the whole cap is reported as before.
+    function _revertIfCapStarved(uint256 gasBefore) internal pure {
+        if (gasBefore < MIN_GAS_FOR_CAPPED_CALL) revert InsufficientGas();
+    }
+
+    /// @dev First statement in an observe catch. Uniswap V3 observe reads storage in its own frame
+    ///      without sub-calls, so an observe that ran out of gas leaves settle at most 1/64 of
+    ///      `gasBefore` (EIP-150); a real failure such as "OLD" leaves far more.
+    function _revertIfObserveStarved(uint256 gasBefore) internal view {
+        if (gasleft() <= gasBefore / 64) revert InsufficientGas();
     }
 
     /// @dev logScore = max(ln p_win, -18e18); p_win = 0 also scores -18e18.
@@ -465,8 +498,12 @@ contract VolMarket {
     }
 
     function _giveFeedback(uint256 id, address who, uint256 agentId, int128 value, string memory tag2) internal {
-        try reputationRegistry.giveFeedback(agentId, value, 18, "logScore", tag2, "", "", bytes32(0)) {}
+        uint256 gasBefore = gasleft();
+        try reputationRegistry.giveFeedback{gas: EXTERNAL_CALL_GAS}(
+            agentId, value, 18, "logScore", tag2, "", "", bytes32(0)
+        ) {}
         catch (bytes memory reason) {
+            _revertIfCapStarved(gasBefore);
             emit ReputationWriteFailed(id, who, agentId, keccak256(reason));
         }
     }
@@ -526,19 +563,24 @@ contract VolMarket {
         }
 
         if (missing > 0) {
+            uint256 gasBefore = gasleft();
             try pool.observe(secs) returns (int56[] memory c, uint160[] memory) {
                 for (uint256 i = 0; i < missing; ++i) {
                     cums[idx[i]] = c[i];
                     have |= 1 << idx[i];
                 }
             } catch {
+                _revertIfObserveStarved(gasBefore);
                 uint32[] memory one = new uint32[](1);
                 for (uint256 i = 0; i < missing; ++i) {
                     one[0] = secs[i];
+                    gasBefore = gasleft();
                     try pool.observe(one) returns (int56[] memory c, uint160[] memory) {
                         cums[idx[i]] = c[0];
                         have |= 1 << idx[i];
-                    } catch {}
+                    } catch {
+                        _revertIfObserveStarved(gasBefore);
+                    }
                 }
             }
         }

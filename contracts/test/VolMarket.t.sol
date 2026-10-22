@@ -10,6 +10,66 @@ import {SpikeModelVerifier} from "../src/verifier/SpikeModelVerifier.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockPool} from "./mocks/MockPool.sol";
 import {MockAggregator} from "./mocks/MockAggregator.sol";
+import {AggregatorV3Interface} from "../src/interfaces/AggregatorV3Interface.sol";
+
+/// @dev Price feed whose latestRoundData costs `burn` gas before answering. The gas is burnt in a
+///      sub-call, as a Chainlink proxy reads its aggregator: a starved sub-call fails while the feed
+///      itself keeps 1/64 back and reverts without running out of gas.
+contract GasHungryAggregator is AggregatorV3Interface {
+    uint8 public constant override decimals = 8;
+    uint256 public immutable burn;
+    int256 public answer;
+    uint256 public updatedAt;
+
+    constructor(uint256 burn_) {
+        burn = burn_;
+    }
+
+    function burnGas() external view {
+        uint256 start = gasleft();
+        while (start - gasleft() < burn) {}
+    }
+
+    function setAnswer(int256 answer_, uint256 updatedAt_) external {
+        answer = answer_;
+        updatedAt = updatedAt_;
+    }
+
+    function latestRoundData() external view override returns (uint80, int256, uint256, uint256, uint80) {
+        this.burnGas();
+        return (1, answer, updatedAt, updatedAt, 1);
+    }
+}
+
+/// @dev MockPool front that, once `hungry` is set, reverts "OLD" on batches (so settle reads one
+///      point at a time) and charges `burn` gas for the single read at `hungryAgo`.
+contract GasHungryPool {
+    MockPool public immutable inner;
+    uint256 public immutable burn;
+    bool public hungry;
+    uint32 public hungryAgo;
+
+    constructor(MockPool inner_, uint256 burn_) {
+        inner = inner_;
+        burn = burn_;
+    }
+
+    function setHungry(uint32 secondsAgo) external {
+        hungry = true;
+        hungryAgo = secondsAgo;
+    }
+
+    function observe(uint32[] calldata secondsAgos) external view returns (int56[] memory, uint160[] memory) {
+        if (hungry) {
+            require(secondsAgos.length == 1, "OLD");
+            if (secondsAgos[0] == hungryAgo) {
+                uint256 start = gasleft();
+                while (start - gasleft() < burn) {}
+            }
+        }
+        return inner.observe(secondsAgos);
+    }
+}
 
 contract VolMarketTest is Test {
     uint32 constant DELTA = 300;
@@ -303,6 +363,74 @@ contract VolMarketTest is Test {
         market.settle(id);
         (bool voided,,) = _rv(id);
         assertTrue(voided);
+    }
+
+    /// @dev Sweeps settle's gas limit through the range where a 450k-gas feed read (under the
+    ///      market's per-call cap) gets less than it needs: a matching price must never void the
+    ///      round for lack of gas.
+    function test_LowGasSettleCannotSkipPriceCheck() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        GasHungryAggregator hungry = new GasHungryAggregator(450_000);
+        market.setPriceFeed(address(hungry));
+        vm.warp(END + 10);
+        hungry.setAnswer(int256(market.priceForTick(196001)), block.timestamp);
+
+        uint256 settled;
+        uint256 guarded;
+        for (uint256 gasLimit = 200_000; gasLimit <= 1_200_000; gasLimit += 4_000) {
+            uint256 snap = vm.snapshotState();
+            (bool ok, bytes memory ret) = address(market).call{gas: gasLimit}(abi.encodeCall(VolMarket.settle, (id)));
+            if (ok) {
+                ++settled;
+                (bool voided,,) = _rv(id);
+                assertFalse(voided, "matching price voided by a starved feed read");
+            } else if (bytes4(ret) == VolMarket.InsufficientGas.selector) {
+                ++guarded;
+            }
+            vm.revertToState(snap);
+        }
+        assertGt(settled, 0, "some limit settles");
+        assertGt(guarded, 0, "some limit is stopped by the gas guard");
+    }
+
+    /// @dev Checkpoints 11 and 12 are read one by one, the last at 6M gas: the read must cost more
+    ///      than 63x the work settle does after it for a starved read to leave settle enough gas to
+    ///      finish. Sweeping settle's gas limit through that read must never settle without it
+    ///      (RV 52 over 12 points instead of 49).
+    function test_LowGasSettleCannotSkipObservePoint() public {
+        MockPool inner = new MockPool();
+        inner.setTickFrom(T0 - 20 * uint256(DELTA), 196000);
+        pool = inner;
+        _segments(_mixed());
+        GasHungryPool hungry = new GasHungryPool(inner, 6_000_000);
+        market = new VolMarket(IERC20(address(token)), 0, IUniswapV3PoolOracle(address(hungry)), DELTA, N);
+        uint256 id = _create();
+        for (uint256 k = 0; k < N - 1; ++k) {
+            vm.warp(_t(k) + 1);
+            market.sample(id, k);
+        }
+        vm.warp(END + 10);
+        hungry.setHungry(10);
+
+        uint256 settled;
+        uint256 guarded;
+        for (uint256 gasLimit = 4_500_000; gasLimit <= 6_400_000; gasLimit += 30_000) {
+            uint256 snap = vm.snapshotState();
+            (bool ok, bytes memory ret) = address(market).call{gas: gasLimit}(abi.encodeCall(VolMarket.settle, (id)));
+            if (ok) {
+                ++settled;
+                (bool voided,, uint256 rv) = _rv(id);
+                assertFalse(voided);
+                assertEq(rv, 49, "settled with a checkpoint dropped for lack of gas");
+            } else if (bytes4(ret) == VolMarket.InsufficientGas.selector) {
+                ++guarded;
+            }
+            vm.revertToState(snap);
+        }
+        assertGt(settled, 0, "some limit settles");
+        assertGt(guarded, 0, "some limit is stopped by the gas guard");
     }
 
     function test_TickToPriceMatchesReference() public {

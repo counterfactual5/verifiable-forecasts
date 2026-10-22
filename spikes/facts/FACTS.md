@@ -48,6 +48,7 @@
   - 写入：`giveFeedback(uint256 agentId, int128 value, uint8 valueDecimals, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)`，触发事件 `NewFeedback`。
   - 读取：`getSummary(agentId, address[] clientAddresses（必须非空）, tag1, tag2)` 返回归一到 18 位小数的平均值；另有 `readFeedback`、`readAllFeedback`、`getClients`、`revokeFeedback`、`appendResponse`。
   - **没有 feedbackAuth**：任何地址都能写反馈，唯一限制是提交者不能是该 agent 的 owner 或 operator。合约可以作为提交者（不检查 EOA）。value 可以为负。
+  - gas（2026-10-22 主网 `cast estimate`，含 21000 基础费）：从未写过该 agent 的新提交者调用 `giveFeedback(agentId, -1.5e18, 18, "logScore", "vol-300s-12", "", "", 0)`，agentId 1 与 2 均为 196,795。`VolMarket.EXTERNAL_CALL_GAS`（50 万）按此取约 2.5 倍余量。
 - **Validation**（官方说明仍在修订）：
   - `validationRequest(validator, agentId, requestURI, requestHash)`：只能由 agent 的 owner 或 operator 调用。
   - `validationResponse(requestHash, uint8 response 0–100, responseURI, responseHash, tag)`：只能由指定的 validator 调用。
