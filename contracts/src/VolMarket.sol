@@ -6,7 +6,9 @@ import {IUniswapV3PoolOracle} from "./interfaces/IUniswapV3PoolOracle.sol";
 import {IHalo2Verifier} from "./interfaces/IHalo2Verifier.sol";
 import {IERC8004Identity} from "./interfaces/IERC8004Identity.sol";
 import {IERC8004Reputation} from "./interfaces/IERC8004Reputation.sol";
+import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 import {MarketMath} from "./lib/MarketMath.sol";
+import {TickPriceMath} from "./lib/TickPriceMath.sol";
 
 /// @title VolMarket
 /// @notice Parimutuel market on the realized volatility of a Uniswap V3 pool's TWAP tick over
@@ -59,6 +61,8 @@ contract VolMarket {
     event ReputationWriteFailed(
         uint256 indexed roundId, address indexed predictor, uint256 indexed agentId, bytes32 reason
     );
+    event PriceFeedSet(address indexed feed);
+    event PriceCheckFailed(uint256 indexed roundId, int24 tick, int256 poolPrice, int256 feedPrice, uint8 reason);
 
     // ---------------------------------------------------------------- types
     struct Round {
@@ -119,6 +123,15 @@ contract VolMarket {
     ///      "no agent" sentinel.
     mapping(uint256 => bool) public agentBound;
 
+    // 1e18 fixed-point price math scale; feed prices are normalized to 8 decimals for comparison.
+    uint256 private constant PRICE_SCALE = 1e18;
+    uint256 public constant MAX_DEVIATION_BPS = 200;
+    uint256 public constant MAX_FEED_AGE = 3900;
+    uint8 private constant PRICE_DECIMALS = 8;
+    uint256 private constant BPS = 10_000;
+    TickPriceMath public immutable tickPriceMath;
+    AggregatorV3Interface public priceFeed;
+
     // ---------------------------------------------------------------- modifiers
     modifier roundExists(uint256 id) {
         if (id >= roundCount) revert RoundNotFound();
@@ -141,6 +154,7 @@ contract VolMarket {
         delta = delta_;
         nSegments = nSegments_;
         owner = msg.sender;
+        tickPriceMath = new TickPriceMath();
     }
 
     // ---------------------------------------------------------------- models
@@ -158,6 +172,17 @@ contract VolMarket {
 
     function modelCount() external view returns (uint256) {
         return models.length;
+    }
+
+    /// @notice Configure optional ETH/USD cross-check; zero address disables it.
+    function setPriceFeed(address feed) external {
+        if (msg.sender != owner) revert NotOwner();
+        priceFeed = AggregatorV3Interface(feed);
+        emit PriceFeedSet(feed);
+    }
+
+    function priceForTick(int24 tick) external view returns (uint256) {
+        return _priceForTick(tick);
     }
 
     // ---------------------------------------------------------------- ERC-8004 reputation
@@ -342,6 +367,11 @@ contract VolMarket {
             emit RoundVoided(id);
             return;
         }
+        if (address(priceFeed) != address(0) && !_priceMatchesFeed(id)) {
+            r.voided = true;
+            emit RoundVoided(id);
+            return;
+        }
 
         uint256 win = MarketMath.bucketOf(r.bounds, rv);
         r.realizedVol = rv;
@@ -349,6 +379,53 @@ contract VolMarket {
         emit RoundSettled(id, win, rv, count);
         _score(r, id, win);
         _writeReputation(r, id);
+    }
+
+    function _priceForTick(int24 tick) internal view returns (uint256) {
+        return tickPriceMath.priceForTick(tick);
+    }
+
+    function _priceMatchesFeed(uint256 id) internal returns (bool) {
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = delta;
+        secondsAgos[1] = 0;
+        (int56[] memory cumulatives,) = pool.observe(secondsAgos);
+        int256 diff = int256(cumulatives[1]) - int256(cumulatives[0]);
+        int256 meanTick = _floorDiv(diff, int256(uint256(delta)));
+        if (meanTick < type(int24).min || meanTick > type(int24).max) {
+            emit PriceCheckFailed(id, int24(0), 0, 0, 1);
+            return false;
+        }
+        uint256 poolPrice = _priceForTick(int24(meanTick));
+        try priceFeed.latestRoundData() returns (uint80, int256 answer, uint256, uint256 updatedAt, uint80) {
+            if (answer <= 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > MAX_FEED_AGE) {
+                emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), answer, 2);
+                return false;
+            }
+            uint8 feedDecimals;
+            try priceFeed.decimals() returns (uint8 d) {
+                feedDecimals = d;
+            } catch {
+                emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), answer, 3);
+                return false;
+            }
+            if (feedDecimals > 18) {
+                emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), answer, 3);
+                return false;
+            }
+            uint256 feedPrice = uint256(answer);
+            if (feedDecimals < PRICE_DECIMALS) feedPrice *= 10 ** uint256(PRICE_DECIMALS - feedDecimals);
+            else if (feedDecimals > PRICE_DECIMALS) feedPrice /= 10 ** uint256(feedDecimals - PRICE_DECIMALS);
+            uint256 deltaPrice = poolPrice > feedPrice ? poolPrice - feedPrice : feedPrice - poolPrice;
+            if (deltaPrice * BPS > feedPrice * MAX_DEVIATION_BPS) {
+                emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), int256(feedPrice), 4);
+                return false;
+            }
+            return true;
+        } catch {
+            emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), 0, 5);
+            return false;
+        }
     }
 
     /// @dev logScore = max(ln p_win, -18e18); p_win = 0 also scores -18e18.

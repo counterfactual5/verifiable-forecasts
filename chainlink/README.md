@@ -1,36 +1,19 @@
 # chainlink/
 
-Chainlink integration: an ETH/USD price-feed cross-check at settlement.
+Chainlink ETH/USD cross-check in `VolMarket.settle`.
 
-**Planned — not implemented yet.** Nothing in this directory or in `contracts/` reads a Chainlink feed today.
-The design below follows `docs/plans/实施计划.md` (section 8) and the narrowed roadmap stage; it will be
-updated once the code lands.
+## Configuration and behavior
 
-## What it will do
+The market owner can call `setPriceFeed(feed)` to opt into the check; passing the zero address disables it. No constructor or agent deployment argument changes are required. With no feed configured, settlement follows the existing realized-volatility path. With a feed configured, the market compares its pool price at settlement with `latestRoundData()` from the configured Chainlink aggregator. The price feed interface supplies `decimals()` and the five-field round data tuple.
 
-`VolMarket` settles from the Uniswap V3 pool's `observe()`. The cross-check compares the pool's price with
-the Chainlink ETH/USD feed at settlement, so a round is not paid out on pool data that disagrees with an
-independent price source.
+The pool tick is the floor-rounded mean tick over the latest `delta` seconds from `observe([delta, 0])`. The contract uses integer fixed-point `1.0001^tick` math to derive an 8-decimal ETH/USD price; it does not import Uniswap's GPL TickMath. Feed answers are normalized to 8 decimals. The mainnet ETH/USD feed is `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419` with 8 decimals.
 
-- **Opt-in:** the owner calls `setPriceFeed(feed)`; the zero address turns the check off. The constructor
-  does not change, and with no feed set, settlement, voiding and refunds behave exactly as today.
-- **Feed:** mainnet ETH/USD `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419` (8 decimals), read with
-  `latestRoundData`; a `MockAggregator` is used in tests and the offline demo.
-- **Pool price:** the TWAP tick over the last Δ before settlement (`observe([Δ, 0])`), converted to an
-  8-decimal USD price with a self-written fixed-point `1.0001^tick` (Uniswap's GPL TickMath is not ported).
-- **Thresholds** (from `docs/plans/实施计划.md`): deviation > **200 bps**, a feed update older than
-  **3900 s**, or `answer ≤ 0` voids the round. Voiding reuses the existing full refund path and emits
-  `PriceCheckFailed`.
-- **Late settlement:** the comparison uses the price at settlement time, not at the end of the window.
+A round is voided and fully refundable if the feed call fails, the answer is non-positive, `updatedAt` is in the future or more than 3900 seconds old, or the absolute price deviation is strictly greater than 200 bps. The market emits `PriceCheckFailed` with a reason code and relevant prices. At exactly 200 bps, the deviation check passes. Late settlement compares against the price at settlement time, not the end of the betting window.
 
-## Limits
+## Scope
 
-- It checks a single price point. Manipulation inside a segment, which moves the segment-mean ticks that
-  realized volatility is built from, is not detected by this check.
-- On real data the two prices differ by about 0.04 % (`spikes/facts/FACTS.md`), so the void branch is only
-  exercised with the mock feed.
+Chainlink CRE and Automation (automated `settle` calls) are not implemented. Settlement remains permissionless; anyone may call `settle(id)` after the window.
 
-## Not in this phase
+## Limitations
 
-Chainlink CRE workflows and Automation (automatic `settle` calls) are out of scope for now. Settlement stays
-permissionless: anyone can call `settle(id)` after the window.
+The cross-check covers one mean tick over the latest `delta` seconds. It does not detect pool manipulation within a segment or replace the volatility oracle. Mock feed tests cover matching, stale, invalid and divergent values; production deployments must configure a feed with the intended network, asset and decimals.

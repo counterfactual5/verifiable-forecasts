@@ -126,12 +126,12 @@ R2 已将 ERC-8004 v2.0 Identity / Reputation 接口接入 `VolMarket`。owner �
 保存，读取按 client 与 `tag1`/`tag2` 过滤（空 tag 按通配处理）。它们不代表完整生产注册表，
 也不实现 Validation 注册表。
 
-### Chainlink 喂价交叉校验（计划中）
+### Chainlink 喂价交叉校验
 
-- owner 的 `setPriceFeed(feed)` 可选开启，0 地址即关闭；不改构造函数，关闭时结算、作废、退款行为完全不变。
-- `settle` 在覆盖率判断之后取池子最近一段 Δ 的 TWAP tick（`observe([Δ, 0])`），自写 1.0001^tick 定点幂换算成 8 位小数 USD 价格（不移植 GPL 的 TickMath），与主网 ETH/USD `latestRoundData` 比较。
-- 偏离 > 200 bps、喂价早于 3900 s 或 `answer ≤ 0` 时作废，复用 voided 与全额退款，并发出 `PriceCheckFailed`。迟结算时比较的是结算时刻价格，不是窗口末价格。
-- Chainlink CRE / Automation 本阶段不做。
+- owner 通过 `setPriceFeed(feed)` 可选配置 Chainlink feed，零地址关闭；不改构造函数。未配置时按池子 RV 照常结算，作废和退款行为保持不变。
+- 配置后，`settle` 在覆盖率通过后读取结算时刻前 Δ 秒的池 `observe([Δ, 0])` tick cumulative，按负数向负无穷取整得到 mean tick，并用整数定点 `1.0001^tick` 转换成 8 位 ETH/USD；feed 通过 `latestRoundData()` 提供 answer/updatedAt，`decimals()` 用于归一到 8 位。ETH/USD 主网 feed 为 `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`（8 decimals）。
+- `answer <= 0`、updatedAt 为未来、超过 3900 秒过期、feed 数据调用失败，或绝对偏差严格大于 200 bps 时，发出 `PriceCheckFailed` 并将轮次作废；沿用 `claim` 全额退款路径。边界恰为 200 bps 时不因偏差作废。
+- Chainlink CRE / Automation 不实现；结算仍可由任何人 permissionless 调用。
 
 ### 区间校准与演示（计划中）
 

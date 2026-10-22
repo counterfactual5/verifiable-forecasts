@@ -9,6 +9,7 @@ import {MarketMath} from "../src/lib/MarketMath.sol";
 import {SpikeModelVerifier} from "../src/verifier/SpikeModelVerifier.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockPool} from "./mocks/MockPool.sol";
+import {MockAggregator} from "./mocks/MockAggregator.sol";
 
 contract VolMarketTest is Test {
     uint32 constant DELTA = 300;
@@ -20,6 +21,7 @@ contract VolMarketTest is Test {
     MockERC20 token;
     MockPool pool;
     VolMarket market;
+    MockAggregator feed;
 
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -55,6 +57,7 @@ contract VolMarketTest is Test {
         pool = new MockPool();
         pool.setTickFrom(T0 - 20 * uint256(DELTA), 196000);
         market = new VolMarket(IERC20(address(token)), feeBps, IUniswapV3PoolOracle(address(pool)), DELTA, N);
+        feed = new MockAggregator(8, 2000e8);
         address[3] memory users = [alice, bob, carol];
         for (uint256 i = 0; i < users.length; ++i) {
             vm.prank(users[i]);
@@ -238,7 +241,85 @@ contract VolMarketTest is Test {
         assertEq(bucket, 3);
     }
 
-    // -------- zk-proven predictions -------------------------------------
+    // -------- Chainlink price cross-check -----------------------------
+
+    function test_PriceFeedMatchingPriceSettles() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        market.setPriceFeed(address(feed));
+        vm.warp(END + 10);
+        feed.setAnswer(int256(market.priceForTick(196001)), block.timestamp);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertFalse(voided);
+    }
+
+    function test_PriceFeedDeviationVoidsAndRefunds() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        market.setPriceFeed(address(feed));
+        vm.prank(alice);
+        market.bet(id, 0, 100e18);
+        feed.setAnswer(3000e8, block.timestamp);
+        vm.warp(END + 10);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertTrue(voided);
+        uint256 before = token.balanceOf(alice);
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(alice) - before, 100e18);
+    }
+
+    function test_PriceFeedStaleVoidsAndRefunds() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        market.setPriceFeed(address(feed));
+        vm.prank(alice);
+        market.bet(id, 0, 100e18);
+        feed.setAnswer(2000e8, block.timestamp);
+        vm.warp(END + 4000);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertTrue(voided);
+        uint256 before = token.balanceOf(alice);
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(alice) - before, 100e18);
+    }
+
+    function test_PriceFeedInvalidAnswerVoidsAndRefunds() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        market.setPriceFeed(address(feed));
+        vm.prank(alice);
+        market.bet(id, 0, 100e18);
+        feed.setAnswer(0, block.timestamp);
+        vm.warp(END + 10);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertTrue(voided);
+    }
+
+    function test_TickToPriceMatchesReference() public {
+        _deploy(0);
+        assertApproxEqAbs(market.priceForTick(196000), 3078e8, 2e10);
+        assertApproxEqAbs(market.priceForTick(195900), 3080e8, 3e10);
+    }
+
+    function test_NoPriceFeedKeepsBehavior() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        _settleAfterWindow(id);
+        (bool voided,, uint256 rv) = _rv(id);
+        assertFalse(voided);
+        assertEq(rv, 49);
+    }
 
     function test_RealProofAccepted() public {
         _deployProofPool(_segTicks());
