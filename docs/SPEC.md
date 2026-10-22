@@ -80,7 +80,7 @@ make check && make test
 - 主演示在本地 anvil（离线、MockPool）；主网 fork 演示为计划中。不做真实网络部署。
 - 区间边界当前为占位 `[8, 20, 45, 110]` tick²，3 个模型也按它在合成数据上训练；按粗估真实 RV 在千级 tick²，需由 analysis 用真实 Swap 历史校准，校准后模型需重训并重建验证合约。
 - 彩池冷启动由协议方注入种子资金；公开下注可被跟单是已知问题，密封下注列为 Future work。
-- 首次构建 EZKL 电路时若本地没有 SRS 会联网下载（`agents/vol_agents/build.py`），目前不校验 SRS 摘要。
+- 首次构建 EZKL 电路时若本地没有 SRS 且未用 `--srs` / `VOL_AGENTS_SRS` 指定来源，会联网下载；无论来源，SRS 的 sha256 必须等于 `agents/vol_agents/build.py` 里固定的 `SRS_SHA256`，否则构建中止。已提交的验证合约与新构建结果不同时默认拒绝覆盖，需显式 `--force`。
 
 ## 后续
 

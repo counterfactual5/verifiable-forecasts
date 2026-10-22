@@ -28,9 +28,28 @@ three circuits stay at logrows 15. EZKL settings pin `input_scale = 12` (the con
 uv sync
 uv run python -m vol_agents.train     # retrain -> models/<name>/ (deterministic)
 uv run python -m vol_agents.build     # EZKL build (cached in out/<name>/), verifiers -> contracts/src/verifier/
+                                      #   [--srs PATH] [--force], see "EZKL SRS" below
 uv run python -m vol_agents.round     # anvil round: deploy, 3 agents prove + submit, settle, compare
 uv run pytest -v                      # unit + EZKL export + end-to-end round on anvil
 ```
+
+### EZKL SRS
+
+`setup` and `evm` need the KZG SRS for logrows 15 at `out/kzg15.srs` (git-ignored, 4,194,564
+bytes). The build accepts it only if its sha256 equals `SRS_SHA256` in `vol_agents/build.py`
+(`90807800a1c3b248a452e1732c45ee5099f38b737356f5542c0584ec9c3ebb45`) and stops otherwise. Sources,
+in order:
+
+1. an existing `out/kzg15.srs` (checked on every build);
+2. `--srs PATH` or `VOL_AGENTS_SRS=PATH`, copied into `out/` after the check (e.g. the file
+   `spikes/ezkl/run.sh` leaves at `spikes/ezkl/out/kzg15.srs`);
+3. otherwise `ezkl.get_srs` downloads it (network), and a download with another digest is deleted.
+
+### Committed verifiers
+
+`build` copies each verifier into `contracts/src/verifier/<Name>Verifier.sol`. If that file exists
+and the fresh build differs from it, the build stops instead of overwriting it; pass `--force` only
+when replacing the onchain verifier is intended (retrained model or new settings).
 
 The round writes `out/compare_round.json` (agents sorted by onchain log score, 1e18-scaled ln p_win).
 Each EZKL step runs in its own process under `/usr/bin/time -l`; wall time and peak RSS are appended
