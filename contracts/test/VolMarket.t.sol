@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {VolMarket} from "../src/VolMarket.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IUniswapV3PoolOracle} from "../src/interfaces/IUniswapV3PoolOracle.sol";
@@ -77,6 +77,10 @@ contract VolMarketTest is Test {
     uint256 constant T0 = 1_000_000; // createRound time
     uint64 constant START = uint64(T0 + 600);
     uint256 constant END = START + uint256(N) * DELTA;
+    uint32 constant COMMIT_LEAD = 300;
+    uint32 constant REVEAL_LEAD = 120;
+    uint256 constant COMMIT_END = START - COMMIT_LEAD;
+    uint256 constant REVEAL_END = START - REVEAL_LEAD;
 
     MockERC20 token;
     MockPool pool;
@@ -114,15 +118,76 @@ contract VolMarketTest is Test {
 
     /// @dev Fresh pool with flat history before START, and a market on it with approvals.
     function _deploy(uint256 feeBps) internal {
+        _deploy(feeBps, 0);
+    }
+
+    function _deploy(uint256 feeBps, uint256 shareBps) internal {
         pool = new MockPool();
         pool.setTickFrom(T0 - 20 * uint256(DELTA), 196000);
-        market = new VolMarket(IERC20(address(token)), feeBps, IUniswapV3PoolOracle(address(pool)), DELTA, N);
+        market = _market(feeBps, shareBps, address(pool));
         feed = new MockAggregator(8, 2000e8);
         address[3] memory users = [alice, bob, carol];
         for (uint256 i = 0; i < users.length; ++i) {
             vm.prank(users[i]);
             token.approve(address(market), type(uint256).max);
         }
+    }
+
+    function _market(uint256 feeBps, uint256 shareBps, address pool_) internal returns (VolMarket) {
+        return new VolMarket(
+            IERC20(address(token)), feeBps, shareBps, IUniswapV3PoolOracle(pool_), DELTA, N, COMMIT_LEAD, REVEAL_LEAD
+        );
+    }
+
+    function _salt(address who) internal pure returns (bytes32) {
+        return keccak256(abi.encode("salt", who));
+    }
+
+    function _commitment(uint256 id, uint256 modelId, uint256[5] memory out, bytes32 salt, address who)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(id, modelId, out, salt, who));
+    }
+
+    function _commit(uint256 id, uint256 modelId, address who, uint256[5] memory out) internal {
+        vm.prank(who);
+        market.commitPrediction(id, modelId, _commitment(id, modelId, out, _salt(who), who));
+    }
+
+    function _reveal(uint256 id, address who, bytes memory proof, uint256[5] memory out) internal {
+        vm.prank(who);
+        market.revealPrediction(id, proof, out, _salt(who));
+    }
+
+    /// @dev Commit during the commit phase, then reveal at the start of the reveal phase.
+    function _commitReveal(uint256 id, uint256 modelId, address who, bytes memory proof, uint256[5] memory out)
+        internal
+    {
+        _commit(id, modelId, who, out);
+        vm.warp(COMMIT_END);
+        _reveal(id, who, proof, out);
+    }
+
+    /// @dev Registers a commit-only model operated by `who` and commits `probs` with it.
+    function _commitOnly(uint256 id, address who, uint256[5] memory probs) internal returns (uint256 modelId) {
+        modelId = market.registerModel(address(0), who);
+        _commit(id, modelId, who, probs);
+    }
+
+    /// @dev 1e18-scaled forecast with `pWin` on bucket `win` and the rest spread over the others.
+    function _probs(uint256 win, uint256 pWin) internal pure returns (uint256[5] memory p) {
+        uint256 rest = 1e18 - pWin;
+        uint256 assigned = pWin;
+        p[win] = pWin;
+        uint256 last = win == 4 ? 3 : 4;
+        for (uint256 i = 0; i < 5; ++i) {
+            if (i == win || i == last) continue;
+            p[i] = rest / 4;
+            assigned += p[i];
+        }
+        p[last] = 1e18 - assigned;
     }
 
     function _segments(int24[12] memory ticks) internal {
@@ -158,7 +223,7 @@ contract VolMarketTest is Test {
         for (uint256 j = 0; j < segTicks.length; ++j) {
             pool.setTickFrom(T0 - (17 - j) * uint256(DELTA), int24(segTicks[j]));
         }
-        market = new VolMarket(IERC20(address(token)), 0, IUniswapV3PoolOracle(address(pool)), DELTA, N);
+        market = _market(0, 0, address(pool));
         market.registerModel(address(new SpikeModelVerifier()), alice);
     }
 
@@ -405,7 +470,7 @@ contract VolMarketTest is Test {
         pool = inner;
         _segments(_mixed());
         GasHungryPool hungry = new GasHungryPool(inner, 6_000_000);
-        market = new VolMarket(IERC20(address(token)), 0, IUniswapV3PoolOracle(address(hungry)), DELTA, N);
+        market = _market(0, 0, address(hungry));
         uint256 id = _create();
         for (uint256 k = 0; k < N - 1; ++k) {
             vm.warp(_t(k) + 1);
@@ -467,8 +532,13 @@ contract VolMarketTest is Test {
         assertTrue(pos && neg);
 
         uint256[5] memory out = _outputs();
+        _commit(id, 0, alice, out);
         vm.prank(alice);
-        market.submitPrediction(id, 0, _proof(), out);
+        vm.expectRevert(VolMarket.AlreadyPredicted.selector);
+        market.commitPrediction(id, 0, bytes32(uint256(1)));
+
+        vm.warp(COMMIT_END);
+        _reveal(id, alice, _proof(), out);
 
         (bool recorded, uint256 modelId, uint256[5] memory probs,) = market.getPrediction(id, alice);
         assertTrue(recorded);
@@ -483,20 +553,19 @@ contract VolMarketTest is Test {
         assertEq(market.predictorCount(id), 1);
 
         vm.prank(alice);
-        vm.expectRevert(VolMarket.AlreadyPredicted.selector);
-        market.submitPrediction(id, 0, _proof(), out);
+        vm.expectRevert(VolMarket.AlreadyRevealed.selector);
+        market.revealPrediction(id, _proof(), out, _salt(alice));
     }
 
     function test_RealProofScoredAtSettle() public {
         _deployProofPool(_segTicks());
         uint256 id = _create();
-        vm.prank(alice);
-        market.submitPrediction(id, 0, _proof(), _outputs());
+        _commitReveal(id, 0, alice, _proof(), _outputs());
 
         vm.warp(START);
         vm.prank(bob);
         vm.expectRevert(VolMarket.TooLateToPredict.selector);
-        market.submitPrediction(id, 0, _proof(), _outputs());
+        market.commitPrediction(id, 0, bytes32(uint256(1)));
 
         // the last fixture tick continues through the window: RV 0, bucket 0
         _settleAfterWindow(id);
@@ -514,9 +583,11 @@ contract VolMarketTest is Test {
         uint256 id = _create();
         bytes memory proof = _proof();
         proof[1000] = bytes1(uint8(proof[1000]) ^ 0x01);
+        _commit(id, 0, alice, _outputs());
+        vm.warp(COMMIT_END);
         vm.prank(alice);
         vm.expectRevert(VolMarket.InvalidProof.selector);
-        market.submitPrediction(id, 0, proof, _outputs());
+        market.revealPrediction(id, proof, _outputs(), _salt(alice));
         (bool recorded,,,) = market.getPrediction(id, alice);
         assertFalse(recorded);
     }
@@ -524,20 +595,22 @@ contract VolMarketTest is Test {
     function test_TamperedOutputsRejected() public {
         _deployProofPool(_segTicks());
         uint256 id = _create();
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.UnknownModel.selector);
+        market.commitPrediction(id, 1, bytes32(uint256(1)));
+
         uint256[5] memory out = _outputs();
         out[0] += 1;
+        _commit(id, 0, alice, out);
+        vm.warp(COMMIT_END);
         vm.prank(alice);
         vm.expectRevert(VolMarket.InvalidProof.selector);
-        market.submitPrediction(id, 0, _proof(), out);
+        market.revealPrediction(id, _proof(), out, _salt(alice));
 
         out[0] = market.FIELD_R() / 2;
         vm.prank(alice);
         vm.expectRevert(VolMarket.BadOutputs.selector);
-        market.submitPrediction(id, 0, _proof(), out);
-
-        vm.prank(alice);
-        vm.expectRevert(VolMarket.UnknownModel.selector);
-        market.submitPrediction(id, 1, _proof(), _outputs());
+        market.revealPrediction(id, _proof(), out, _salt(alice));
     }
 
     function test_FeatureMismatchRejected() public {
@@ -551,9 +624,11 @@ contract VolMarketTest is Test {
         assertEq(feats[7], fixtureFeats[7] + 128);
         assertEq(feats[8], fixtureFeats[8] - 128);
 
+        _commit(id, 0, alice, _outputs());
+        vm.warp(COMMIT_END);
         vm.prank(alice);
         vm.expectRevert(VolMarket.InvalidProof.selector);
-        market.submitPrediction(id, 0, _proof(), _outputs());
+        market.revealPrediction(id, _proof(), _outputs(), _salt(alice));
     }
 
     function test_RegisterModelOnlyOwner() public {
@@ -572,9 +647,8 @@ contract VolMarketTest is Test {
         uint256 id = _create();
         vm.prank(bob);
         vm.expectRevert(VolMarket.NotModelOperator.selector);
-        market.submitPrediction(id, 0, _proof(), _outputs());
-        vm.prank(alice);
-        market.submitPrediction(id, 0, _proof(), _outputs());
+        market.commitPrediction(id, 0, _commitment(id, 0, _outputs(), _salt(bob), bob));
+        _commitReveal(id, 0, alice, _proof(), _outputs());
         assertEq(market.predictorCount(id), 1);
     }
 
@@ -586,13 +660,352 @@ contract VolMarketTest is Test {
         }
         uint256 id = _create();
         for (uint256 i = 0; i < cap; ++i) {
-            vm.prank(address(uint160(0x1000 + i)));
-            market.submitPrediction(id, i + 1, _proof(), _outputs());
+            _commit(id, i + 1, address(uint160(0x1000 + i)), _outputs());
         }
         assertEq(market.predictorCount(id), cap);
         vm.prank(alice);
         vm.expectRevert(VolMarket.TooManyPredictors.selector);
-        market.submitPrediction(id, 0, _proof(), _outputs());
+        market.commitPrediction(id, 0, bytes32(uint256(1)));
+    }
+
+    // -------- commit-reveal ----------------------------------------------
+
+    function test_ForecastHiddenUntilRevealWindow() public {
+        _deploy(0);
+        uint256 id = _create();
+        uint256[5] memory p = _probs(3, 0.6e18);
+        uint256 modelId = _commitOnly(id, alice, p);
+
+        assertEq(market.getCommitment(id, alice), _commitment(id, modelId, p, _salt(alice), alice));
+        (bool recorded,, uint256[5] memory shown,) = market.getPrediction(id, alice);
+        assertFalse(recorded, "nothing public before reveal");
+        for (uint256 i = 0; i < 5; ++i) {
+            assertEq(shown[i], 0);
+        }
+
+        vm.warp(COMMIT_END - 1);
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.RevealNotOpen.selector);
+        market.revealPrediction(id, "", p, _salt(alice));
+
+        vm.warp(COMMIT_END);
+        vm.prank(bob);
+        vm.expectRevert(VolMarket.TooLateToPredict.selector);
+        market.commitPrediction(id, modelId, bytes32(uint256(1)));
+
+        vm.warp(REVEAL_END);
+        uint256 snap = vm.snapshotState();
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.TooLateToReveal.selector);
+        market.revealPrediction(id, "", p, _salt(alice));
+        vm.revertToState(snap);
+
+        vm.warp(REVEAL_END - 1);
+        _reveal(id, alice, "", p);
+        (recorded,, shown,) = market.getPrediction(id, alice);
+        assertTrue(recorded, "public before the window starts");
+        for (uint256 i = 0; i < 5; ++i) {
+            assertEq(shown[i], p[i]);
+        }
+    }
+
+    function test_RevealMustMatchCommitment() public {
+        _deploy(0);
+        uint256 id = _create();
+        uint256[5] memory p = _probs(3, 0.6e18);
+        _commitOnly(id, alice, p);
+        vm.warp(COMMIT_END);
+
+        vm.prank(bob);
+        vm.expectRevert(VolMarket.NotCommitted.selector);
+        market.revealPrediction(id, "", p, _salt(bob));
+
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.CommitmentMismatch.selector);
+        market.revealPrediction(id, "", p, _salt(bob));
+
+        uint256[5] memory other = _probs(2, 0.6e18);
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.CommitmentMismatch.selector);
+        market.revealPrediction(id, "", other, _salt(alice));
+
+        _reveal(id, alice, "", p);
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.AlreadyRevealed.selector);
+        market.revealPrediction(id, "", p, _salt(alice));
+    }
+
+    /// @dev Bob copies Alice's commitment from her transaction; once Alice reveals he knows her
+    ///      outputs and salt, but the commitment binds her address and model, so he cannot reveal
+    ///      it, and the commit phase is already over for a fresh one.
+    function test_CopiedCommitmentCannotBeRevealed() public {
+        _deploy(0);
+        uint256 id = _create();
+        uint256[5] memory p = _probs(3, 0.6e18);
+        uint256 aliceModel = _commitOnly(id, alice, p);
+        uint256 bobModel = market.registerModel(address(0), bob);
+        bytes32 copied = market.getCommitment(id, alice);
+        vm.prank(bob);
+        market.commitPrediction(id, bobModel, copied);
+
+        vm.warp(COMMIT_END);
+        _reveal(id, alice, "", p);
+        vm.prank(bob);
+        vm.expectRevert(VolMarket.CommitmentMismatch.selector);
+        market.revealPrediction(id, "", p, _salt(alice));
+        vm.prank(bob);
+        vm.expectRevert(VolMarket.TooLateToPredict.selector);
+        market.commitPrediction(id, bobModel, _commitment(id, bobModel, p, _salt(bob), bob));
+        assertTrue(aliceModel != bobModel);
+    }
+
+    function test_UnrevealedForecastNotScored() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        _commitOnly(id, alice, _probs(3, 0.9e18));
+        _commitOnly(id, bob, _probs(3, 0.5e18));
+        vm.warp(COMMIT_END);
+        _reveal(id, bob, "", _probs(3, 0.5e18));
+
+        vm.recordLogs();
+        _settleAfterWindow(id);
+        uint256 scored;
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics[0] == VolMarket.PredictionScored.selector) ++scored;
+        }
+        assertEq(scored, 1, "only the revealed forecast is scored");
+        (bool recorded,,, int256 score) = market.getPrediction(id, alice);
+        assertFalse(recorded);
+        assertEq(score, 0);
+        (,,, score) = market.getPrediction(id, bob);
+        assertEq(score, MarketMath.log1e18(0.5e18));
+    }
+
+    // -------- commit-only models ------------------------------------------
+
+    function test_CommitOnlyModelRevealsWithoutProof() public {
+        _deployProofPool(_segTicks());
+        assertTrue(market.isZkModel(0));
+        uint256 modelId = market.registerModel(address(0), bob);
+        assertFalse(market.isZkModel(modelId));
+        assertEq(market.models(modelId), address(0));
+        vm.expectRevert(VolMarket.UnknownModel.selector);
+        market.isZkModel(modelId + 1);
+        vm.expectRevert(VolMarket.ZeroAddress.selector);
+        market.registerModel(address(0), address(0));
+
+        uint256 id = _create();
+        uint256[5] memory out = [uint256(1), 2, 3, 4, 10];
+        _commit(id, modelId, bob, out);
+        vm.warp(COMMIT_END);
+        _reveal(id, bob, hex"deadbeef", out);
+        (bool recorded, uint256 got, uint256[5] memory probs,) = market.getPrediction(id, bob);
+        assertTrue(recorded);
+        assertEq(got, modelId);
+        assertEq(probs[0], uint256(1e18) / 20);
+        assertEq(probs[4], 1e18 - probs[0] - probs[1] - probs[2] - probs[3]);
+
+        _settleAfterWindow(id);
+        (,,, int256 score) = market.getPrediction(id, bob);
+        assertEq(score, MarketMath.log1e18(probs[0]));
+    }
+
+    function test_OutputsMustNotOverflowProbabilityScale() public {
+        _deploy(0);
+        uint256 id = _create();
+        uint256 max = market.MAX_OUTPUT();
+        assertLt(max, market.FIELD_R() / 2, "negative field encodings stay rejected");
+        uint256[5] memory big = [max + 1, 0, 0, 0, 0];
+        uint256[5] memory ok = [max, max, max, max, max];
+        _commitOnly(id, alice, big);
+        _commitOnly(id, bob, ok);
+        vm.warp(COMMIT_END);
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.BadOutputs.selector);
+        market.revealPrediction(id, "", big, _salt(alice));
+        _reveal(id, bob, "", ok);
+        (,, uint256[5] memory probs,) = market.getPrediction(id, bob);
+        assertEq(probs[0], 0.2e18);
+    }
+
+    // -------- predictor share ---------------------------------------------
+
+    /// @dev Fee 1 % of 1000, half of it to predictors. Two forecasts beat the uniform baseline, one
+    ///      matches it exactly and one falls below: only the first two share the 5, pro rata to
+    ///      their excess log score, and the last claimer takes the rounding remainder.
+    function test_PredictorShareSplitByExcessScore() public {
+        _deploy(100, 5000);
+        _segments(_mixed());
+        uint256 id = _create();
+        vm.prank(alice);
+        market.bet(id, 3, 100e18);
+        vm.prank(bob);
+        market.bet(id, 0, 900e18);
+
+        address p1 = makeAddr("p1");
+        address p2 = makeAddr("p2");
+        address p3 = makeAddr("p3");
+        address p4 = makeAddr("p4");
+        uint256[5] memory uniform = [uint256(1), 1, 1, 1, 1];
+        _commitOnly(id, p1, _probs(3, 0.5e18));
+        _commitOnly(id, p2, _probs(3, 0.8e18));
+        _commitOnly(id, p3, uniform);
+        _commitOnly(id, p4, _probs(3, 0.05e18));
+        vm.warp(COMMIT_END);
+        _reveal(id, p1, "", _probs(3, 0.5e18));
+        _reveal(id, p2, "", _probs(3, 0.8e18));
+        _reveal(id, p3, "", uniform);
+        _reveal(id, p4, "", _probs(3, 0.05e18));
+
+        vm.prank(p1);
+        vm.expectRevert(VolMarket.RoundNotSettled.selector);
+        market.claimPredictorReward(id);
+
+        _settleAfterWindow(id);
+        int256 base = MarketMath.log1e18(0.2e18);
+        assertEq(market.baselineLogScore(), base);
+        (,,, int256 s3) = market.getPrediction(id, p3);
+        assertEq(s3, base, "uniform forecast scores exactly the baseline");
+        uint256 e1 = uint256(MarketMath.log1e18(0.5e18) - base);
+        uint256 e2 = uint256(MarketMath.log1e18(0.8e18) - base);
+        uint256 share = 5e18;
+        assertEq(market.predictorPool(id), share);
+
+        vm.prank(p1);
+        market.claimPredictorReward(id);
+        assertEq(token.balanceOf(p1), share * e1 / (e1 + e2), "pro rata to excess score");
+        vm.prank(p2);
+        market.claimPredictorReward(id);
+        assertEq(token.balanceOf(p2), share - token.balanceOf(p1), "last claimer takes the remainder");
+        assertGe(token.balanceOf(p2), share * e2 / (e1 + e2));
+
+        address[2] memory losers = [p3, p4];
+        for (uint256 i = 0; i < 2; ++i) {
+            vm.prank(losers[i]);
+            vm.expectRevert(VolMarket.NothingToClaim.selector);
+            market.claimPredictorReward(id);
+        }
+        vm.prank(p1);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.claimPredictorReward(id);
+
+        vm.expectEmit(true, false, false, true, address(market));
+        emit VolMarket.FeeCollected(id, 5e18);
+        market.collectFee(id);
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(address(market)), 0, "round fully drained");
+    }
+
+    function test_NoPredictorBeatsBaselineFeeToOwner() public {
+        _deploy(100, 5000);
+        _segments(_mixed());
+        uint256 id = _create();
+        vm.prank(alice);
+        market.bet(id, 3, 100e18);
+        vm.prank(bob);
+        market.bet(id, 0, 900e18);
+        _commitOnly(id, carol, _probs(3, 0.1e18));
+        vm.warp(COMMIT_END);
+        _reveal(id, carol, "", _probs(3, 0.1e18));
+        _settleAfterWindow(id);
+
+        assertEq(market.predictorPool(id), 0);
+        vm.prank(carol);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.claimPredictorReward(id);
+        market.collectFee(id);
+        assertEq(token.balanceOf(address(this)), 10e18, "whole fee to owner");
+    }
+
+    function test_UnrevealedPredictorEarnsNothing() public {
+        _deploy(100, 10_000);
+        _segments(_mixed());
+        uint256 id = _create();
+        vm.prank(alice);
+        market.bet(id, 3, 100e18);
+        vm.prank(bob);
+        market.bet(id, 0, 900e18);
+        _commitOnly(id, carol, _probs(3, 0.9e18));
+        _commitOnly(id, bob, _probs(3, 0.5e18));
+        vm.warp(COMMIT_END);
+        _reveal(id, bob, "", _probs(3, 0.5e18));
+        _settleAfterWindow(id);
+
+        vm.prank(carol);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.claimPredictorReward(id);
+        vm.prank(bob);
+        market.claimPredictorReward(id);
+        assertEq(token.balanceOf(bob), 1_000_000e18 - 900e18 + 10e18, "the only revealed beater takes it all");
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.collectFee(id);
+    }
+
+    function test_RefundedRoundsPayNoPredictorShare() public {
+        // voided: checkpoints 0 and 1 fall out of history
+        _deploy(100, 5000);
+        _segments(_mixed());
+        uint256 id = _create();
+        vm.prank(alice);
+        market.bet(id, 3, 100e18);
+        _commitOnly(id, carol, _probs(3, 0.9e18));
+        vm.warp(COMMIT_END);
+        _reveal(id, carol, "", _probs(3, 0.9e18));
+        vm.warp(END + 10);
+        pool.setOldest(_t(1) + 1);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertTrue(voided);
+        assertEq(market.predictorPool(id), 0);
+        vm.prank(carol);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.claimPredictorReward(id);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.collectFee(id);
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(address(market)), 0);
+
+        // no winner: the only stake is on bucket 0, the round lands in bucket 3
+        _deploy(100, 5000);
+        _segments(_mixed());
+        id = _create();
+        vm.prank(alice);
+        market.bet(id, 0, 100e18);
+        _commitOnly(id, carol, _probs(3, 0.9e18));
+        vm.warp(COMMIT_END);
+        _reveal(id, carol, "", _probs(3, 0.9e18));
+        _settleAfterWindow(id);
+        (,,, int256 score) = market.getPrediction(id, carol);
+        assertGt(score, market.baselineLogScore(), "beats the baseline, but there is no fee");
+        assertEq(market.predictorPool(id), 0);
+        vm.prank(carol);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.claimPredictorReward(id);
+        uint256 before = token.balanceOf(alice);
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(alice) - before, 100e18);
+        assertEq(token.balanceOf(address(market)), 0);
+    }
+
+    function test_ConstructorValidatesShareAndPhases() public {
+        pool = new MockPool();
+        IUniswapV3PoolOracle p = IUniswapV3PoolOracle(address(pool));
+        IERC20 t = IERC20(address(token));
+        vm.expectRevert(VolMarket.InvalidParams.selector);
+        new VolMarket(t, 100, 10_001, p, DELTA, N, COMMIT_LEAD, REVEAL_LEAD);
+        vm.expectRevert(VolMarket.InvalidParams.selector);
+        new VolMarket(t, 100, 5000, p, DELTA, N, REVEAL_LEAD, REVEAL_LEAD);
+        vm.expectRevert(VolMarket.InvalidParams.selector);
+        new VolMarket(t, 100, 5000, p, DELTA, N, REVEAL_LEAD, COMMIT_LEAD);
+        VolMarket m = new VolMarket(t, 100, 10_000, p, DELTA, N, COMMIT_LEAD, 0);
+        assertEq(m.predictorShareBps(), 10_000);
+        assertEq(m.commitLead(), COMMIT_LEAD);
+        assertEq(m.revealLead(), 0);
     }
 
     // -------- parimutuel ------------------------------------------------
@@ -633,11 +1046,20 @@ contract VolMarketTest is Test {
     }
 
     /// @dev Three winners on bucket 3 and one loser; every winner can claim, payouts never fall
-    ///      below the pro-rata floor, and the winners split exactly total - fee.
-    function testFuzz_WinnersSplitExactlyTotalMinusFee(uint256[3] memory win, uint256 lose, uint256 feeBps) public {
+    ///      below the pro-rata floor, and the winners split exactly total - fee. Three forecasters
+    ///      with fuzzed p(bucket 3) split exactly the predictor share of the fee among those above
+    ///      the uniform baseline, and the owner receives exactly the rest of the fee.
+    function testFuzz_WinnersSplitExactlyTotalMinusFee(
+        uint256[3] memory win,
+        uint256 lose,
+        uint256 feeBps,
+        uint256 shareBps,
+        uint256[3] memory pWin
+    ) public {
         feeBps = bound(feeBps, 0, 999);
+        shareBps = bound(shareBps, 0, 10_000);
         lose = bound(lose, 1, 1e24);
-        _deploy(feeBps);
+        _deploy(feeBps, shareBps);
         _segments(_mixed());
         uint256 id = _create();
         address[3] memory winners = [alice, carol, makeAddr("dave")];
@@ -656,8 +1078,32 @@ contract VolMarketTest is Test {
         uint256 total = winPool + lose;
         uint256 fee = MarketMath.fee(total, feeBps);
 
+        address[3] memory forecasters = _forecasters(id, pWin);
+
         _settleAfterWindow(id);
-        uint256 paid;
+        assertEq(_claimWinners(id, winners, win, total, winPool, feeBps), total - fee, "winners split total - fee");
+        assertEq(token.balanceOf(address(market)), fee, "only the fee remains");
+
+        uint256 share = _claimPredictorShares(id, forecasters, fee, shareBps);
+        if (fee - share > 0) {
+            market.collectFee(id);
+        } else {
+            vm.expectRevert(VolMarket.NothingToClaim.selector);
+            market.collectFee(id);
+        }
+        assertEq(token.balanceOf(address(this)), fee - share, "owner receives the rest of the fee");
+        assertEq(token.balanceOf(address(market)), 0, "round fully drained");
+    }
+
+    /// @dev Every winner claims; no payout falls below the pro-rata floor. Returns the total paid.
+    function _claimWinners(
+        uint256 id,
+        address[3] memory winners,
+        uint256[3] memory win,
+        uint256 total,
+        uint256 winPool,
+        uint256 feeBps
+    ) internal returns (uint256 paid) {
         for (uint256 i = 0; i < 3; ++i) {
             uint256 b0 = token.balanceOf(winners[i]);
             vm.prank(winners[i]);
@@ -666,14 +1112,50 @@ contract VolMarketTest is Test {
             assertGe(got, MarketMath.payout(win[i], total, winPool, feeBps), "below pro-rata floor");
             paid += got;
         }
-        assertEq(paid, total - fee, "winners split total - fee");
-        assertEq(token.balanceOf(address(market)), fee, "only the fee remains");
+    }
 
-        if (fee > 0) {
-            market.collectFee(id);
-            assertEq(token.balanceOf(address(this)), fee, "owner receives the fee");
+    /// @dev Three commit-only forecasters with p(bucket 3) = pWin[i], committed and revealed.
+    function _forecasters(uint256 id, uint256[3] memory pWin) internal returns (address[3] memory f) {
+        f = [makeAddr("f0"), makeAddr("f1"), makeAddr("f2")];
+        for (uint256 i = 0; i < 3; ++i) {
+            pWin[i] = bound(pWin[i], 1, 1e18);
+            _commitOnly(id, f[i], _probs(3, pWin[i]));
         }
-        assertEq(token.balanceOf(address(market)), 0, "round fully drained");
+        vm.warp(COMMIT_END);
+        for (uint256 i = 0; i < 3; ++i) {
+            _reveal(id, f[i], "", _probs(3, pWin[i]));
+        }
+    }
+
+    /// @dev Every forecaster above the baseline claims; returns the predictor share they split.
+    function _claimPredictorShares(uint256 id, address[3] memory forecasters, uint256 fee, uint256 shareBps)
+        internal
+        returns (uint256 share)
+    {
+        uint256 excessSum;
+        uint256[3] memory excess;
+        for (uint256 i = 0; i < 3; ++i) {
+            (,,, int256 score) = market.getPrediction(id, forecasters[i]);
+            if (score > market.baselineLogScore()) excess[i] = uint256(score - market.baselineLogScore());
+            excessSum += excess[i];
+        }
+        share = excessSum == 0 ? 0 : fee * shareBps / 10_000;
+        assertEq(market.predictorPool(id), share, "predictor pool");
+
+        uint256 rewarded;
+        for (uint256 i = 0; i < 3; ++i) {
+            vm.prank(forecasters[i]);
+            if (share == 0 || excess[i] == 0) {
+                vm.expectRevert(VolMarket.NothingToClaim.selector);
+                market.claimPredictorReward(id);
+                continue;
+            }
+            market.claimPredictorReward(id);
+            uint256 got = token.balanceOf(forecasters[i]);
+            assertGe(got, share * excess[i] / excessSum, "below pro-rata floor");
+            rewarded += got;
+        }
+        assertEq(rewarded, share, "predictors split exactly their share");
     }
 
     function test_CollectFeeOnceAfterSettle() public {
@@ -801,6 +1283,9 @@ contract VolMarketTest is Test {
         uint256[] memory b = _bounds();
         vm.expectRevert(VolMarket.InvalidParams.selector);
         market.createRound(uint64(T0), b);
+        vm.expectRevert(VolMarket.InvalidParams.selector);
+        market.createRound(uint64(T0 + COMMIT_LEAD), b);
+        market.createRound(uint64(T0 + COMMIT_LEAD + 1), b);
         b[2] = b[1];
         vm.expectRevert(VolMarket.InvalidParams.selector);
         market.createRound(START, b);

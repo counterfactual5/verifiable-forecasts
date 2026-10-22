@@ -112,6 +112,8 @@ contract ERC8004Test is Test {
     uint256 constant T0 = 1_000_000; // createRound time
     uint64 constant START = uint64(T0 + 600);
     uint256 constant END = START + uint256(N) * DELTA;
+    uint32 constant COMMIT_LEAD = 300;
+    uint32 constant REVEAL_LEAD = 120;
 
     MockERC20 token;
     MockPool pool;
@@ -161,7 +163,9 @@ contract ERC8004Test is Test {
         for (uint256 j = 0; j < segTicks.length; ++j) {
             pool.setTickFrom(T0 - (17 - j) * uint256(DELTA), int24(segTicks[j]));
         }
-        market = new VolMarket(IERC20(address(token)), 0, IUniswapV3PoolOracle(address(pool)), DELTA, N);
+        market = new VolMarket(
+            IERC20(address(token)), 0, 0, IUniswapV3PoolOracle(address(pool)), DELTA, N, COMMIT_LEAD, REVEAL_LEAD
+        );
         token.mint(alice, 1_000_000e18);
         token.mint(bob, 1_000_000e18);
         vm.prank(alice);
@@ -197,6 +201,29 @@ contract ERC8004Test is Test {
 
     function _segTicks() internal view returns (int256[] memory) {
         return vm.parseJsonIntArray(proofJson, ".segmentTicks");
+    }
+
+    function _salt(address who) internal pure returns (bytes32) {
+        return keccak256(abi.encode("salt", who));
+    }
+
+    function _commit(uint256 id, uint256 modelId, address who) internal {
+        vm.prank(who);
+        market.commitPrediction(id, modelId, keccak256(abi.encode(id, modelId, _outputs(), _salt(who), who)));
+    }
+
+    function _reveal(uint256 id, address who) internal {
+        (, uint256 modelId,,) = market.getPrediction(id, who);
+        bytes memory proof = market.isZkModel(modelId) ? _proof() : bytes("");
+        vm.prank(who);
+        market.revealPrediction(id, proof, _outputs(), _salt(who));
+    }
+
+    /// @dev Commit the proof fixture's outputs during the commit phase and reveal them.
+    function _commitReveal(uint256 id, uint256 modelId, address who) internal {
+        _commit(id, modelId, who);
+        vm.warp(START - COMMIT_LEAD);
+        _reveal(id, who);
     }
 
     function _reputationWriteFailedTopic() internal pure returns (bytes32) {
@@ -371,8 +398,7 @@ contract ERC8004Test is Test {
         assertEq(market.agentOfModel(modelId), 0);
 
         uint256 id = _create();
-        vm.prank(alice);
-        market.submitPrediction(id, modelId, _proof(), _outputs());
+        _commitReveal(id, modelId, alice);
 
         vm.warp(END + 10);
         vm.recordLogs();
@@ -395,8 +421,7 @@ contract ERC8004Test is Test {
         market.linkAgent(modelId, agentId);
 
         uint256 id = _create();
-        vm.prank(agentOwner);
-        market.submitPrediction(id, modelId, _proof(), _outputs());
+        _commitReveal(id, modelId, agentOwner);
 
         vm.warp(END + 10);
         market.settle(id);
@@ -415,6 +440,52 @@ contract ERC8004Test is Test {
         assertEq(tag2s[0], "vol-300s-12");
     }
 
+    /// @dev A commit-only model's score is written with its own tag2, so readers can keep the two
+    ///      verification tiers apart; a model that never reveals gets no record at all.
+    function test_CommitOnlyScoreTaggedSeparately() public {
+        _deployMarket();
+        market.setReputation(address(identity), address(reputation));
+
+        uint256 zkAgent = _registerAgent();
+        uint256 zkModel = market.registerModel(address(new SpikeModelVerifier()), agentOwner);
+        vm.prank(agentOwner);
+        market.linkAgent(zkModel, zkAgent);
+
+        vm.prank(alice);
+        uint256 apiAgent = identity.register("ipfs://tsfm-api-agent");
+        uint256 apiModel = market.registerModel(address(0), alice);
+        vm.prank(alice);
+        market.linkAgent(apiModel, apiAgent);
+
+        vm.prank(bob);
+        uint256 silentAgent = identity.register("ipfs://silent");
+        uint256 silentModel = market.registerModel(address(0), bob);
+        vm.prank(bob);
+        market.linkAgent(silentModel, silentAgent);
+
+        uint256 id = _create();
+        _commit(id, zkModel, agentOwner);
+        _commit(id, apiModel, alice);
+        _commit(id, silentModel, bob);
+        vm.warp(START - COMMIT_LEAD);
+        _reveal(id, agentOwner);
+        _reveal(id, alice);
+        vm.warp(END + 10);
+        market.settle(id);
+
+        (,,, string[] memory zkTags) = reputation.readFeedback(zkAgent, address(market));
+        assertEq(zkTags.length, 1);
+        assertEq(zkTags[0], "vol-300s-12");
+        (int128[] memory values,,, string[] memory apiTags) = reputation.readFeedback(apiAgent, address(market));
+        assertEq(apiTags.length, 1);
+        assertEq(apiTags[0], "vol-300s-12-commit");
+        (,,, int256 score) = market.getPrediction(id, alice);
+        assertEq(int256(values[0]), score);
+        assertEq(reputation.getSummary(zkAgent, _clients(address(market)), "logScore", "vol-300s-12-commit"), 0);
+        (int128[] memory silent,,,) = reputation.readFeedback(silentAgent, address(market));
+        assertEq(silent.length, 0, "unrevealed forecast leaves no record");
+    }
+
     function test_ReputationFailureDoesNotBlockSettleOrClaim() public {
         _deployMarket();
         RevertingReputationRegistry failing = new RevertingReputationRegistry();
@@ -428,8 +499,7 @@ contract ERC8004Test is Test {
         uint256 id = _create();
         vm.prank(alice);
         market.bet(id, 0, 100e18);
-        vm.prank(agentOwner);
-        market.submitPrediction(id, modelId, _proof(), _outputs());
+        _commitReveal(id, modelId, agentOwner);
 
         vm.warp(END + 10);
         vm.recordLogs();
@@ -468,8 +538,7 @@ contract ERC8004Test is Test {
         vm.prank(agentOwner);
         market.linkAgent(modelId, agentId);
         id = _create();
-        vm.prank(agentOwner);
-        market.submitPrediction(id, modelId, _proof(), _outputs());
+        _commitReveal(id, modelId, agentOwner);
         vm.warp(END + 10);
     }
 
@@ -528,8 +597,7 @@ contract ERC8004Test is Test {
         uint256 id = _create();
         vm.prank(alice);
         market.bet(id, 0, 100e18);
-        vm.prank(agentOwner);
-        market.submitPrediction(id, modelId, _proof(), _outputs());
+        _commitReveal(id, modelId, agentOwner);
 
         vm.warp(END + 10);
         vm.recordLogs();
@@ -560,8 +628,7 @@ contract ERC8004Test is Test {
         market.linkAgent(modelId, agentId);
 
         uint256 id = _create();
-        vm.prank(agentOwner);
-        market.submitPrediction(id, modelId, _proof(), _outputs());
+        _commitReveal(id, modelId, agentOwner);
         vm.warp(END + 10);
         market.settle(id);
 
@@ -595,8 +662,11 @@ contract ERC8004Test is Test {
 
         uint256 id = _create();
         for (uint256 i = 0; i < count; ++i) {
-            vm.prank(address(uint160(0x1000 + i)));
-            market.submitPrediction(id, i, _proof(), _outputs());
+            _commit(id, i, address(uint160(0x1000 + i)));
+        }
+        vm.warp(START - COMMIT_LEAD);
+        for (uint256 i = 0; i < count; ++i) {
+            _reveal(id, address(uint160(0x1000 + i)));
         }
         assertEq(market.predictorCount(id), count);
 

@@ -14,9 +14,13 @@ import {TickPriceMath} from "./lib/TickPriceMath.sol";
 /// @notice Parimutuel market on the realized volatility of a Uniswap V3 pool's TWAP tick over
 ///         `nSegments` segments of `delta` seconds. Settlement reads `observe()` directly, with
 ///         permissionless `sample()` checkpoints as a fallback when the pool's history runs out.
-///         AI forecasts (5-bucket distributions) are accepted only with an EZKL proof whose public
-///         inputs are features the contract derived from `observe()` at round creation.
-/// @dev Round lifecycle: Open (bets, predictions until startTime) -> Sampling (until
+///         AI forecasts (5-bucket distributions) are committed as a hash first and revealed once
+///         commits close, before the window starts. A zk model's reveal is accepted only with an
+///         EZKL proof whose public inputs are features the contract derived from `observe()` at
+///         round creation; a commit-only model (no verifier) proves timing, not provenance.
+///         Forecasts that beat the uniform baseline share `predictorShareBps` of the round's fee.
+/// @dev Round lifecycle: Commit (bets, commits until startTime - commitLead) -> Reveal (bets,
+///      reveals until startTime - revealLead) -> bets until startTime -> Sampling (until
 ///      startTime + nSegments * delta) -> Settled (claims). Voided (full refund) when fewer than
 ///      90% of the nSegments + 1 checkpoints can be read.
 contract VolMarket {
@@ -44,12 +48,20 @@ contract VolMarket {
     error ReputationNotConfigured();
     error AgentNotOwned();
     error InsufficientGas();
+    error RevealNotOpen();
+    error TooLateToReveal();
+    error NotCommitted();
+    error AlreadyRevealed();
+    error CommitmentMismatch();
 
     // ---------------------------------------------------------------- events
     event ModelRegistered(uint256 indexed modelId, address verifier, address operator);
     event RoundCreated(uint256 indexed roundId, uint64 startTime, uint256[] bounds, int256[16] features);
     event BetPlaced(uint256 indexed roundId, address indexed bettor, uint256 bucket, uint256 amount);
-    event PredictionSubmitted(
+    event PredictionCommitted(
+        uint256 indexed roundId, address indexed predictor, uint256 indexed modelId, bytes32 commitment
+    );
+    event PredictionRevealed(
         uint256 indexed roundId, address indexed predictor, uint256 indexed modelId, uint256[5] probs
     );
     event CheckpointSampled(uint256 indexed roundId, uint256 indexed k, int56 tickCumulative);
@@ -58,6 +70,7 @@ contract VolMarket {
     event PredictionScored(uint256 indexed roundId, address indexed predictor, int256 logScore);
     event Claimed(uint256 indexed roundId, address indexed claimant, uint256 payout);
     event FeeCollected(uint256 indexed roundId, uint256 amount);
+    event PredictorRewardClaimed(uint256 indexed roundId, address indexed predictor, uint256 amount);
     event ReputationSet(address indexed identityRegistry, address indexed reputationRegistry);
     event AgentLinked(uint256 indexed modelId, uint256 indexed agentId, address indexed operator);
     event ReputationWriteFailed(
@@ -81,6 +94,9 @@ contract VolMarket {
         uint256 claimedWinStake; // winning-bucket stake already paid out
         uint256 paidOut; // tokens paid to winners so far
         bool feeCollected;
+        uint256 totalExcess; // sum of revealed forecasts' log score above baseline (1e18 scale)
+        uint256 claimedExcess; // excess of the forecasters that claimed their share so far
+        uint256 predictorPaid; // tokens paid to forecasters so far
         mapping(uint256 => int56) checkpoints;
         mapping(address => mapping(uint256 => uint256)) stakes; // user -> bucket -> stake
         mapping(address => Prediction) predictions;
@@ -88,9 +104,11 @@ contract VolMarket {
     }
 
     struct Prediction {
-        bool recorded;
+        bool recorded; // revealed: probs are public and the forecast is scored
         uint256 modelId;
-        uint256[5] probs; // scaled by 1e18, sum exactly 1e18
+        bytes32 commitment; // nonzero once committed
+        bool rewardClaimed;
+        uint256[5] probs; // scaled by PROB_SCALE, sum exactly PROB_SCALE
         int256 logScore; // set at settlement
     }
 
@@ -104,6 +122,11 @@ contract VolMarket {
     /// @dev BN254 scalar field modulus; negative inputs are encoded as R - |x|.
     uint256 public constant MAX_PREDICTORS = 32; // bounds the scoring loop in settle
     uint256 public constant FIELD_R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    /// @dev Probability scale: probs and log scores are fixed-point with 1e18 = 1.
+    uint256 private constant PROB_SCALE = 1e18;
+    /// @dev Largest accepted output: output * PROB_SCALE must not overflow, and the bound sits far
+    ///      below FIELD_R / 2, so field encodings of negative values stay rejected.
+    uint256 public constant MAX_OUTPUT = type(uint256).max / PROB_SCALE;
 
     IERC20 public immutable token;
     uint256 public immutable feeBps; // protocol fee in basis points on the whole pool
@@ -111,9 +134,13 @@ contract VolMarket {
     uint32 public immutable delta; // segment length in seconds
     uint8 public immutable nSegments;
     address public immutable owner;
+    /// @dev Commits close commitLead seconds before startTime, reveals close revealLead seconds
+    ///      before it; commitLead > revealLead, so forecasts are public before the window opens.
+    uint32 public immutable commitLead;
+    uint32 public immutable revealLead;
 
-    address[] public models; // modelId -> EZKL verifier
-    mapping(uint256 => address) public modelOperator; // the only account that may submit with modelId
+    address[] public models; // modelId -> EZKL verifier; address(0) marks a commit-only model
+    mapping(uint256 => address) public modelOperator; // the only account that may commit with modelId
     uint256 public roundCount;
     mapping(uint256 => Round) private rounds;
 
@@ -147,6 +174,13 @@ contract VolMarket {
     ///      snapshot and the CALL stay under a further 1/64 of the cap (~7.8k gas).
     uint256 private constant MIN_GAS_FOR_CAPPED_CALL = EXTERNAL_CALL_GAS + EXTERNAL_CALL_GAS / 32;
 
+    // ---------------------------------------------------------------- predictor share
+    /// @dev Basis points of each round's fee set aside for forecasters; the owner keeps the rest.
+    uint256 public immutable predictorShareBps;
+    /// @dev Log score (1e18 scale) of the uniform forecast, ln(1/BUCKETS), from the same log1e18
+    ///      that scores forecasts: a uniform forecast scores exactly this and earns nothing.
+    int256 public immutable baselineLogScore;
+
     // ---------------------------------------------------------------- modifiers
     modifier roundExists(uint256 id) {
         if (id >= roundCount) revert RoundNotFound();
@@ -157,28 +191,47 @@ contract VolMarket {
     /// @param token_ settlement token
     /// @param feeBps_ protocol fee on the pool, e.g. 100 = 1%. Must be < 1000.
     /// @param pool_ Uniswap V3 pool (or anything exposing `observe`)
+    /// @param predictorShareBps_ share of each round's fee paid to forecasters, <= 10000
     /// @param delta_ segment length in seconds; 17 * delta_ must fit in uint32
     /// @param nSegments_ segments per round window, >= 2
-    constructor(IERC20 token_, uint256 feeBps_, IUniswapV3PoolOracle pool_, uint32 delta_, uint8 nSegments_) {
+    /// @param commitLead_ seconds before startTime at which commits close
+    /// @param revealLead_ seconds before startTime at which reveals close, < commitLead_
+    constructor(
+        IERC20 token_,
+        uint256 feeBps_,
+        uint256 predictorShareBps_,
+        IUniswapV3PoolOracle pool_,
+        uint32 delta_,
+        uint8 nSegments_,
+        uint32 commitLead_,
+        uint32 revealLead_
+    ) {
         if (address(token_) == address(0) || address(pool_) == address(0)) revert ZeroAddress();
         if (feeBps_ >= 1000 || delta_ == 0 || nSegments_ < 2) revert InvalidParams();
         if (uint256(delta_) * (FEATURES + 1) > type(uint32).max) revert InvalidParams();
+        if (predictorShareBps_ > BPS || revealLead_ >= commitLead_) revert InvalidParams();
         token = token_;
         feeBps = feeBps_;
+        predictorShareBps = predictorShareBps_;
         pool = pool_;
         delta = delta_;
         nSegments = nSegments_;
+        commitLead = commitLead_;
+        revealLead = revealLead_;
+        baselineLogScore = MarketMath.log1e18(PROB_SCALE / BUCKETS);
         owner = msg.sender;
         tickPriceMath = new TickPriceMath();
     }
 
     // ---------------------------------------------------------------- models
-    /// @notice Register an EZKL verifier for one model; predictions cite it by the returned id.
-    /// @param operator the only account allowed to submit with this model: a proof does not bind its
+    /// @notice Register a model; predictions cite it by the returned id.
+    /// @param verifier the model's EZKL verifier, or address(0) for a commit-only model whose
+    ///        reveals carry no proof
+    /// @param operator the only account allowed to commit with this model: a proof does not bind its
     ///        sender, so without this anyone could resubmit a copied proof as their own forecast
     function registerModel(address verifier, address operator) external returns (uint256 modelId) {
         if (msg.sender != owner) revert NotOwner();
-        if (verifier == address(0) || operator == address(0)) revert ZeroAddress();
+        if (operator == address(0)) revert ZeroAddress();
         modelId = models.length;
         models.push(verifier);
         modelOperator[modelId] = operator;
@@ -187,6 +240,12 @@ contract VolMarket {
 
     function modelCount() external view returns (uint256) {
         return models.length;
+    }
+
+    /// @notice True for a model whose reveals must carry an EZKL proof, false for commit-only.
+    function isZkModel(uint256 modelId) external view returns (bool) {
+        if (modelId >= models.length) revert UnknownModel();
+        return models[modelId] != address(0);
     }
 
     /// @notice Configure optional ETH/USD cross-check; zero address disables it.
@@ -236,9 +295,10 @@ contract VolMarket {
 
     // ---------------------------------------------------------------- round mgmt
     /// @notice Create a round and snapshot its model features from the last 17 segments.
+    /// @param startTime window start; after now + commitLead, so the commit phase is not empty
     /// @param bounds 4 strictly ascending realized-vol bounds in tick^2 (5 buckets)
     function createRound(uint64 startTime, uint256[] calldata bounds) external returns (uint256 id) {
-        if (startTime <= block.timestamp) revert InvalidParams();
+        if (startTime <= block.timestamp + commitLead) revert InvalidParams();
         if (bounds.length != BUCKETS - 1) revert InvalidParams();
         for (uint256 i = 1; i < bounds.length; ++i) {
             if (bounds[i] <= bounds[i - 1]) revert InvalidParams();
@@ -285,43 +345,67 @@ contract VolMarket {
     }
 
     // ---------------------------------------------------------------- predictions
-    /// @notice Submit a forecast proven by model `modelId` on this round's features.
-    ///         One submission per predictor per round, before startTime.
-    /// @param outputs the circuit's 5 public outputs (field elements, each < R/2, sum > 0)
-    function submitPrediction(uint256 id, uint256 modelId, bytes calldata proof, uint256[5] calldata outputs)
+    /// @notice Commit to a forecast of model `modelId`, before startTime - commitLead. One commit
+    ///         per predictor per round.
+    /// @param commitment keccak256(abi.encode(id, modelId, outputs, salt, msg.sender)): binding the
+    ///        round, model and sender keeps a copied commitment from being revealed by anyone else
+    function commitPrediction(uint256 id, uint256 modelId, bytes32 commitment) external roundExists(id) {
+        Round storage r = rounds[id];
+        if (block.timestamp >= r.startTime - commitLead) revert TooLateToPredict();
+        if (modelId >= models.length) revert UnknownModel();
+        if (msg.sender != modelOperator[modelId]) revert NotModelOperator();
+        Prediction storage p = r.predictions[msg.sender];
+        if (p.commitment != bytes32(0)) revert AlreadyPredicted();
+        if (r.predictors.length >= MAX_PREDICTORS) revert TooManyPredictors();
+        if (commitment == bytes32(0)) revert InvalidParams();
+        p.modelId = modelId;
+        p.commitment = commitment;
+        r.predictors.push(msg.sender);
+        emit PredictionCommitted(id, msg.sender, modelId, commitment);
+    }
+
+    /// @notice Reveal the committed forecast once commits are closed and before
+    ///         startTime - revealLead. A zk model's outputs must come with a valid proof on this
+    ///         round's features; a commit-only model's proof is ignored. Unrevealed forecasts are
+    ///         neither scored nor paid.
+    /// @param outputs 5 non-negative weights, each <= MAX_OUTPUT, sum > 0 (a zk model's circuit
+    ///        outputs); probs are their 1e18-scaled shares
+    function revealPrediction(uint256 id, bytes calldata proof, uint256[5] calldata outputs, bytes32 salt)
         external
         roundExists(id)
     {
         Round storage r = rounds[id];
-        if (block.timestamp >= r.startTime) revert TooLateToPredict();
-        if (modelId >= models.length) revert UnknownModel();
-        if (msg.sender != modelOperator[modelId]) revert NotModelOperator();
+        if (block.timestamp < r.startTime - commitLead) revert RevealNotOpen();
+        if (block.timestamp >= r.startTime - revealLead) revert TooLateToReveal();
         Prediction storage p = r.predictions[msg.sender];
-        if (p.recorded) revert AlreadyPredicted();
-        if (r.predictors.length >= MAX_PREDICTORS) revert TooManyPredictors();
+        if (p.commitment == bytes32(0)) revert NotCommitted();
+        if (p.recorded) revert AlreadyRevealed();
 
         uint256 sum;
         for (uint256 i = 0; i < BUCKETS; ++i) {
-            if (outputs[i] >= FIELD_R / 2) revert BadOutputs();
+            if (outputs[i] > MAX_OUTPUT) revert BadOutputs();
             sum += outputs[i];
         }
         if (sum == 0) revert BadOutputs();
 
-        _verify(models[modelId], proof, _instances(r.features, outputs));
+        uint256 modelId = p.modelId;
+        if (keccak256(abi.encode(id, modelId, outputs, salt, msg.sender)) != p.commitment) {
+            revert CommitmentMismatch();
+        }
+        address verifier = models[modelId];
+        if (verifier != address(0)) _verify(verifier, proof, _instances(r.features, outputs));
 
         uint256[5] memory probs;
         uint256 assigned;
         for (uint256 i = 0; i < BUCKETS - 1; ++i) {
-            probs[i] = (outputs[i] * 1e18) / sum;
+            probs[i] = (outputs[i] * PROB_SCALE) / sum;
             assigned += probs[i];
         }
-        probs[BUCKETS - 1] = 1e18 - assigned;
+        probs[BUCKETS - 1] = PROB_SCALE - assigned;
 
         p.recorded = true;
-        p.modelId = modelId;
         p.probs = probs;
-        r.predictors.push(msg.sender);
-        emit PredictionSubmitted(id, msg.sender, modelId, probs);
+        emit PredictionRevealed(id, msg.sender, modelId, probs);
     }
 
     function _instances(int256[16] storage feats, uint256[5] calldata outputs)
@@ -465,34 +549,49 @@ contract VolMarket {
         if (gasleft() <= gasBefore / 64) revert InsufficientGas();
     }
 
-    /// @dev logScore = max(ln p_win, -18e18); p_win = 0 also scores -18e18.
+    /// @dev logScore = max(ln p_win, -18e18); p_win = 0 also scores -18e18. Unrevealed forecasts
+    ///      keep logScore 0 and recorded = false. Also sums the excess scores the predictor share
+    ///      is split by.
     function _score(Round storage r, uint256 id, uint256 win) internal {
         uint256 predictorsLen = r.predictors.length;
+        uint256 totalExcess;
         for (uint256 i = 0; i < predictorsLen; ++i) {
             address who = r.predictors[i];
             Prediction storage p = r.predictions[who];
+            if (!p.recorded) continue;
             uint256 pw = p.probs[win];
             int256 score = pw == 0 ? MIN_LOG_SCORE : MarketMath.log1e18(pw);
             if (score < MIN_LOG_SCORE) score = MIN_LOG_SCORE;
             p.logScore = score;
+            totalExcess += _excess(score);
             emit PredictionScored(id, who, score);
         }
+        r.totalExcess = totalExcess;
     }
 
-    /// @dev Writes the scored log score of every predictor with a bound agent to the ERC-8004
-    ///      reputation registry. The registry is untrusted here: a rejected write is reported as
-    ///      an event and never blocks settlement or the claims that follow it.
+    /// @dev Log score above the uniform baseline, 0 at or below it; at most -baselineLogScore
+    ///      (about 1.61e18) since scores are <= 0.
+    function _excess(int256 score) internal view returns (uint256) {
+        return score > baselineLogScore ? uint256(score - baselineLogScore) : 0;
+    }
+
+    /// @dev Writes the scored log score of every revealed predictor with a bound agent to the
+    ///      ERC-8004 reputation registry. The registry is untrusted here: a rejected write is
+    ///      reported as an event and never blocks settlement or the claims that follow it.
     function _writeReputation(Round storage r, uint256 id) internal {
         if (address(reputationRegistry) == address(0)) return;
         uint256 predictorsLen = r.predictors.length;
-        string memory tag2 = _reputationTag();
+        string memory zkTag = _reputationTag();
+        string memory commitTag = string.concat(zkTag, "-commit");
         for (uint256 i = 0; i < predictorsLen; ++i) {
             address who = r.predictors[i];
             Prediction storage p = r.predictions[who];
+            if (!p.recorded) continue;
             uint256 modelId = p.modelId;
             if (!agentBound[modelId]) continue;
             uint256 agentId = agentOfModel[modelId];
             if (agentId == 0) continue; // binding without an agent: nothing to attribute
+            string memory tag2 = models[modelId] == address(0) ? commitTag : zkTag;
             _giveFeedback(id, who, agentId, _toInt128(p.logScore), tag2);
         }
     }
@@ -510,6 +609,7 @@ contract VolMarket {
 
     /// @dev tag2 identifies the window the score belongs to: "vol-<delta>s-<nSegments>", derived
     ///      from the constructor parameters so that markets with different windows do not mix.
+    ///      Commit-only models append "-commit", so readers can filter by verification tier.
     function _reputationTag() internal view returns (string memory) {
         return string.concat("vol-", _toString(uint256(delta)), "s-", _toString(uint256(nSegments)));
     }
@@ -659,17 +759,55 @@ contract VolMarket {
         emit Claimed(id, msg.sender, payout);
     }
 
-    /// @notice Send the round's protocol fee to `owner`; callable by anyone, once per round. Voided
-    ///         and no-winner rounds refund everything and carry no fee.
+    /// @notice Send the owner's part of the round's protocol fee, the fee minus the predictor pool,
+    ///         to `owner`; callable by anyone, once per round. Voided and no-winner rounds refund
+    ///         everything and carry no fee.
     function collectFee(uint256 id) external roundExists(id) {
         Round storage r = rounds[id];
         if (!r.settled) revert RoundNotSettled();
-        uint256 amount =
-            r.voided || r.pools[r.winningBucket] == 0 || r.feeCollected ? 0 : MarketMath.fee(r.totalStake, feeBps);
+        uint256 amount = r.feeCollected ? 0 : _roundFee(r) - _predictorPool(r);
         if (amount == 0) revert NothingToClaim();
         r.feeCollected = true;
         if (!token.transfer(owner, amount)) revert TransferFailed();
         emit FeeCollected(id, amount);
+    }
+
+    /// @notice A revealed forecaster whose log score beat the uniform baseline claims its share of
+    ///         the predictor pool, pro rata to its excess score.
+    /// @dev Each share rounds down; the last forecaster to claim receives the remainder, so the
+    ///      forecasters split exactly the predictor pool. pool * excess cannot overflow for any
+    ///      pool below 2^256 / 1.61e18 tokens (excess <= -baselineLogScore).
+    function claimPredictorReward(uint256 id) external roundExists(id) {
+        Round storage r = rounds[id];
+        if (!r.settled) revert RoundNotSettled();
+        Prediction storage p = r.predictions[msg.sender];
+        uint256 pool_ = _predictorPool(r);
+        uint256 excess = p.recorded ? _excess(p.logScore) : 0;
+        if (pool_ == 0 || excess == 0 || p.rewardClaimed) revert NothingToClaim();
+        p.rewardClaimed = true;
+        r.claimedExcess += excess;
+        uint256 amount = r.claimedExcess == r.totalExcess ? pool_ - r.predictorPaid : (pool_ * excess) / r.totalExcess;
+        r.predictorPaid += amount;
+        if (!token.transfer(msg.sender, amount)) revert TransferFailed();
+        emit PredictorRewardClaimed(id, msg.sender, amount);
+    }
+
+    /// @notice Tokens of the round's fee set aside for forecasters that beat the baseline.
+    function predictorPool(uint256 id) external view roundExists(id) returns (uint256) {
+        return _predictorPool(rounds[id]);
+    }
+
+    /// @dev 0 for unsettled, voided and no-winner rounds, which refund every stake.
+    function _roundFee(Round storage r) internal view returns (uint256) {
+        if (!r.settled || r.voided || r.pools[r.winningBucket] == 0) return 0;
+        return MarketMath.fee(r.totalStake, feeBps);
+    }
+
+    /// @dev The predictor share of the fee, rounded down so the owner keeps the remainder; 0 when no
+    ///      revealed forecast beat the baseline, leaving the whole fee to the owner.
+    function _predictorPool(Round storage r) internal view returns (uint256) {
+        if (r.totalExcess == 0) return 0;
+        return (_roundFee(r) * predictorShareBps) / BPS;
     }
 
     // ---------------------------------------------------------------- views
@@ -714,6 +852,11 @@ contract VolMarket {
         return (p.recorded, p.modelId, p.probs, p.logScore);
     }
 
+    function getCommitment(uint256 id, address who) external view returns (bytes32) {
+        return rounds[id].predictions[who].commitment;
+    }
+
+    /// @notice Committed predictors, revealed or not.
     function predictorCount(uint256 id) external view returns (uint256) {
         return rounds[id].predictors.length;
     }
