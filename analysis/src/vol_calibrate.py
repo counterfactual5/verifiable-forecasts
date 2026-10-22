@@ -268,27 +268,26 @@ def coverage_voids(available: int, n_segments: int) -> bool:
 
 
 def _clipped_segments(
-    points: Sequence[TimelinePoint], window_start: int
+    points: Sequence[TimelinePoint], window_start: int, until: int | None = None
 ) -> list[tuple[int, int | None, int]]:
-    """Constant-tick segments at or after ``window_start`` as ``(start, end, tick)``.
+    """Constant-tick segments at or after ``window_start`` (and starting no later than
+    ``until``) as ``(start, end, tick)``.
 
     The last segment has no end: the pool tick does not change without a Swap, so it holds
-    until the next observed tick change.
+    until the next observed tick change. ``points`` are ascending in timestamp.
     """
 
-    index = -1
-    for position, point in enumerate(points):
-        if point.timestamp <= window_start:
-            index = position
-        else:
-            break
+    index = bisect.bisect_right(points, window_start, key=lambda point: point.timestamp) - 1
     if index < 0:
         raise MissingInitialTick(
             f"no Swap at or before window start {window_start}; the initial tick is unknown"
         )
+    stop = len(points)
+    if until is not None:
+        stop = bisect.bisect_right(points, until, key=lambda point: point.timestamp)
 
     segments: list[tuple[int, int | None, int]] = []
-    for position in range(index, len(points)):
+    for position in range(index, max(stop, index + 1)):
         point = points[position]
         start = max(point.timestamp, window_start)
         end = points[position + 1].timestamp if position + 1 < len(points) else None
@@ -314,7 +313,7 @@ def tick_cumulatives(
     if n_segments < 2:
         raise ValueError("nSegments must be at least 2")
 
-    segments = _clipped_segments(points, window_start)
+    segments = _clipped_segments(points, window_start, window_start + n_segments * delta)
     starts = [segment[0] for segment in segments]
     prefix = [0]
     for position in range(1, len(segments)):
