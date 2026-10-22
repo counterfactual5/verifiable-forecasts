@@ -5,15 +5,18 @@ Samples come from dataset.build_samples over the tick-cumulative grid that analy
 Uniswap V3 Swap logs: the 16 features exactly as VolMarket computes them at createRound, and the
 realized-vol bucket of the hour that starts LEAD_S later, under cm.BOUNDS.
 
-Split: chronological, never shuffled. The last TEST_FRAC of the rounds is the test set, separated
-from the training part by a leak gap (no sample on one side reads a second the other side reads).
-Model selection uses the last VAL_FRAC of the training part, split the same way: synthetic
-random-walk paths are kept as augmentation only if they lower the mean validation log loss.
+Split: chronological at two cut timestamps, never shuffled: train before TRAIN_END, validation up
+to TEST_START, test after it (dataset.split_by_time drops every round whose read span straddles a
+cut). The bounds must come from the training period only: --params is analysis' vol_params.json
+written with `--until TRAIN_END`, and its bounds must equal cm.BOUNDS. Validation only decides
+whether synthetic random-walk rounds are added as augmentation; the final models are fit on the
+training period and scored once on the test period.
 
-Baselines, fitted on the training part: the bucket prior, and the bucket of the previous hour's
-realized vol (smoothed one-hot and an empirical transition matrix).
+Baselines, fitted on the training period: the uniform forecast (log score ln 0.2), the empirical
+bucket frequencies, and the bucket of the previous hour's realized vol (smoothed one-hot and an
+empirical transition matrix).
 
-Usage: uv run python -m vol_agents.train --grid PATH [--params PATH] [--steps N]
+Usage: uv run python -m vol_agents.train [--grid PATH] [--params PATH] [--steps N]
 Writes models/<name>/model.onnx, meta.json and cal.json (EZKL calibration inputs), models/eval.json
 and the held-out fixture tests/fixtures/real_holdout.json; drops any pinned settings.json, which
 vol_agents.build recalibrates.
@@ -31,21 +34,22 @@ from onnx import TensorProto, helper, numpy_helper
 
 from . import contract_math as cm
 from . import dataset as ds
+from .api_agent import PLACEHOLDER_LEVELS, placeholder_quantiles, probs_from_quantiles
 
 ROOT = Path(__file__).resolve().parent.parent
 MODELS = ROOT / "models"
 HOLDOUT = ROOT / "tests" / "fixtures" / "real_holdout.json"
 DEFAULT_GRID = ROOT.parent / "analysis" / "data" / "tick_cumulative_grid.csv"
-DEFAULT_PARAMS = ROOT.parent / "analysis" / "data" / "vol_params.json"
+DEFAULT_PARAMS = ROOT.parent / "analysis" / "data" / "train" / "vol_params.json"
 L2 = 1e-6
 # Logits are clipped to [-LOGIT_CLIP, LOGIT_CLIP] in the model: the Softmax exp lookup then spans
 # at most 2 * LOGIT_CLIP at scale 2^12 for any input, which keeps every circuit at logrows 15.
 LOGIT_CLIP = 3.0
 LEAK = 0.05  # gradient through the clip when saturated, so saturated samples still train
-TEST_FRAC = 0.2
-VAL_FRAC = 0.2
+TRAIN_END = 1791417600  # 2026-10-08 00:00 UTC
+TEST_START = 1792022400  # 2026-10-15 00:00 UTC
 STRIDE_S = 60
-HOLDOUT_EVERY = 5  # the committed fixture keeps one test round every 5 * STRIDE_S
+HOLDOUT_STRIDE_S = 3600  # the committed fixture keeps one test round per hour
 SEED_SYNTH, SEED_MODEL, SEED_EDGE = 7, 100, 9
 
 
@@ -241,20 +245,37 @@ def fit(spec, real, synthetic, steps, seed):
     return train(spec, x, y, steps, seed)
 
 
-def evaluate(spec, p, s):
-    prob = softmax(forward(spec, p, inputs(s))[0])
-    return {"log_loss": round(log_loss(prob, labels(s)), 4),
-            "accuracy": round(accuracy(prob, labels(s)), 4)}
+def scores(prob, y):
+    """Mean log score (the contract's ln p_win, higher is better), accuracy, mean forecast."""
+    return {"log_score": round(-log_loss(prob, y), 4), "accuracy": round(accuracy(prob, y), 4),
+            "mean_probs": np.round(prob.mean(axis=0), 4).tolist()}
+
+
+def utc(t):
+    return np.datetime_as_string(np.datetime64(int(t), "s")) + "Z"
 
 
 def span(s):
-    return {"rounds": len(s), "t_open_first": int(s.t_open.min()),
-            "t_open_last": int(s.t_open.max())}
+    return {"rounds": len(s), "t_open_first": utc(s.t_open.min()),
+            "t_open_last": utc(s.t_open.max())}
 
 
-def split(samples, frac):
-    tr, te = ds.time_split(samples.t_open, frac, ds.leak_gap())
-    return samples.take(tr), samples.take(te)
+def shares(y):
+    return np.round(np.bincount(y, minlength=cm.BUCKETS) / len(y), 4).tolist()
+
+
+def placeholder_scale(s):
+    """Quantiles of next-hour RV over the trailing RV the commit-only placeholder reads
+    (api_agent.trailing_realized_vol, from the clamped features)."""
+    diffs = s.x_int[:, -(cm.N_SEGMENTS - 1):] // cm.MULT
+    trailing = np.maximum((diffs * diffs).sum(axis=1), 1)
+    return [round(float(np.quantile(s.rv / trailing, q)), 2) for q in PLACEHOLDER_LEVELS]
+
+
+def placeholder_probs(s):
+    """The commit-only agent's placeholder forecast (api_agent.PLACEHOLDER_SCALE)."""
+    out = [probs_from_quantiles(*placeholder_quantiles(x.tolist()), cm.BOUNDS) for x in s.x_int]
+    return np.array(out)
 
 
 def main():
@@ -262,66 +283,72 @@ def main():
     ap.add_argument("--grid", default=str(DEFAULT_GRID),
                     help="analysis' tick-cumulative grid CSV (vol_calibrate.py --export-grid)")
     ap.add_argument("--params", default=str(DEFAULT_PARAMS),
-                    help="analysis' vol_params.json; its bounds must equal cm.BOUNDS")
+                    help="analysis' vol_params.json written with --until TRAIN_END")
     ap.add_argument("--steps", type=int, default=3000)
     a = ap.parse_args()
     params = json.loads(Path(a.params).read_text())
     if tuple(params["bounds"]) != cm.BOUNDS:
         raise SystemExit(f"{a.params} bounds {params['bounds']} != contract_math.BOUNDS")
+    if params.get("until") != TRAIN_END:
+        raise SystemExit(f"{a.params} was not calibrated on the training period (--until "
+                         f"{TRAIN_END}), got until={params.get('until')}")
 
     samples = ds.build_samples(ds.load_grid(a.grid), stride=STRIDE_S)
-    trainval, test = split(samples, TEST_FRAC)
-    fit_part, val = split(trainval, VAL_FRAC)
-    n_syn = len(fit_part)
-    syn = synth(n_syn, np.random.default_rng(SEED_SYNTH))
+    tr_mask, val_mask, te_mask = ds.split_by_time(samples.t_open, [TRAIN_END, TEST_START])
+    trn, val, test = samples.take(tr_mask), samples.take(val_mask), samples.take(te_mask)
+    syn = synth(len(trn), np.random.default_rng(SEED_SYNTH))
 
     selection = {}
     for i, spec in enumerate(SPECS):
-        row = {}
-        for tag, extra in (("real", None), ("real+synthetic", syn)):
-            p = fit(spec, fit_part, extra, a.steps, SEED_MODEL + i)
-            row[tag] = evaluate(spec, p, val)["log_loss"]
-        selection[spec.name] = row
-    mean = {tag: np.mean([r[tag] for r in selection.values()]) for tag in ("real", "real+synthetic")}
-    augment = mean["real+synthetic"] < mean["real"]
-    print(f"validation log loss {selection}; synthetic augmentation {'on' if augment else 'off'}")
+        selection[spec.name] = {
+            tag: scores(softmax(forward(spec, fit(spec, trn, extra, a.steps, SEED_MODEL + i),
+                                        inputs(val))[0]), labels(val))["log_score"]
+            for tag, extra in (("real", None), ("real+synthetic", syn))}
+    tags = ("real", "real+synthetic")
+    mean = {tag: np.mean([r[tag] for r in selection.values()]) for tag in tags}
+    augment = bool(mean["real+synthetic"] > mean["real"])
+    print(f"validation log score {selection}; synthetic augmentation {'on' if augment else 'off'}")
 
-    y_tr, y_te = labels(trainval), labels(test)
-    base = Baselines(y_tr, lag_buckets(trainval))
-    baselines = {k: {"log_loss": round(log_loss(v, y_te), 4), "accuracy": round(accuracy(v, y_te), 4)}
-                 for k, v in base.predict(lag_buckets(test)).items()}
+    y_te = labels(test)
+    base = Baselines(labels(trn), lag_buckets(trn))
+    scale = placeholder_scale(trn)
+    forecasts = {"uniform": np.full((len(test), cm.BUCKETS), 1 / cm.BUCKETS),
+                 **{f"train_{k}": v for k, v in base.predict(lag_buckets(test)).items()},
+                 "commit_only_placeholder": placeholder_probs(test)}
+    baselines = {k: scores(v, y_te) for k, v in forecasts.items()}
     raw = np.abs(samples.raw_diff)
     report = {
         "grid": Path(a.grid).name,
         "bounds": list(cm.BOUNDS),
-        "bounds_source": {k: params[k] for k in ("method", "quantileLevels", "windows", "swapCount")},
-        "lead_s": ds.LEAD_S, "stride_s": STRIDE_S, "leak_gap_s": ds.leak_gap(),
-        "rounds": span(samples), "train": span(trainval), "test": span(test),
-        "validation": {"fit": span(fit_part), "val": span(val), "log_loss": selection,
-                       "synthetic_augmentation": bool(augment)},
-        "bucket_share": {"train": np.round(base.prior, 4).tolist(),
-                         "test": np.round(np.bincount(y_te, minlength=cm.BUCKETS) / len(y_te),
-                                          4).tolist()},
+        "bounds_source": {k: params.get(k) for k in ("method", "quantileLevels", "windows",
+                                                      "swapCount", "until")},
+        "lead_s": ds.LEAD_S, "stride_s": STRIDE_S,
+        "cuts": {"train_end": utc(TRAIN_END), "test_start": utc(TEST_START)},
+        "rounds": span(samples), "train": span(trn), "validation": span(val), "test": span(test),
+        "selection": {"validation_log_score": selection, "synthetic_augmentation": augment},
+        "bucket_share": {"train": shares(labels(trn)), "validation": shares(labels(val)),
+                         "test": shares(y_te)},
         "clamp": {"features_clamped_share": round(float((raw > cm.CLAMP).mean()), 5),
                   "rounds_with_a_clamped_feature_share": round(
                       float((raw > cm.CLAMP).any(axis=1).mean()), 5),
                   "abs_diff_p50_p99_max": [int(np.percentile(raw, 50)),
                                            int(np.percentile(raw, 99)), int(raw.max())]},
         "baseline_lag_onehot_eps": round(base.eps, 4),
+        "placeholder_scale": scale,
         "test_baselines": baselines,
         "models": {},
     }
 
-    syn_full = synth(len(trainval), np.random.default_rng(SEED_SYNTH)) if augment else None
+    syn_fit = syn if augment else None
     edge = np.random.default_rng(SEED_EDGE).uniform(-2, 2, (32, cm.N_FEATURES)).astype(np.float32)
-    # real rounds across the magnitude range of the training part, plus the full input range, so
+    # real rounds across the magnitude range of the training period, plus the full input range, so
     # the calibrated ranges cover any round
-    order = np.argsort(np.abs(trainval.raw_diff).sum(axis=1))
-    cal = np.concatenate([inputs(trainval)[order[np.linspace(0, len(order) - 1, 32).astype(int)]],
+    order = np.argsort(np.abs(trn.raw_diff).sum(axis=1))
+    cal = np.concatenate([inputs(trn)[order[np.linspace(0, len(order) - 1, 32).astype(int)]],
                           edge])
     for i, spec in enumerate(SPECS):
-        p = fit(spec, trainval, syn_full, a.steps, SEED_MODEL + i)
-        res = evaluate(spec, p, test)
+        p = fit(spec, trn, syn_fit, a.steps, SEED_MODEL + i)
+        res = scores(softmax(forward(spec, p, inputs(test))[0]), y_te)
         d = MODELS / spec.name
         d.mkdir(parents=True, exist_ok=True)
         onnx.save(to_onnx(spec, p), d / "model.onnx")
@@ -331,14 +358,13 @@ def main():
             "description": spec.description,
             "params": int(sum(v.size for v in p.values())),
             "bounds": list(cm.BOUNDS),
-            "test_log_loss": res["log_loss"],
+            "test_log_score": res["log_score"],
             "test_accuracy": res["accuracy"],
-            "test_baselines": baselines,
+            "test_period": report["test"],
             "logit_clip": LOGIT_CLIP,
             "onnx_sha256": hashlib.sha256((d / "model.onnx").read_bytes()).hexdigest(),
-            "train": {"rounds": len(trainval), "synthetic_rounds": 0 if syn_full is None
-                      else len(syn_full[1]), "test_rounds": len(test), "steps": a.steps,
-                      "l2": L2, "seed": SEED_MODEL + i},
+            "train": {"period": report["train"], "synthetic_rounds": 0 if syn_fit is None
+                      else len(syn_fit[1]), "steps": a.steps, "l2": L2, "seed": SEED_MODEL + i},
         }
         (d / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
         (d / "cal.json").write_text(json.dumps({"input_data": [cal.reshape(-1).tolist()]}))
@@ -346,21 +372,22 @@ def main():
         print(json.dumps(meta))
 
     (MODELS / "eval.json").write_text(json.dumps(report, indent=2) + "\n")
-    keep = np.arange(len(test)) % HOLDOUT_EVERY == 0
-    held = test.take(keep)
+    held = test.take((test.t_open - test.t_open.min()) % HOLDOUT_STRIDE_S == 0)
     HOLDOUT.parent.mkdir(parents=True, exist_ok=True)
     HOLDOUT.write_text(json.dumps({
-        "description": "every 5th held-out test round (contract features / MULT, bucket, "
-                       "previous-hour bucket) and the training-part baselines; written by "
+        "description": "one held-out test round per hour (contract features / MULT, bucket, "
+                       "previous-hour bucket) and the training-period baselines; written by "
                        "vol_agents.train",
         "bounds": list(cm.BOUNDS),
+        "test_period": report["test"],
         "prior": base.prior.tolist(),
         "lag_transition": base.transition.tolist(),
         "features": (held.x_int // cm.MULT).tolist(),
         "bucket": labels(held).tolist(),
         "lag_bucket": lag_buckets(held).tolist(),
     }, separators=(",", ":")) + "\n")
-    print(json.dumps({k: report[k] for k in ("rounds", "clamp", "test_baselines", "models")}))
+    print(json.dumps({k: report[k] for k in ("bucket_share", "clamp", "test_baselines",
+                                              "models")}, indent=1))
 
 
 if __name__ == "__main__":

@@ -2,14 +2,30 @@
   "name": "linear_abs",
   "description": "softmax(W |x| + b): linear in absolute feature values",
   "params": 85,
-  "test_log_loss": 0.8972,
-  "prior_log_loss": 1.5368,
-  "test_accuracy": 0.616,
+  "bounds": [
+    202,
+    474,
+    856,
+    1712
+  ],
+  "test_log_score": -1.4177,
+  "test_accuracy": 0.3504,
+  "test_period": {
+    "rounds": 10437,
+    "t_open_first": "2026-10-15T01:25:00Z",
+    "t_open_last": "2026-10-22T07:21:00Z"
+  },
   "logit_clip": 3.0,
-  "onnx_sha256": "e5ee7971b942c01fda07f88a0b63aec2c53c7e568dba3488fdf1c1173c03c863",
+  "onnx_sha256": "5771090f6d25506c39b7fe4586cfe0aca876316b2920bc2d811f112ba429dd84",
   "train": {
-    "samples": 40000,
+    "period": {
+      "rounds": 39910,
+      "t_open_first": "2026-09-10T05:45:00Z",
+      "t_open_last": "2026-10-07T22:54:00Z"
+    },
+    "synthetic_rounds": 0,
     "steps": 3000,
-    "l2": 0.001
+    "l2": 1e-06,
+    "seed": 100
   }
 }

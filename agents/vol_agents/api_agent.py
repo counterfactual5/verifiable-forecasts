@@ -31,7 +31,9 @@ QUANTILE_LEVELS = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
 # Every bucket keeps at least this probability: a zero would score the floor -18 if it happens.
 MIN_PROB = 1e-6
 PLACEHOLDER_LEVELS = (0.1, 0.5, 0.9)
-PLACEHOLDER_SCALE = (0.4, 1.0, 2.2)  # quantiles as multiples of the trailing realized vol
+# Quantiles as multiples of the trailing realized vol: p10/p50/p90 of next-hour RV over trailing RV
+# in the training period (models/eval.json "placeholder_scale", vol_agents.train).
+PLACEHOLDER_SCALE = (0.24, 0.94, 4.63)
 ROUND_SIG = "getRound(uint256)(uint64,bool,bool,uint256,uint256,uint256,uint256[5],uint256[])"
 
 

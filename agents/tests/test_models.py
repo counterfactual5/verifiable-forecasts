@@ -8,7 +8,6 @@ import pytest
 from vol_agents import contract_math as cm
 from vol_agents.build import VERIFIER_DIR, build, model_names, run_step, verifier_name
 from vol_agents.ezkl_step import OUT, ROOT, paths
-from vol_agents.train import synth
 
 MODELS = model_names()
 
@@ -19,15 +18,26 @@ def test_two_to_three_distinct_models():
     assert len(blobs) == len(MODELS)
 
 
+HOLDOUT = json.loads((ROOT / "tests" / "fixtures" / "real_holdout.json").read_text())
+
+
+def test_holdout_matches_the_current_bounds():
+    assert tuple(HOLDOUT["bounds"]) == cm.BOUNDS
+    assert len(HOLDOUT["bucket"]) >= 100
+
+
 @pytest.mark.parametrize("model", MODELS)
-def test_model_is_trained(model):
-    x, y, _, _ = synth(4000, np.random.default_rng(12345))
+def test_model_beats_baselines_on_real_test_rounds(model):
+    """Mean log score on held-out real rounds of the test period, which the bounds and the
+    weights never saw, against the uniform forecast and the training-period bucket frequencies."""
+    y = np.array(HOLDOUT["bucket"])
+    x = (np.array(HOLDOUT["features"]) * cm.MULT / cm.SCALE).astype(np.float32)
     sess = ort.InferenceSession(str(paths(model)["onnx"]))
     probs = np.concatenate([sess.run(None, {"x": row[None]})[0] for row in x])
-    freq = np.bincount(y, minlength=cm.BUCKETS) / len(y)
-    prior = -np.mean(np.log(np.maximum(freq[y], 1e-12)))
-    loss = -np.mean(np.log(np.maximum(probs[np.arange(len(y)), y], 1e-12)))
-    assert loss < prior - 0.3, (loss, prior)
+    score = np.mean(np.log(np.maximum(probs[np.arange(len(y)), y], 1e-12)))
+    prior = np.mean(np.log(np.array(HOLDOUT["prior"])[y]))
+    assert score > np.log(1 / cm.BUCKETS) + 0.1, score
+    assert score > prior + 0.1, (score, prior)
 
 
 @pytest.mark.parametrize("model", MODELS)

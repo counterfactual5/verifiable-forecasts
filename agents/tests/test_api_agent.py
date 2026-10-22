@@ -46,9 +46,9 @@ def server():
     srv.requests = []
     srv.replies = {
         "/probs": {"bucket_probs": [1, 1, 2, 4, 2]},
-        "/quantiles": {"quantiles": [{"level": 0.1, "value": 30.0},
-                                     {"level": 0.5, "value": 60.0},
-                                     {"level": 0.9, "value": 100.0}]},
+        "/quantiles": {"quantiles": [{"level": 0.1, "value": 600.0},
+                                     {"level": 0.5, "value": 1200.0},
+                                     {"level": 0.9, "value": 2000.0}]},
     }
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv
@@ -72,7 +72,7 @@ def test_quantize_sums_exactly_and_keeps_every_bucket():
 
 
 def test_quantiles_at_the_bounds_give_their_level_differences():
-    probs = api.probs_from_quantiles([0.1, 0.3, 0.5, 0.7, 0.9], [8, 20, 45, 110, 200], BOUNDS)
+    probs = api.probs_from_quantiles([0.1, 0.3, 0.5, 0.7, 0.9], [*BOUNDS, 2500], BOUNDS)
     assert probs == pytest.approx([0.1, 0.2, 0.2, 0.2, 0.3])
 
 
@@ -87,7 +87,7 @@ def test_quantile_interpolation_and_tails():
     assert cdf(-1) == 0.0
     probs = api.probs_from_quantiles([0.5, 0.9], [40, 100], BOUNDS)
     assert sum(probs) == pytest.approx(1.0)
-    assert probs[4] == pytest.approx(1 - cdf(110))
+    assert probs[4] == pytest.approx(1 - cdf(BOUNDS[-1]))
 
 
 def test_bad_responses_rejected():
@@ -144,7 +144,7 @@ def test_api_quantiles_response_and_custom_key_header(server):
     cfg = api.ApiConfig(url=_url(server, "/quantiles"), key=SECRET, key_header="X-Api-Key")
     resp = api.call_api(cfg, {"schema": api.REQUEST_SCHEMA})
     probs = api.probs_from_response(resp, BOUNDS)
-    want = api.probs_from_quantiles([0.1, 0.5, 0.9], [30.0, 60.0, 100.0], BOUNDS)
+    want = api.probs_from_quantiles([0.1, 0.5, 0.9], [600.0, 1200.0, 2000.0], BOUNDS)
     assert probs == pytest.approx(want)
     assert max(range(5), key=lambda i: probs[i]) == 3
     headers = server.requests[-1]["headers"]

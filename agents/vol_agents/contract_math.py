@@ -19,7 +19,9 @@ BUCKETS = 5
 SCALE = 4096
 CLAMP = 64
 MULT = 128
-BOUNDS = (8, 20, 45, 110)
+# tick^2: p20/p40/p60/p80 of the hourly realized vol in the training period (2026-09-10 .. 10-08,
+# analysis vol_calibrate.py --until); passed to createRound, never stored in the contract
+BOUNDS = (202, 474, 856, 1712)
 PROB_SCALE = 10**18  # VolMarket probabilities: 1e18 = 1
 MAX_OUTPUT = (2**256 - 1) // PROB_SCALE  # VolMarket.MAX_OUTPUT, below R / 2
 

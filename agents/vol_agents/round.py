@@ -21,12 +21,13 @@ from .build import build, model_names, verifier_name
 from .chain import DEV_KEYS, Anvil, address_of, as_int
 from .ezkl_step import OUT
 
-# Segment ticks: 17 history segments (tick increments of about +-2.3, RV regime near bucket 3) and
-# the 12 window segments of VolMarket.t.sol's _mixed() (RV 49, bucket 3).
-HISTORY_DIFFS = [2, -3, 1, 4, -2, 0, -3, 2, 1, -4, 3, -1, 2, -2, 0, 3]
+# Segment ticks: 17 history segments (tick increments of about +-12, a typical hour of the real
+# pool) and VolMarket.t.sol's _mixed() window path scaled by 5 (RV 49 * 25 = 1225, bucket 3 under
+# cm.BOUNDS).
+HISTORY_DIFFS = [10, -15, 5, 20, -10, 0, -15, 10, 5, -20, 15, -5, 10, -10, 0, 15]
 BASE_TICK = 196000
 WINDOW_TICKS = [
-    196000, 196002, 195999, 196003, 196003, 196002, 196000, 196001, 195999, 195999, 196002, 196001,
+    196000, 196010, 195995, 196015, 196015, 196010, 196000, 196005, 195995, 195995, 196010, 196005,
 ]
 COMPARE = OUT / "compare_round.json"
 # Commits close COMMIT_LEAD s and reveals REVEAL_LEAD s before the round start (T0 + 2 * DELTA);

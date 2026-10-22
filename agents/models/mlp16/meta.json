@@ -2,14 +2,30 @@
   "name": "mlp16",
   "description": "16->16 ReLU->5 softmax on signed features",
   "params": 357,
-  "test_log_loss": 0.9129,
-  "prior_log_loss": 1.5368,
-  "test_accuracy": 0.6107,
+  "bounds": [
+    202,
+    474,
+    856,
+    1712
+  ],
+  "test_log_score": -1.4233,
+  "test_accuracy": 0.342,
+  "test_period": {
+    "rounds": 10437,
+    "t_open_first": "2026-10-15T01:25:00Z",
+    "t_open_last": "2026-10-22T07:21:00Z"
+  },
   "logit_clip": 3.0,
-  "onnx_sha256": "7d31060d1d67759c9e1f840e932951ad69762ff96b9168b102df67ce25add4a6",
+  "onnx_sha256": "bb405dcd2efb2dfdffbd4d1c332717811b6d885de3bb4e64383255ef57e5a855",
   "train": {
-    "samples": 40000,
+    "period": {
+      "rounds": 39910,
+      "t_open_first": "2026-09-10T05:45:00Z",
+      "t_open_last": "2026-10-07T22:54:00Z"
+    },
+    "synthetic_rounds": 0,
     "steps": 3000,
-    "l2": 0.001
+    "l2": 1e-06,
+    "seed": 101
   }
 }

@@ -19,9 +19,13 @@ neither scored nor paid. Forecasts that score above the uniform baseline `ln 0.2
 
 ## Models
 
-Three structurally different models, trained with numpy on synthetic tick paths in the contract's
-units (17 history segments give the 16 features, the 12 window segments that follow give the
-realized-vol bucket under bounds `[8, 20, 45, 110]`):
+Three structurally different models, trained with numpy on real ETH/USDC 0.05% pool history
+(42 days of Swap logs, rebuilt into a 60 s tick-cumulative grid by `analysis/`). Every sample is a
+round in the contract's units: the 16 features `createRound` would compute at time T, and the
+realized-vol bucket of the hour that starts one segment later, under bounds `[202, 474, 856, 1712]`
+tick² (`contract_math.BOUNDS`, the p20/p40/p60/p80 of the training period's hourly RV). The split is
+chronological: train 2026-09-10 – 10-08, validation 10-08 – 10-15, test 10-15 – 10-22; the bounds
+and the weights see only the training period.
 
 | model | structure | params |
 |---|---|---|
@@ -34,13 +38,22 @@ three circuits stay at logrows 15. EZKL settings pin `input_scale = 12` (the con
 4096), public inputs/outputs and fixed params. `models/<name>/` holds `model.onnx`, `meta.json`,
 `cal.json` and the pinned calibrated `settings.json`.
 
-Training details, synthetic-data results, limits and a judges' Q&A: [`MODEL_CARD.md`](MODEL_CARD.md).
+Test-period mean log score (higher is better): `linear_abs` −1.418, `mlp16` −1.423, `mlp32_abs`
+−1.469, against uniform −1.609 and the training-period bucket frequencies −1.606
+(`models/eval.json`). Training details, baselines, limits and a judges' Q&A:
+[`MODEL_CARD.md`](MODEL_CARD.md).
 
 ## Usage
 
 ```bash
 uv sync
-uv run python -m vol_agents.train     # retrain -> models/<name>/ (deterministic)
+# retrain -> models/<name>/, models/eval.json, tests/fixtures/real_holdout.json (deterministic);
+# needs analysis/data/tick_cumulative_grid.csv and analysis/data/train/vol_params.json:
+#   cd ../analysis && uv run python src/vol_calibrate.py --swaps data/swaps_6w.csv \
+#     --until 1791417600 --out data/train/vol_params.json
+#   cd ../analysis && uv run python src/vol_calibrate.py --swaps data/swaps_6w.csv \
+#     --export-grid data/tick_cumulative_grid.csv
+uv run python -m vol_agents.train
 uv run python -m vol_agents.build     # EZKL build (cached in out/<name>/), verifiers -> contracts/src/verifier/
                                       #   [--srs PATH] [--force], see "EZKL SRS" below
 uv run python -m vol_agents.round     # anvil round: deploy, 3 agents prove, commit, reveal, settle
@@ -75,7 +88,7 @@ to `out/<name>/timing.jsonl`.
 
 | variable | meaning |
 |---|---|
-| `VOL_TSFM_API_URL` | POST endpoint. Unset: the agent uses a deterministic placeholder forecast (quantiles at 0.4×, 1×, 2.2× the trailing realized vol for levels 0.1/0.5/0.9) and reports `forecast_source = "placeholder"` |
+| `VOL_TSFM_API_URL` | POST endpoint. Unset: the agent uses a deterministic placeholder forecast (quantiles at 0.24×, 0.94×, 4.63× the trailing realized vol for levels 0.1/0.5/0.9, the training period's ratios of next-hour to trailing RV) and reports `forecast_source = "placeholder"` |
 | `VOL_TSFM_API_KEY` | optional; sent as `Authorization: Bearer <key>` |
 | `VOL_TSFM_API_KEY_HEADER` | optional; send the key raw under this header instead (e.g. `X-API-Key`) |
 | `VOL_TSFM_TIMEOUT_S` | request timeout, default 30 |
@@ -89,7 +102,7 @@ Error messages never contain the key or the response body. Tests use a local moc
   "schema": "vol-forecast-request/v1",
   "target": "realized_vol_tick2",
   "round": {"market": "0x…", "id": 0, "start": 1792663437, "delta_s": 300, "n_segments": 12},
-  "bounds_tick2": [8, 20, 45, 110],
+  "bounds_tick2": [202, 474, 856, 1712],
   "history": {
     "step_s": 300,
     "segment_mean_tick_diffs": [-12, -4, 0, 4, 17, 2, 9, -14, 13, 10, -6, 5, 4, -15, -7, -8],
@@ -115,7 +128,7 @@ the last 17 segment-mean ticks relative to the oldest. The target is the next wi
 five non-negative numbers with a positive sum (normalized by the agent), or
 
 ```json
-{"quantiles": [{"level": 0.1, "value": 12.0}, {"level": 0.5, "value": 40.0}, {"level": 0.9, "value": 130.0}]}
+{"quantiles": [{"level": 0.1, "value": 300.0}, {"level": 0.5, "value": 800.0}, {"level": 0.9, "value": 2200.0}]}
 ```
 
 at least two quantiles of RV in tick², levels strictly increasing in (0, 1), values non-decreasing.
@@ -130,7 +143,8 @@ are then floored at 1e-6 (a zero bucket would score the −18 floor if it wins) 
 | module | role |
 |---|---|
 | `vol_agents/contract_math.py` | off-chain mirror of the contract's features, field encoding and RV |
-| `vol_agents/train.py` | synthetic data, numpy training, ONNX export |
+| `vol_agents/dataset.py` | real samples from the tick-cumulative grid (contract features and RV), chronological split |
+| `vol_agents/train.py` | numpy training, baselines, ONNX export, `models/eval.json` |
 | `vol_agents/ezkl_step.py` | one EZKL step per process |
 | `vol_agents/build.py` | idempotent per-model build and verifier install |
 | `vol_agents/chain.py` | anvil / forge / cast subprocess wrappers |

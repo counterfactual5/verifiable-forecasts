@@ -2,14 +2,30 @@
   "name": "mlp32_abs",
   "description": "|x| -> 32 ReLU -> 5 softmax",
   "params": 709,
-  "test_log_loss": 0.8712,
-  "prior_log_loss": 1.5368,
-  "test_accuracy": 0.6228,
+  "bounds": [
+    202,
+    474,
+    856,
+    1712
+  ],
+  "test_log_score": -1.4692,
+  "test_accuracy": 0.3244,
+  "test_period": {
+    "rounds": 10437,
+    "t_open_first": "2026-10-15T01:25:00Z",
+    "t_open_last": "2026-10-22T07:21:00Z"
+  },
   "logit_clip": 3.0,
-  "onnx_sha256": "686e5c3c501b95ad4fa8d2b66fdfef23dec8333997aa5d5aeb2394d18db0d952",
+  "onnx_sha256": "e9b2d11cbb604f65cded932b60a11ace636fd9f2b9b52bea9b75eee913f54dd3",
   "train": {
-    "samples": 40000,
+    "period": {
+      "rounds": 39910,
+      "t_open_first": "2026-09-10T05:45:00Z",
+      "t_open_last": "2026-10-07T22:54:00Z"
+    },
+    "synthetic_rounds": 0,
     "steps": 3000,
-    "l2": 0.001
+    "l2": 1e-06,
+    "seed": 102
   }
 }

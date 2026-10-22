@@ -98,8 +98,8 @@ def test_agent_proves_and_submits(submitted):
 def test_agents_compare_after_round(settled):
     d, rid, res = settled
     assert res["settled"] and not res["voided"]
-    assert res["realized_vol"] == cm.realized_vol(WINDOW_TICKS) == 49
-    assert res["winning_bucket"] == 3
+    assert res["realized_vol"] == cm.realized_vol(WINDOW_TICKS) == 1225
+    assert res["winning_bucket"] == cm.bucket_of(1225) == 3
 
     saved = json.loads(COMPARE.read_text())
     rows = saved["agents"]

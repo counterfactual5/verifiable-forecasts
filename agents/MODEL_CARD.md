@@ -3,8 +3,9 @@
 本文写给路演和评委问答用。所有数字取自代码和已提交的产物（`agents/models/*/meta.json`、`settings.json`），
 或取自本机实测记录；出处写在每处后面。没有出处、无法从仓库核实的说法标 `[待证据]`。
 
-> **一句话限定**：三个模型都只在**合成数据**上训练和评估，用的是**占位分桶边界**。下文所有准确率、log loss
-> 都不代表真实市场表现。
+> **一句话限定**：三个模型在 ETH/USDC 0.05% 池**真实 Swap 历史**（2026-09-10 至 10-22，约 42 天）上
+> 按时间切分训练、选择和评估；分桶边界只用训练期校准。测试期只有 7 天、一个行情阶段，下文的测试期分数
+> 只说明「在这一周跑赢了简单基线」，不是长期表现的保证。
 
 ## 1. 概述
 
@@ -17,11 +18,12 @@
 
 - 电路规模：三个电路都固定在 `logrows = 15`（最多 2^15 = 32,768 行），实际用 779 / 1,323 / 2,083 行
   （各模型 `settings.json` 的 `num_rows`）。`logrows` 越大，证明越慢、内存越大，SRS 文件也越大。
-- 证明耗时（本机实测，Apple M5 16 GB，`agents/out/<model>/timing.jsonl`，git 忽略）：每次 `prove`
-  3.7–10.6 s，峰值内存约 0.70–1.19 GB；`setup` 约 1.6 s / 0.72 GB。
-- 链上验证成本：同配置的 spike 模型（16→32→5 MLP + Softmax，fixed 参数，logrows 15）验证合约运行时
-  19,656 B（低于 EIP-170 的 24,576 B），验证交易约 794,589 gas（`spikes/ezkl/README.md`）。
-  三个正式模型各自验证交易的 gas 没有单独记录 `[待证据]`。
+- 证明耗时（本机实测，Apple M5 16 GB，`agents/out/<model>/timing.jsonl`，git 忽略；2026-10-22 重训后
+  `pytest tests/` 并发运行时）：每次 `prove` 7.3–17.8 s，峰值内存约 0.87–0.99 GB；`setup` 约 4 s /
+  0.56–0.63 GB。fork 多小时回放里每次证明的耗时见 `docs/DEMO.md`。
+- 链上验证成本（2026-10-22 重训后实测）：三个验证合约运行时 21,829–21,830 B（低于 EIP-170 的
+  24,576 B，`forge build --sizes`）；证明 5,664 B；单独调用 `verifyProof` 约 848,8xx gas
+  （`cast estimate`，含 21k 基础费：linear_abs 848,960、mlp16 848,816、mlp32_abs 848,972）。
 
 ## 2. 输入特征（16 个）
 
@@ -38,7 +40,7 @@
 6. 模型输入：`x_j = x_int_j / 4096`（`SCALE = 4096 = 2^12`，对应 EZKL `input_scale = 12`），
    即 `x = f / 32`，取值范围 [−2, 2]。
 
-**为什么模型无法用别的输入造假**：证明的公共输入（public inputs）由合约自己拼。`submitPrediction` 里
+**为什么模型无法用别的输入造假**：证明的公共输入（public inputs）由合约自己拼。`revealPrediction` 里
 `_instances(r.features, outputs)`（约 316–329 行）把存下的 16 个特征按域编码（负数编码为 `R − |x|`，
 R 为 BN254 标量域模数 `FIELD_R`），再接上提交的 5 个输出，共 21 个 instance，交给验证合约。agent
 只能提交证明和输出，不能提交特征；用别的输入生成的证明会被拒绝（测试
@@ -48,11 +50,13 @@ R 为 BN254 标量域模数 `FIELD_R`），再接上提交的 5 个输出，共 
 ## 3. 输出与打分
 
 - **5 个桶，4 个边界**（tick²）：`bucketOf` 半开区间（`contracts/src/lib/MarketMath.sol` 10–13 行）：
-  桶 0：RV < b0；桶 i：b_{i−1} ≤ RV < b_i；桶 4：RV ≥ b3。当前训练用的边界是占位值 `[8, 20, 45, 110]`
-  （`contract_math.py` 的 `BOUNDS`）。边界是 `createRound` 的参数，不写死在合约里。
+  桶 0：RV < b0；桶 i：b_{i−1} ≤ RV < b_i；桶 4：RV ≥ b3。当前边界是 `[202, 474, 856, 1712]` tick²
+  （`contract_math.py` 的 `BOUNDS`）：训练期（2026-09-10 04:19 至 10-08 00:00 UTC）8,000 个 1 小时窗口
+  RV 的 p20/p40/p60/p80（nearest rank，`analysis/src/vol_calibrate.py --until 1791417600`）。
+  边界是 `createRound` 的参数，不写死在合约里。
 - **RV 口径**（`_realizedVol`，约 552–575 行）：结算窗口 13 个检查点 → 12 个段均 tick → 11 个相邻差，
   `RV = Σ(差)²`，整数，单位 tick²；缺点时按项数 m 归一 `floor(Σ × 11 / m)`，可读点不足 90% 则作废退款。
-- **概率归一到 1e18**（`submitPrediction`，约 292–308 行）：电路输出 5 个域元素，每个须 `< R/2`、
+- **概率归一到 1e18**（`revealPrediction`，约 292–308 行）：电路输出 5 个域元素，每个须 `< R/2`、
   总和 > 0；`probs[i] = out[i] × 1e18 / Σout`（前 4 个向下取整），余数全部补给最后一个桶，
   所以概率和恰为 1e18。
 - **对数评分（log score）**（`_score`，约 436–447 行）：结算后每个预测得分
@@ -70,9 +74,9 @@ R 为 BN254 标量域模数 `FIELD_R`），再接上提交的 5 个输出，共 
 
 | 模型 | 结构（`train.py` 43–46 行） | 参数量 | 电路行数 | ONNX sha256 前 12 位 |
 |---|---|---:|---:|---|
-| `linear_abs` | `abs(x)` → 线性 16→5 → Clip(±3) → Softmax | 85 | 779 | `e5ee7971b942` |
-| `mlp16` | 有符号 `x` → 16 ReLU → 5 → Clip(±3) → Softmax | 357 | 1,323 | `7d31060d1d67` |
-| `mlp32_abs` | `abs(x)` → 32 ReLU → 5 → Clip(±3) → Softmax | 709 | 2,083 | `686e5c3c501b` |
+| `linear_abs` | `abs(x)` → 线性 16→5 → Clip(±3) → Softmax | 85 | 779 | `5771090f6d25` |
+| `mlp16` | 有符号 `x` → 16 ReLU → 5 → Clip(±3) → Softmax | 357 | 1,323 | `bb405dcd2efb` |
+| `mlp32_abs` | `abs(x)` → 32 ReLU → 5 → Clip(±3) → Softmax | 709 | 2,083 | `e9b2d11cbb60` |
 
 参数量来自 `meta.json` 的 `params`（85 = 5×16+5；357 = 16×16+16+5×16+5；709 = 32×16+32+5×32+5）。
 `_abs` 版本先取绝对值：桶只取决于波动大小，不取决于涨跌方向（`train.py` 36 行注释）。
@@ -82,53 +86,72 @@ R 为 BN254 标量域模数 `FIELD_R`），再接上提交的 5 个输出，共 
 
 | 项 | 值 | 位置 |
 |---|---|---|
-| 优化器 | Adam，β1 = 0.9，β2 = 0.999，ε = 1e-8 | 125、133 行 |
-| 学习率 | 0.05，指数衰减 `0.05 × 0.1^(t/steps)`，最后降到 0.005 | 125、129 行 |
-| 步数 | 3,000 | 177 行，`meta.json` |
-| batch | 每步从训练集有放回抽 2,048 条 | 127 行 |
-| L2 | `L2 = 1e-3`，只作用于权重 W，实际系数再除以 1000（等效 1e-6） | 27、113–116 行 |
-| logit clip | ±3（`LOGIT_CLIP = 3.0`） | 28–30 行 |
-| LEAK | 0.05：clip 饱和时梯度乘 0.05，饱和样本仍能训练 | 31、100 行 |
-| 初始化 | 第一层 W ~ N(0, 8)（输入是 tick/32），b1 ~ N(0, 0.1)，W2 ~ N(0, 1/√H) | 63–72 行 |
-| 随机种子 | 训练数据 7，测试数据 8，模型初始化 100 / 101 / 102，校准边缘样本 9 | 179–185、209 行 |
+| 优化器 | Adam，β1 = 0.9，β2 = 0.999，ε = 1e-8 | `train()` |
+| 学习率 | 0.05，指数衰减 `0.05 × 0.1^(t/steps)`，最后降到 0.005 | `train()` |
+| 步数 | 3,000 | `--steps`，`meta.json` |
+| batch | 每步从训练集有放回抽 2,048 条 | `train()` |
+| L2 | `L2 = 1e-6`，只作用于权重 W | `loss_grad()` |
+| logit clip | ±3（`LOGIT_CLIP = 3.0`） | 模块常量 |
+| LEAK | 0.05：clip 饱和时梯度乘 0.05，饱和样本仍能训练 | 模块常量 |
+| 初始化 | 第一层 W ~ N(0, 1/(rms(x)·√16))，b1 ~ N(0, 0.1)，W2 ~ N(0, 1/√H) | `init_params()` |
+| 随机种子 | 合成增强 7（仅用于验证期选择），模型初始化 100 / 101 / 102，校准边缘样本 9 | `SEED_*` |
 
 **logit clip ±3 的原因**：电路里的 Softmax 用 exp 查找表（lookup，`settings.json` 的
 `required_lookups: Exp, scale 4096`）。把 logit 限制在 [−3, 3]，任意输入下 exp 的自变量跨度最多 6，
 查找表范围有界，三个电路因此都能放在 `logrows 15`（`train.py` 28–29 行注释，
 `settings.json` 的 `lookup_range = [-49152, 0]`）。代价是模型最高只能给出约 99.0% 的置信度。
 
-## 5. 训练数据：合成随机游走
+## 5. 训练数据：真实池子历史
 
-数据由 `train.py` 的 `synth()`（49–59 行）生成，**不是真实池子数据**：
+- **来源**：`analysis/src/fetch_swaps.py` 从主网拉取的 ETH/USDC 0.05% 池全部 Swap 事件，区块
+  25,944,554–26,246,949（2026-09-10 04:19 – 10-22 08:26 UTC），299,046 笔，2,000 区块一段、无失败段
+  （`analysis/data/swaps_6w.csv`，git 忽略）。`vol_calibrate.py --export-grid` 把它重建成每 60 s 一个
+  `tickCumulative` 的网格（与池子 oracle 只差一个常数，差分时抵消）。
+- **样本**（`vol_agents/dataset.py`）：每个网格时刻 T 当作一次 `createRound`：特征是合约在 T 从 18 个
+  `tickCumulative` 算出的 16 个整数（同一个 `features_from_cumulatives`，含 floorDiv、CLAMP、MULT）；
+  标签是 `startTime = T + 300 s` 起 1 小时的 RV（同一个 `realized_vol_from_cumulatives`）按 `BOUNDS`
+  落的桶。开轮提前一个段（300 s）与 fork 演示一致，特征的段与上一轮窗口的段对齐。样本每 60 s 一个，
+  相邻样本重叠。
+- **按时间切分**（`split_by_time`，不打乱）：训练期 T 的读取区间 `[T − 17Δ, T + Δ + 12Δ]` 全部早于
+  2026-10-08 00:00 UTC，验证期全部落在 10-08 00:00 – 10-15 00:00，测试期全部晚于 10-15 00:00；跨切点的
+  样本直接丢掉，所以三段之间没有任何一秒数据被共用。样本数：训练 39,910、验证 9,930、测试 10,437。
+- **边界只用训练期**：`vol_calibrate.py --until 1791417600` 只读 10-08 00:00 之前的 Swap；`train.py` 检查
+  `vol_params.json` 的 `until` 与 `bounds` 和代码一致才开始训练。之前的 7 天值 `[342, 620, 1124, 2052]`
+  和 6 周全量值 `[213, 487, 885, 1734]`（含测试期，有泄漏）都没有用。
+- **特征量级**：真实 5 分钟段均差的绝对值中位数 4 tick、p99 43 tick、最大 218 tick；CLAMP（±64）只截了
+  0.33% 的特征、3.6% 的样本至少有一个特征被截，所以缩放常数（CLAMP 64、MULT 128、scale 4096）不需要改，
+  合约与电路口径不变。
+- **合成增强**：保留 `synth()`（随机游走，σ 在 2–40 tick 对数均匀），只在验证期平均 log score 更好时
+  加入训练；本次验证期不加更好（−1.356 vs −1.361），所以最终模型**只用真实数据**。
 
-- 每条样本先抽一个波动率 σ（单位 tick）：`σ = exp(Uniform(ln 0.25, ln 6))`，即在 0.25–6 之间对数均匀。
-- 窗口波动率在 σ 上加扰动：`σ_w = σ × exp(N(0, 0.3²))`，模拟"过去不完全决定未来"。
-- 16 个历史特征 `f_j = round(N(0,1) × σ)`，独立同分布；经 CLAMP、MULT、/4096 得到模型输入，
-  与合约公式一致（测试 `agents/tests/test_contract_math.py::test_synthetic_features_use_contract_formula`）。
-- 窗口 11 个相邻差 `round(N(0,1) × σ_w)`，`RV = Σ 差²`，按占位边界 `[8, 20, 45, 110]` 得标签。
-- 训练集 40,000 条，测试集 10,000 条（独立种子），`meta.json` 的 `train.samples`。
+## 6. 评估结果（测试期 2026-10-15 – 10-22，真实数据）
 
-用同样的种子重跑数据生成器（不训练）可得：训练集桶分布约 `[37.1%, 15.7%, 13.5%, 14.1%, 19.7%]`；
-合成 RV 的 p20 / p50 / p80 / p95 约为 3 / 16 / 107 / 360 tick²；CLAMP 在合成数据里从未触发
-（σ 最大 6 tick，远小于 64）。
+指标是平均 log score `mean ln p_win`（与链上 `logScore / 1e18` 同一个量，越接近 0 越好），全部样本
+10,437 个（每 60 s 一个，重叠），出自 `models/eval.json`：
 
-## 6. 评估结果（仅合成数据）
-
-测试集是独立种子生成的 10,000 条合成样本（`meta.json`）：
-
-| 模型 | test log loss | test accuracy |
+| 预测 | 平均 log score | 命中最大概率桶 |
 |---|---:|---:|
-| 先验基准（按训练集桶频率给固定分布） | 1.5368 | — |
-| `linear_abs` | 0.8972 | 61.6% |
-| `mlp16` | 0.9129 | 61.1% |
-| `mlp32_abs` | **0.8712** | **62.3%** |
+| 均匀分布（每桶 0.2，ln 0.2） | −1.6094 | — |
+| 训练期经验频率 `[0.195, 0.199, 0.194, 0.201, 0.211]` | −1.6060 | 23.5% |
+| 上一小时 RV 所在桶（平滑 one-hot，训练期拟合） | −1.5415 | 35.9% |
+| 上一小时桶 → 下一小时桶转移矩阵（训练期拟合） | −1.4522 | 34.5% |
+| 仅承诺 agent 的占位预测（尾随 RV × 0.24 / 0.94 / 4.63 分位） | −1.6619 | 30.8% |
+| `linear_abs` | **−1.4177** | 35.0% |
+| `mlp16` | −1.4233 | 34.2% |
+| `mlp32_abs` | −1.4692 | 32.4% |
 
-**这些数字仅在合成数据上得到，不代表真实市场表现。** 合成数据由已知 σ 生成，特征和标签之间的关系
-比真实市场干净得多。真实数据上的 log loss 和准确率 `[待证据]`。
+- 三个模型都跑赢了两个要求的基线（均匀、训练期频率），差距约 0.14–0.19 nat。
+- 更强的「上一小时转移矩阵」基线只被 `linear_abs`、`mlp16` 跑赢（约 0.03 nat），`mlp32_abs` 输给它。
+  也就是说模型学到的主要是「波动聚集」，比直接查上一小时的桶只好一点。
+- 占位预测（无 TSFM API 时仅承诺 agent 用的）在测试期**输给均匀分布**，只是占位，不代表任何 TSFM 模型。
+- 落档分布有漂移：测试期实际桶分布 `[9.0%, 23.1%, 22.1%, 22.4%, 23.5%]`（训练期各约 20%，验证期
+  `[26.8%, 15.9%, 16.2%, 21.3%, 19.8%]`）。测试周低波动小时少，桶 0 只有 9%。
+- 验证期（只用于选择是否加合成增强）：`linear_abs` −1.333、`mlp16` −1.357、`mlp32_abs` −1.377。
+- 单测 `test_model_beats_baselines_on_real_test_rounds` 用提交的测试期抽样
+  `tests/fixtures/real_holdout.json`（每小时一轮，174 轮）要求每个模型比均匀和训练期频率至少高 0.1 nat；
+  旧的占位边界模型在同一抽样上只有 −3.31，会失败。
 
-本地 anvil 一轮端到端演示（`vol_agents.round`，固定 tick 序列，RV = 49，落入桶 3）的链上 log score：
-`mlp32_abs` −0.880、`mlp16` −1.021、`linear_abs` −1.064（`agents/out/compare_round.json`，git 忽略）。
-这是单轮演示，不是评估。
+主网 fork 上连续 24 小时的逐轮链上成绩见 `docs/DEMO.md`；那是 24 个样本，波动大，只作演示，不作评估。
 
 ## 7. 从训练到上链的流水线
 
@@ -138,7 +161,7 @@ train.py ──► models/<name>/model.onnx (+ meta.json, cal.json)
                ▼
 build.py / ezkl_step.py（每步独立子进程，记录耗时与峰值内存）
   settings   input_scale = param_scale = 12，logrows 15，输入/输出 public，参数 fixed
-  calibrate  用 cal.json（32 条合成测试样本 + 32 条 [-2,2] 均匀边缘样本）校准；
+  calibrate  用 cal.json（32 条按幅度均匀抽取的真实训练期样本 + 32 条 [-2,2] 均匀边缘样本）校准；
              若校准改动了 input_scale 或 logrows > 15 就中止
              → 校准后的 settings 钉在 models/<name>/settings.json（onnx_sha256 不变时复用）
   compile    → out/<name>/model.compiled
@@ -148,13 +171,13 @@ build.py / ezkl_step.py（每步独立子进程，记录耗时与峰值内存）
 链上：owner 调 registerModel(verifier, operator) 得 modelId
                ▼
 每轮：agent 读 getFeatures → witness（核对公共输入 = 合约编码）→ prove
-      → submitPrediction(roundId, modelId, proof, outputs[5])，合约验证通过才记录
+      → commitPrediction(hash) → 承诺截止后 revealPrediction(proof, outputs[5], salt)，合约验证通过才记录
                ▼
 结算：settle 读 observe() 算 RV、定赢桶、给每个预测打 log score、写 ERC-8004 信誉
 ```
 
 依据：`build.py` 1–15、35–37、76–105 行；`ezkl_step.py` 54–79 行；`agent.py` 33–66 行；
-`VolMarket.sol` `registerModel`（168–175 行）、`submitPrediction`（280–314 行）、`settle`（360–386 行）。
+`VolMarket.sol` `registerModel`、`commitPrediction`、`revealPrediction`、`settle`。
 
 EZKL 的 settings 里 range check 顺序来自哈希表，两次校准可能得到不同电路，所以校准结果被钉住；
 固定 settings 后 compile → setup → evm 可逐字节复现已提交的验证合约（`build.py` 5–8 行，
@@ -174,33 +197,32 @@ uv run python -m vol_agents.round     # 本地 anvil：部署、3 个 agent 证�
 
 **局限**
 
-- **合成数据**：独立同分布高斯增量，σ 在 0.25–6 tick；真实市场的厚尾、聚集、跳变都没有。
-- **占位边界**：`[8, 20, 45, 110]` 是为合成数据设的。本机 analysis 用 40,383 笔真实 Swap、2,010 个窗口
-  校准出的 p20/p40/p60/p80 是 `[342, 620, 1124, 2052]` tick²、RV 均值 1,886（`analysis/data/vol_params.json`，
-  git 忽略）。真实 RV 的 p20（342）已高于占位上界 110，所以按占位边界大约 80% 以上的真实窗口会落在
-  桶 4，模型面对的是训练分布之外的输入。
+- **评估期短**：测试期只有 7 天（约 168 个不重叠小时），一个行情阶段；60 s 步长的重叠样本让数字看起来
+  更稳，实际有效样本远少于 10,437。
+- **分布漂移**：边界按训练期定，测试期桶分布已经偏离 20/20/20/20/20（桶 0 只有 9%）；行情换挡时
+  边界需要重新校准、模型需要重训，旧 modelId 的验证合约不能改权重。
+- **离强基线不远**：只比「上一小时转移矩阵」好约 0.03 nat，`mlp32_abs` 还更差。
+- **数据完整性**：网格来自 Swap 日志重建；网关截断日志会让个别窗口与 oracle 不一致（`vol_calibrate.py`
+  的 Known deviation）。fork 回放用的目标值直接取自主网 `observe()`，不受这一点影响。
 - **单池、单窗口**：只覆盖 ETH/USDC 0.05% 池、Δ = 300 s × 12 段。
-- **模型很小**：受电路规模和证明成本约束；合成数据没有建模 `createRound` 与 `startTime` 之间的间隔，
-  也没有建模历史与窗口之间的连续性。
+- **模型很小**：受电路规模和证明成本约束，只看过去 85 分钟的 16 个差分。
 
 **下一步**
 
-1. 用 `analysis/` 管线（`fetch_swaps.py` → `vol_calibrate.py`）拉更长的真实 Swap 历史，按 p20/40/60/80 定边界。
-2. 用真实 tickCumulative 构造特征和标签，**按时间切分**训练/测试，避免未来信息泄漏。
-3. 对照两个基准：先验分布（固定桶频率）和"上一窗口波动率"（用上一小时 RV 所在桶附近的分布）。
-4. 重训后 `vol_agents.build --force` 重新生成验证合约、重新 `registerModel`。旧 modelId 不会被覆盖。
+1. 滚动重训：每周用新的训练期重算边界、重训、`build --force` 重建验证合约并重新 `registerModel`。
+2. 更长的测试期与按月分段的稳定性评估。
+3. 特征里加入更长的历史（受 `FEATURES = 16` 和电路规模约束，需要改合约口径）。
 
 ## 9. 评委问答（Q&A）
 
-**Q1：为什么用合成数据？**
-黑客松时间内先打通"合约自算输入 → zk 证明推理 → 链上验证 → log score 结算 → ERC-8004 信誉"的整条链路。
-合成数据在合约单位下生成（`train.py` 1–6 行），特征公式和合约完全一致，方便验证管线正确。真实数据
-训练是下一步，analysis 的真实边界已经算出来了（第 8 节）。
+**Q1：训练数据是真实的吗？**
+是。最早为打通链路用合成随机游走训练；现在用主网 ETH/USDC 0.05% 池 42 天的全部 Swap 重建的 tick 历史，
+按合约同一口径构造特征与标签，按时间切成训练 / 验证 / 测试，边界只用训练期（第 5 节）。
 
 **Q2：模型这么小有什么用？**
-本项目的卖点是"预测可验证、可问责"，不是模型本身多强。小模型能在约 4–11 s 内出证明、在 logrows 15
-电路里放下，链上验证一次约 79 万 gas（spike 实测）。在合成测试集上 log loss 从先验的 1.54 降到 0.87–0.91，
-说明它确实从特征里学到了东西（测试 `test_model_is_trained` 要求至少比先验低 0.3）。
+本项目的卖点是"预测可验证、可问责"，不是模型本身多强。小模型能在约 7–18 s 内出证明、在 logrows 15
+电路里放下，链上单独验证一次约 85 万 gas。在真实测试期上平均 log score 从均匀分布的 −1.609 提高到
+−1.418 至 −1.469（第 6 节），但只比「上一小时转移矩阵」基线略好。
 
 **Q3：zk 证明到底证明了什么？没证明什么？**
 证明了：对**这一轮合约算出的 16 个特征**，用**已登记验证合约里固定的那组权重**跑推理，得到的就是提交的
@@ -210,7 +232,7 @@ uv run python -m vol_agents.round     # 本地 anvil：部署、3 个 agent 证�
 
 **Q4：怎么防止抄别人的证明？**
 证明本身不绑定发送者，所以合约给每个 modelId 绑定唯一的 operator（`registerModel(verifier, operator)`），
-`submitPrediction` 要求 `msg.sender == modelOperator[modelId]`，否则 `NotModelOperator`
+`commitPrediction` 要求 `msg.sender == modelOperator[modelId]`，否则 `NotModelOperator`
 （`VolMarket.sol` 165–175、287 行；测试 `test_CopiedProofFromOtherSenderRejected`）。
 
 **Q5：怎么防止模型事后换权重？**
@@ -241,13 +263,12 @@ proper relative to the class L¹ of the probability measures dominated by µ”�
 （`test_round.py` 62 行）。实际最大误差的系统性统计 `[待证据]`。
 
 **Q10：证明要多久、多贵？**
-本机（Apple M5 16 GB）每次证明 3.7–10.6 s、峰值 0.70–1.19 GB 内存；proving key 约 364 MiB，
-verifying key 96,391 B（`agents/out/<model>/`）。同配置 spike 的链上验证交易约 794,589 gas。
-三个正式验证合约的确切 gas `[待证据]`。
+本机（Apple M5 16 GB）每次证明 7.3–17.8 s、峰值 0.87–0.99 GB 内存；proving key 约 364 MiB
+（`agents/out/<model>/`）。三个验证合约单独调用 `verifyProof` 约 848,8xx gas（含 21k 基础费）。
 
 **Q11：模型在真实市场上表现如何？**
-`[待证据]`。目前没有真实数据上的评估。主网分叉演示只跑了一轮，而且仍用占位边界，不能当作评估。
-如实说：真实表现要等第 8 节的重训和按时间切分的回测。
+按时间切分的 7 天测试期上跑赢均匀分布和训练期频率约 0.14–0.19 nat，只比上一小时转移矩阵基线略好
+（第 6 节）。主网 fork 连续 24 小时回放给出 24 轮链上成绩（`docs/DEMO.md`），样本太少，不当作评估。
 
 **Q12：可信设置（trusted setup）安全吗？**
 用的是 KZG SRS（logrows 15），构建时强制校验 sha256，不符就拒绝（`build.py` 33–35、76–79 行）。
