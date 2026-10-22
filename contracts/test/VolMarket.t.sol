@@ -41,6 +41,30 @@ contract GasHungryAggregator is AggregatorV3Interface {
     }
 }
 
+contract RevertingAggregator is AggregatorV3Interface {
+    uint8 public constant override decimals = 8;
+
+    function latestRoundData() external pure override returns (uint80, int256, uint256, uint256, uint80) {
+        revert("feed down");
+    }
+}
+
+contract NoDecimalsAggregator is AggregatorV3Interface {
+    int256 public immutable answer;
+
+    constructor(int256 answer_) {
+        answer = answer_;
+    }
+
+    function decimals() external pure override returns (uint8) {
+        revert("no decimals");
+    }
+
+    function latestRoundData() external view override returns (uint80, int256, uint256, uint256, uint80) {
+        return (1, answer, block.timestamp, block.timestamp, 1);
+    }
+}
+
 /// @dev MockPool front that, once `hungry` is set, reverts "OLD" on batches (so settle reads one
 ///      point at a time) and charges `burn` gas for the single read at `hungryAgo`.
 contract GasHungryPool {
@@ -387,8 +411,9 @@ contract VolMarketTest is Test {
         market.setPriceFeed(address(feed));
         vm.prank(alice);
         market.bet(id, 0, 100e18);
-        feed.setAnswer(3000e8, block.timestamp);
         vm.warp(END + 10);
+        feed.setAnswer(3000e8, block.timestamp);
+        _expectPriceCheckFailed(id, 196001, 3000e8, 4);
         market.settle(id);
         (bool voided,,) = _rv(id);
         assertTrue(voided);
@@ -405,8 +430,10 @@ contract VolMarketTest is Test {
         market.setPriceFeed(address(feed));
         vm.prank(alice);
         market.bet(id, 0, 100e18);
-        feed.setAnswer(2000e8, block.timestamp);
-        vm.warp(END + 4000);
+        int256 matching = int256(market.priceForTick(196001));
+        feed.setAnswer(matching, END + 10);
+        vm.warp(END + 10 + 4000);
+        _expectPriceCheckFailed(id, 196001, matching, 2);
         market.settle(id);
         (bool voided,,) = _rv(id);
         assertTrue(voided);
@@ -423,11 +450,150 @@ contract VolMarketTest is Test {
         market.setPriceFeed(address(feed));
         vm.prank(alice);
         market.bet(id, 0, 100e18);
-        feed.setAnswer(0, block.timestamp);
         vm.warp(END + 10);
+        feed.setAnswer(0, block.timestamp);
+        _expectPriceCheckFailed(id, 196001, 0, 2);
         market.settle(id);
         (bool voided,,) = _rv(id);
         assertTrue(voided);
+
+        _deploy(0);
+        _segments(_mixed());
+        id = _create();
+        market.setPriceFeed(address(feed));
+        vm.warp(END + 10);
+        int256 matching = int256(market.priceForTick(196001));
+        feed.setAnswer(matching, block.timestamp + 1);
+        _expectPriceCheckFailed(id, 196001, matching, 2);
+        market.settle(id);
+        (voided,,) = _rv(id);
+        assertTrue(voided, "answer from the future");
+    }
+
+    function test_PriceFeedRevertVoids() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        market.setPriceFeed(address(new RevertingAggregator()));
+        vm.warp(END + 10);
+        _expectPriceCheckFailed(id, 196001, 0, 5);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertTrue(voided);
+    }
+
+    function test_PriceFeedDecimalsRevertVoids() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        int256 matching = int256(market.priceForTick(196001));
+        market.setPriceFeed(address(new NoDecimalsAggregator(matching)));
+        vm.warp(END + 10);
+        _expectPriceCheckFailed(id, 196001, matching, 3);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertTrue(voided);
+    }
+
+    function test_PriceFeedAgeBoundary() public {
+        uint256 maxAge = 3900;
+        _deploy(0);
+        assertEq(market.MAX_FEED_AGE(), maxAge);
+        int256 matching = int256(market.priceForTick(196001));
+        _segments(_mixed());
+        uint256 id = _create();
+        market.setPriceFeed(address(feed));
+        vm.warp(END + 10 + maxAge);
+        feed.setAnswer(matching, END + 10);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertFalse(voided, "age exactly MAX_FEED_AGE settles");
+
+        _deploy(0);
+        _segments(_mixed());
+        id = _create();
+        market.setPriceFeed(address(feed));
+        vm.warp(END + 10 + maxAge + 1);
+        feed.setAnswer(matching, END + 10);
+        _expectPriceCheckFailed(id, 196001, matching, 2);
+        market.settle(id);
+        (voided,,) = _rv(id);
+        assertTrue(voided, "one second older voids");
+    }
+
+    /// @dev feedPrice = 50 * poolPrice / 51 puts the deviation at exactly MAX_DEVIATION_BPS, so the
+    ///      last segment's tick is searched for a pool price divisible by 51.
+    function test_PriceFeedDeviationBoundary() public {
+        _deploy(0);
+        assertEq(market.MAX_DEVIATION_BPS(), 200);
+        int24 tick = 196001;
+        while (market.priceForTick(tick) % 51 != 0) {
+            ++tick;
+            assertLt(tick, 196001 + 1000, "no tick with a pool price divisible by 51");
+        }
+        uint256 poolPrice = market.priceForTick(tick);
+        int256 atLimit = int256(poolPrice * 50 / 51);
+        assertEq((poolPrice - uint256(atLimit)) * 10_000, uint256(atLimit) * 200, "exactly 200 bps");
+
+        uint256 id = _roundEndingAtTick(tick);
+        feed.setAnswer(atLimit, block.timestamp);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertFalse(voided, "exactly MAX_DEVIATION_BPS settles");
+
+        id = _roundEndingAtTick(tick);
+        feed.setAnswer(atLimit - 1, block.timestamp);
+        _expectPriceCheckFailed(id, tick, atLimit - 1, 4);
+        market.settle(id);
+        (voided,,) = _rv(id);
+        assertTrue(voided, "one unit beyond voids");
+    }
+
+    function test_PriceFeedDecimalsScaled() public {
+        _deploy(0);
+        uint256 price = market.priceForTick(196001);
+
+        uint256 id = _roundWithFeed(new MockAggregator(6, int256(price / 100)));
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertFalse(voided, "6-decimal feed scaled up");
+
+        id = _roundWithFeed(new MockAggregator(18, int256(price * 1e10)));
+        market.settle(id);
+        (voided,,) = _rv(id);
+        assertFalse(voided, "18-decimal feed scaled down");
+
+        id = _roundWithFeed(new MockAggregator(19, int256(price * 1e11)));
+        _expectPriceCheckFailed(id, 196001, int256(price * 1e11), 3);
+        market.settle(id);
+        (voided,,) = _rv(id);
+        assertTrue(voided, "more than 18 decimals voids");
+    }
+
+    /// @dev Fresh market and round on _mixed(), checked against `agg` with a fresh answer at END + 10.
+    function _roundWithFeed(MockAggregator agg) internal returns (uint256 id) {
+        int256 answer = agg.answer();
+        _deploy(0);
+        _segments(_mixed());
+        id = _create();
+        market.setPriceFeed(address(agg));
+        vm.warp(END + 10);
+        agg.setAnswer(answer, block.timestamp);
+    }
+
+    /// @dev Fresh round whose price check window [END, END + DELTA] sits entirely on `tick`.
+    function _roundEndingAtTick(int24 tick) internal returns (uint256 id) {
+        _deploy(0);
+        _segments(_mixed());
+        pool.setTickFrom(END, tick);
+        id = _create();
+        market.setPriceFeed(address(feed));
+        vm.warp(END + DELTA);
+    }
+
+    function _expectPriceCheckFailed(uint256 id, int24 tick, int256 feedPrice, uint8 reason) internal {
+        vm.expectEmit(true, false, false, true, address(market));
+        emit VolMarket.PriceCheckFailed(id, tick, int256(market.priceForTick(tick)), feedPrice, reason);
     }
 
     /// @dev Sweeps settle's gas limit through the range where a 450k-gas feed read (under the
