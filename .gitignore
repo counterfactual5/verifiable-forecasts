@@ -12,6 +12,8 @@ __pycache__/
 
 # EZKL build/proof artifacts (pk ~400 MB per model; rebuilt by agents/vol_agents/build.py)
 agents/out/
+# mainnet-fork demo output (round JSON, separate forge build)
+demo/out/
 *.key
 *.srs
 *.compiled
