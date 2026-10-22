@@ -1,8 +1,8 @@
 {
   "network": "anvil fork of Ethereum mainnet",
-  "fork_block": 26246328,
-  "fork_timestamp": 1792650071,
-  "generated_at": 1792657869,
+  "fork_block": 26247424,
+  "fork_timestamp": 1792663295,
+  "generated_at": 1792670491,
   "contracts": {
     "market": "0x024361c0eC3c1A9ED415E6ef3c859b48935DBe78",
     "pool": "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640",
@@ -13,7 +13,7 @@
   },
   "round": {
     "id": 0,
-    "start": 1792650150,
+    "start": 1792663437,
     "delta_s": 300,
     "n_segments": 12,
     "bounds": [
@@ -23,51 +23,55 @@
       110
     ],
     "features": [
-      -512,
-      1408,
-      384,
-      1024,
-      -768,
-      -1152,
-      1792,
-      256,
-      640,
-      896,
-      1152,
-      -384,
-      -640,
       -1536,
-      896,
-      128
+      -512,
+      0,
+      512,
+      2176,
+      256,
+      1152,
+      -1792,
+      1664,
+      1280,
+      -768,
+      640,
+      512,
+      -1920,
+      -896,
+      -1024
     ],
-    "fee_bps": 100
+    "fee_bps": 100,
+    "predictor_share_bps": 5000,
+    "commit_deadline": 1792663347,
+    "reveal_deadline": 1792663407
   },
   "window": {
     "mode": "replay",
     "real_segment_ticks": [
-      198346,
-      198354,
-      198359,
-      198360,
-      198362,
-      198366,
-      198359,
-      198357,
-      198361,
-      198370,
-      198378,
-      198378
+      198448,
+      198458,
+      198459,
+      198453,
+      198449,
+      198447,
+      198453,
+      198461,
+      198465,
+      198468,
+      198471,
+      198474
     ],
-    "real_realized_vol": 324
+    "real_realized_vol": 300
   },
   "outcome": {
-    "settle_block": 26246382,
-    "settle_ts": 1792653760,
-    "gas_used": 838431,
+    "settle_block": 26247487,
+    "settle_ts": 1792667047,
+    "gas_used": 1096683,
+    "gas_limit": 1102040,
     "settled": true,
     "voided": false,
     "winning_bucket": 4,
-    "realized_vol": 305,
+    "realized_vol": 259,
     "total_stake_wei": "2000000000000000000",
     "pools_wei": [
       "0",
@@ -79,120 +83,168 @@
     "events": {
       "price_check_failed": 0,
       "reputation_write_failed": 0,
-      "erc8004_feedback_logs": 3
+      "erc8004_feedback_logs": 4
     }
   },
   "offchain_recompute": {
     "segment_mean_ticks": [
-      198345,
-      198353,
-      198358,
-      198359,
-      198361,
-      198365,
-      198359,
-      198357,
-      198360,
-      198369,
-      198377,
-      198378
+      198448,
+      198457,
+      198458,
+      198453,
+      198449,
+      198447,
+      198452,
+      198460,
+      198464,
+      198467,
+      198470,
+      198473
     ],
-    "realized_vol": 305,
+    "realized_vol": 259,
     "bucket": 4
   },
   "chainlink": {
     "feed": "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419",
-    "feed_price_usd": 2434.95,
-    "feed_updated_at": 1792650071,
-    "feed_age_s": 3689,
-    "pool_mean_tick": 198378,
-    "pool_price_usd": 2426.51885631,
-    "deviation_bps": 34.63,
+    "feed_price_usd": 2406.75067557,
+    "feed_updated_at": 1792663295,
+    "feed_age_s": 3752,
+    "pool_mean_tick": 198474,
+    "pool_price_usd": 2403.33688585,
+    "deviation_bps": 14.18,
     "max_deviation_bps": 200,
     "max_age_s": 3900
   },
   "agents": [
     {
+      "agent": "agent-tsfm-api",
+      "model": "tsfm-api",
+      "model_type": "commit-only",
+      "forecast_source": "placeholder",
+      "address": "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
+      "model_id": 3,
+      "agent_id": 55250,
+      "verifier": null,
+      "revealed": true,
+      "proof_verified_onchain": false,
+      "probs": [
+        0.002072538860103627,
+        0.003108808290155441,
+        0.006476683937823834,
+        0.016839378238341966,
+        0.9715025906735751
+      ],
+      "p_win": 0.9715025906735751,
+      "log_score": "-28911343494420042",
+      "log_score_float": -0.02891134349442004,
+      "beat_baseline": true,
+      "predictor_reward_wei": "3193540331715905",
+      "prove_seconds": null,
+      "prove_peak_mb": null,
+      "reputation": {
+        "tag1": "logScore",
+        "tag2": "vol-300s-12-commit",
+        "count": 1,
+        "summary_value": "-28911343494420042",
+        "summary_decimals": 18
+      }
+    },
+    {
       "agent": "agent-mlp32_abs",
       "model": "mlp32_abs",
+      "model_type": "zk",
+      "forecast_source": "ezkl",
       "address": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
       "model_id": 2,
-      "agent_id": 55214,
-      "verifier": "0xA1F657a42985b74cB8F5203dab285dA30bEEB8ac",
+      "agent_id": 55249,
+      "verifier": "0x7b929026F0933B809953f6d1CcfE27e2c210688d",
+      "revealed": true,
       "proof_verified_onchain": true,
       "probs": [
-        0.002196729314132291,
-        0.002196729314132291,
-        0.004881620698071759,
-        0.12228459848669758,
-        0.868440322186966
+        0.002198339032730825,
+        0.002198339032730825,
+        0.002198339032730825,
+        0.05227161700048852,
+        0.941133365901319
       ],
-      "p_win": 0.868440322186966,
-      "log_score": "-141056409321090610",
-      "log_score_float": -0.14105640932109062,
-      "prove_seconds": 8.63,
-      "prove_peak_mb": 872.2,
+      "p_win": 0.941133365901319,
+      "log_score": "-60670421595077244",
+      "log_score_float": -0.06067042159507725,
+      "beat_baseline": true,
+      "predictor_reward_wei": "3129369378309781",
+      "prove_seconds": 2.24,
+      "prove_peak_mb": 1288.0,
       "reputation": {
         "tag1": "logScore",
         "tag2": "vol-300s-12",
         "count": 1,
-        "summary_value": "-141056409321090610",
+        "summary_value": "-60670421595077244",
         "summary_decimals": 18
       }
     },
     {
       "agent": "agent-mlp16",
       "model": "mlp16",
+      "model_type": "zk",
+      "forecast_source": "ezkl",
       "address": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
       "model_id": 1,
-      "agent_id": 55213,
-      "verifier": "0x7b929026F0933B809953f6d1CcfE27e2c210688d",
+      "agent_id": 55248,
+      "verifier": "0x5aef9B5E478b8a40B2E33b8c721A905Cde340267",
+      "revealed": true,
       "proof_verified_onchain": true,
       "probs": [
-        0.001220703125,
-        0.001220703125,
-        0.00634765625,
-        0.49560546875,
-        0.49560546875
+        0.001221001221001221,
+        0.001221001221001221,
+        0.003174603174603174,
+        0.4971916971916972,
+        0.4971916971916972
       ],
-      "p_win": 0.49560546875,
-      "log_score": "-701975094683510693",
-      "log_score_float": -0.7019750946835106,
-      "prove_seconds": 8.9,
-      "prove_peak_mb": 880.0,
+      "p_win": 0.4971916971916972,
+      "log_score": "-698779618616756431",
+      "log_score_float": -0.6987796186167565,
+      "beat_baseline": true,
+      "predictor_reward_wei": "1840034863614031",
+      "prove_seconds": 2.18,
+      "prove_peak_mb": 1200.3,
       "reputation": {
         "tag1": "logScore",
         "tag2": "vol-300s-12",
         "count": 1,
-        "summary_value": "-701975094683510693",
+        "summary_value": "-698779618616756431",
         "summary_decimals": 18
       }
     },
     {
       "agent": "agent-linear_abs",
       "model": "linear_abs",
+      "model_type": "zk",
+      "forecast_source": "ezkl",
       "address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
       "model_id": 0,
-      "agent_id": 55212,
+      "agent_id": 55247,
       "verifier": "0x03EB60791E0267B7a8d44bEeB1fbf959F6C595D7",
+      "revealed": true,
       "proof_verified_onchain": true,
       "probs": [
-        0.001220703125,
-        0.001220703125,
-        0.00927734375,
-        0.494140625,
-        0.494140625
+        0.001221001221001221,
+        0.001221001221001221,
+        0.004639804639804639,
+        0.49645909645909647,
+        0.49645909645909647
       ],
-      "p_win": 0.494140625,
-      "log_score": "-704935136311987545",
-      "log_score_float": -0.7049351363119876,
-      "prove_seconds": 9.09,
-      "prove_peak_mb": 699.4,
+      "p_win": 0.49645909645909647,
+      "log_score": "-700254182658823161",
+      "log_score_float": -0.7002541826588232,
+      "beat_baseline": true,
+      "predictor_reward_wei": "1837055426360283",
+      "prove_seconds": 2.05,
+      "prove_peak_mb": 1266.3,
       "reputation": {
         "tag1": "logScore",
         "tag2": "vol-300s-12",
         "count": 1,
-        "summary_value": "-704935136311987545",
+        "summary_value": "-700254182658823161",
         "summary_decimals": 18
       }
     }
@@ -231,89 +283,97 @@
   "swaps": [
     {
       "segment": 0,
-      "side": "sell WETH",
-      "tick_before": 198340,
-      "tick_after": 198346,
-      "target_tick": 198346
+      "side": "sell USDC",
+      "tick_before": 198459,
+      "tick_after": 198448,
+      "target_tick": 198448
     },
     {
       "segment": 1,
       "side": "sell WETH",
-      "tick_before": 198346,
-      "tick_after": 198354,
-      "target_tick": 198354
+      "tick_before": 198448,
+      "tick_after": 198458,
+      "target_tick": 198458
     },
     {
       "segment": 2,
       "side": "sell WETH",
-      "tick_before": 198354,
-      "tick_after": 198359,
-      "target_tick": 198359
+      "tick_before": 198458,
+      "tick_after": 198459,
+      "target_tick": 198459
     },
     {
       "segment": 3,
-      "side": "sell WETH",
-      "tick_before": 198359,
-      "tick_after": 198360,
-      "target_tick": 198360
+      "side": "sell USDC",
+      "tick_before": 198459,
+      "tick_after": 198453,
+      "target_tick": 198453
     },
     {
       "segment": 4,
-      "side": "sell WETH",
-      "tick_before": 198360,
-      "tick_after": 198362,
-      "target_tick": 198362
+      "side": "sell USDC",
+      "tick_before": 198453,
+      "tick_after": 198449,
+      "target_tick": 198449
     },
     {
       "segment": 5,
-      "side": "sell WETH",
-      "tick_before": 198362,
-      "tick_after": 198366,
-      "target_tick": 198366
+      "side": "sell USDC",
+      "tick_before": 198449,
+      "tick_after": 198447,
+      "target_tick": 198447
     },
     {
       "segment": 6,
-      "side": "sell USDC",
-      "tick_before": 198366,
-      "tick_after": 198359,
-      "target_tick": 198359
+      "side": "sell WETH",
+      "tick_before": 198447,
+      "tick_after": 198453,
+      "target_tick": 198453
     },
     {
       "segment": 7,
-      "side": "sell USDC",
-      "tick_before": 198359,
-      "tick_after": 198357,
-      "target_tick": 198357
+      "side": "sell WETH",
+      "tick_before": 198453,
+      "tick_after": 198461,
+      "target_tick": 198461
     },
     {
       "segment": 8,
       "side": "sell WETH",
-      "tick_before": 198357,
-      "tick_after": 198361,
-      "target_tick": 198361
+      "tick_before": 198461,
+      "tick_after": 198465,
+      "target_tick": 198465
     },
     {
       "segment": 9,
       "side": "sell WETH",
-      "tick_before": 198361,
-      "tick_after": 198370,
-      "target_tick": 198370
+      "tick_before": 198465,
+      "tick_after": 198468,
+      "target_tick": 198468
     },
     {
       "segment": 10,
       "side": "sell WETH",
-      "tick_before": 198370,
-      "tick_after": 198378,
-      "target_tick": 198378
+      "tick_before": 198468,
+      "tick_after": 198471,
+      "target_tick": 198471
     },
     {
       "segment": 11,
-      "side": "hold",
-      "tick_before": 198378,
-      "tick_after": 198378,
-      "target_tick": 198378
+      "side": "sell WETH",
+      "tick_before": 198471,
+      "tick_after": 198474,
+      "target_tick": 198474
     }
   ],
-  "fee_collected_wei": "20000000000000000",
-  "market_balance_after_wei": "0"
+  "fee_collected_wei": "10000000000000000",
+  "market_balance_after_wei": "0",
+  "fee_split": {
+    "fee_wei": "20000000000000000",
+    "owner_wei": "10000000000000000",
+    "predictors_wei": "10000000000000000",
+    "predictor_share_bps": 5000,
+    "baseline_log_score": "-1609437912434100366",
+    "baseline_log_score_float": -1.6094379124341005
+  }
 }

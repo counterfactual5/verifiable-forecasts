@@ -2,7 +2,10 @@
 
 The market reads the real Uniswap V3 ETH/USDC 0.05% pool, writes scores to the deployed ERC-8004
 registries and cross-checks the pool price against the Chainlink ETH/USD feed. The three EZKL agents
-from agents/ prove and submit on the round's onchain features (the pool's real last 85 minutes).
+from agents/ prove on the round's onchain features (the pool's real last 85 minutes), and a fourth,
+commit-only agent asks a time-series forecasting API (VOL_TSFM_API_URL; a deterministic local
+placeholder when unset). Every agent commits a hash first and reveals once commits close; the zk
+agents' reveals carry the proof. Forecasts above the uniform baseline share half of the fee.
 
 The fork starts at a Chainlink update at least an hour in the past, so the round window is an hour
 that already happened on mainnet. During the window a trader swaps the forked pool to the real
@@ -24,6 +27,7 @@ from pathlib import Path
 
 from vol_agents import contract_math as cm
 from vol_agents.agent import Agent
+from vol_agents.api_agent import ApiAgent, ApiConfig
 from vol_agents.build import build, model_names, verifier_name
 from vol_agents.chain import DEV_KEYS, Anvil, address_of, as_int
 from vol_agents.ezkl_step import OUT as AGENTS_OUT
@@ -45,7 +49,14 @@ BETTOR_KEYS = [
     "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a",
     "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
 ]
+# anvil dev account 6, operator of the commit-only agent; fork-local only
+API_AGENT_KEY = "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e"
 FEE_BPS = 100
+PREDICTOR_SHARE_BPS = 5000
+# Commits close COMMIT_LEAD s and reveals REVEAL_LEAD s before the round start. Kept short: the
+# whole lead counts against the feed's 3900 s staleness limit at settlement.
+COMMIT_LEAD = 90
+REVEAL_LEAD = 30
 BET_WEI = 10**18
 # The placeholder bounds the models were trained on (agents/vol_agents/contract_math.py).
 BOUNDS = cm.BOUNDS
@@ -59,12 +70,13 @@ SCRIPTED_SWAP_ETH = [3, 5, 2, 4, 6, 3]
 # Blocks advance one second each so that deployment wall time does not age the Chainlink answer
 # (settle voids the round once the answer is older than 3900 s).
 BLOCK_INTERVAL_S = 1
-ROUND_LEAD_S = 60
+ROUND_LEAD_S = 120
 SETTLE_AFTER_S = 10
 # Seconds between the fork block and the round start (deployment blocks plus ROUND_LEAD_S), with
 # room to spare; the fork block is chosen so that start + window is still in mainnet's past.
 SETUP_MARGIN_S = 600
 FIXED_GAS = 8_000_000
+ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 EXACT_INPUT = "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))"
 ROUND_SIG = "getRound(uint256)(uint64,bool,bool,uint256,uint256,uint256,uint256[5],uint256[])"
 FEED_SIG = "latestRoundData()(uint80,int256,uint256,uint256,uint80)"
@@ -154,7 +166,7 @@ class ForkAnvil(Anvil):
         self.rpc_call("anvil_setBlockTimestampInterval", BLOCK_INTERVAL_S)
         # On mainnet anvil's public test keys carry EIP-7702 sweeper delegations; as plain EOAs
         # again they can receive the ERC-721 identity mint and keep their fork-local ETH.
-        for key in DEV_KEYS + BETTOR_KEYS:
+        for key in DEV_KEYS + BETTOR_KEYS + [API_AGENT_KEY]:
             self.rpc_call("anvil_setCode", address_of(key), "0x")
         return self
 
@@ -196,28 +208,33 @@ def minted_agent_id(receipt):
 
 
 def deploy(c, owner):
-    market = c.deploy(owner, "src/VolMarket.sol:VolMarket", WETH, FEE_BPS, POOL, cm.DELTA,
-                      cm.N_SEGMENTS)
+    market = c.deploy(owner, "src/VolMarket.sol:VolMarket", WETH, FEE_BPS, PREDICTOR_SHARE_BPS,
+                      POOL, cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
     c.send(owner, market, "setReputation(address,address)", IDENTITY, REPUTATION)
     c.send(owner, market, "setPriceFeed(address)", FEED)
     agents, agent_ids, verifiers = [], {}, {}
+    zk = []
     for i, m in enumerate(model_names()):
         build(m)
         name = verifier_name(m)
-        verifier = c.deploy(owner, f"src/verifier/{name}.sol:{name}")
         key = DEV_KEYS[1 + i]
-        agent = Agent(name=f"agent-{m}", model=m, key=key, address=address_of(key))
+        zk.append((Agent(name=f"agent-{m}", model=m, key=key, address=address_of(key)),
+                   c.deploy(owner, f"src/verifier/{name}.sol:{name}")))
+    api = ApiAgent(name="agent-tsfm-api", key=API_AGENT_KEY, address=address_of(API_AGENT_KEY),
+                   config=ApiConfig.from_env())
+    for agent, verifier in zk + [(api, ZERO_ADDRESS)]:
         c.send(owner, market, "registerModel(address,address)", verifier, agent.address)
         agent.model_id = as_int(c.call(market, "modelCount()(uint256)")[0]) - 1
-        receipt = c.send(key, IDENTITY, "register(string)(uint256)",
+        receipt = c.send(agent.key, IDENTITY, "register(string)(uint256)",
                          f"https://example.invalid/agents/{agent.name}")
         agent_id = minted_agent_id(receipt)
-        c.send(key, market, "linkAgent(uint256,uint256)", agent.model_id, agent_id)
-        log(f"{agent.name}: model {agent.model_id}, verifier {verifier}, "
-            f"ERC-8004 agentId {agent_id}")
+        c.send(agent.key, market, "linkAgent(uint256,uint256)", agent.model_id, agent_id)
+        kind = f"verifier {verifier}" if verifier != ZERO_ADDRESS else (
+            f"commit-only (no proof), forecast source {api.source}")
+        log(f"{agent.name}: model {agent.model_id}, {kind}, ERC-8004 agentId {agent_id}")
         agents.append(agent)
         agent_ids[agent.name] = agent_id
-        verifiers[agent.name] = verifier
+        verifiers[agent.name] = verifier if verifier != ZERO_ADDRESS else None
     return market, agents, agent_ids, verifiers
 
 
@@ -388,8 +405,8 @@ def settle(c, owner, market, rid, start):
     }
 
 
-def reputation_of(c, market, agent_id):
-    tag2 = f"vol-{cm.DELTA}s-{cm.N_SEGMENTS}"
+def reputation_of(c, market, agent_id, kind):
+    tag2 = f"vol-{cm.DELTA}s-{cm.N_SEGMENTS}" + ("-commit" if kind == "commit-only" else "")
     count, value, decimals = c.call(
         REPUTATION, "getSummary(uint256,address[],string,string)(uint64,int128,uint8)",
         agent_id, f"[{market}]", "logScore", tag2)
@@ -411,13 +428,32 @@ def claims(c, market, rid, bets, outcome):
 
 
 def collect_fee(c, owner, market, rid, outcome):
-    """Anyone may push the round's fee to the market owner; refunded rounds carry none."""
-    if outcome["voided"] or as_int(outcome["pools_wei"][outcome["winning_bucket"]]) == 0:
+    """Anyone may push the owner's part of the round's fee to the market owner; refunded rounds
+    carry none, and with every forecaster above the baseline and a 100 % share it is 0."""
+    fee = 0 if outcome["voided"] or as_int(outcome["pools_wei"][outcome["winning_bucket"]]) == 0 \
+        else as_int(outcome["total_stake_wei"]) * FEE_BPS // 10_000
+    pool = as_int(c.call(market, "predictorPool(uint256)(uint256)", rid)[0])
+    if fee - pool == 0:
         return "0"
     who = address_of(owner)
     before = balance(c, WETH, who)
     c.send(owner, market, "collectFee(uint256)", rid)
     return str(balance(c, WETH, who) - before)
+
+
+def claim_predictor_rewards(c, market, rid, agents, scores):
+    """Every forecaster above the uniform baseline pulls its share of the predictor pool."""
+    pool = as_int(c.call(market, "predictorPool(uint256)(uint256)", rid)[0])
+    base = as_int(c.call(market, "baselineLogScore()(int256)")[0])
+    paid = {}
+    for a in agents:
+        if pool == 0 or scores[a.name] <= base:
+            paid[a.name] = "0"
+            continue
+        before = balance(c, WETH, a.address)
+        c.send(a.key, market, "claimPredictorReward(uint256)", rid)
+        paid[a.name] = str(balance(c, WETH, a.address) - before)
+    return pool, base, paid
 
 
 def main():
@@ -435,9 +471,17 @@ def main():
 
         subs = {}
         for a in agents:
-            subs[a.name] = a.forecast(c, market, rid)
-            log(f"{a.name}: proof verified onchain, prove {a.timings['prove']['seconds']} s")
-        checks = [tamper_check(c, a, verifiers[a.name], market, rid, subs[a.name]) for a in agents]
+            subs[a.name] = a.commit(c, market, rid)
+            how = (f"prove {a.timings['prove']['seconds']} s" if a.kind == "zk"
+                   else f"commit-only, forecast from {subs[a.name]['source']}")
+            log(f"{a.name}: committed ({how})")
+        c.set_next_timestamp(start - COMMIT_LEAD)
+        for a in agents:
+            a.reveal(c, market, rid)
+            log(f"{a.name}: revealed" + (", proof verified onchain" if a.kind == "zk"
+                                          else ", no proof (commit-only)"))
+        checks = [tamper_check(c, a, verifiers[a.name], market, rid, subs[a.name])
+                  for a in agents if a.kind == "zk"]
         probs = {}
         for a in agents:
             p = c.call(market, "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)",
@@ -458,24 +502,36 @@ def main():
         offchain = offchain_rv(c, market, rid)
         price = chainlink_check(c, market, outcome["settle_block"], outcome["settle_ts"])
 
-        rows = []
-        for a in agents:
-            p = c.call(market, "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)",
-                       rid, a.address)
-            rows.append({
-                "agent": a.name, "model": a.model, "address": a.address,
-                "model_id": a.model_id, "agent_id": agent_ids[a.name],
-                "verifier": verifiers[a.name], "proof_verified_onchain": truthy(p[0]),
-                "probs": probs[a.name], "p_win": probs[a.name][outcome["winning_bucket"]],
-                "log_score": str(as_int(p[3])), "log_score_float": as_int(p[3]) / 1e18,
-                "prove_seconds": a.timings.get("prove", {}).get("seconds"),
-                "prove_peak_mb": a.timings.get("prove", {}).get("peak_mb"),
-                "reputation": reputation_of(c, market, agent_ids[a.name]),
-            })
-        rows.sort(key=lambda r: r["log_score_float"], reverse=True)
+        preds = {a.name: c.call(
+            market, "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)", rid,
+            a.address) for a in agents}
+        scores = {name: as_int(p[3]) for name, p in preds.items()}
         paid = claims(c, market, rid, bets, outcome)
+        pred_pool, baseline, rewards = claim_predictor_rewards(c, market, rid, agents, scores)
         fee = collect_fee(c, owner, market, rid, outcome)
         market_left = balance(c, WETH, market)
+
+        rows = []
+        for a in agents:
+            p = preds[a.name]
+            rows.append({
+                "agent": a.name, "model": getattr(a, "model", None) or "tsfm-api",
+                "model_type": a.kind, "forecast_source": subs[a.name].get("source", "ezkl"),
+                "address": a.address, "model_id": a.model_id, "agent_id": agent_ids[a.name],
+                "verifier": verifiers[a.name], "revealed": truthy(p[0]),
+                "proof_verified_onchain": a.kind == "zk" and truthy(p[0]),
+                "probs": probs[a.name], "p_win": probs[a.name][outcome["winning_bucket"]],
+                "log_score": str(scores[a.name]), "log_score_float": scores[a.name] / 1e18,
+                "beat_baseline": scores[a.name] > baseline,
+                "predictor_reward_wei": rewards[a.name],
+                "prove_seconds": a.timings.get("prove", {}).get("seconds"),
+                "prove_peak_mb": a.timings.get("prove", {}).get("peak_mb"),
+                "reputation": reputation_of(c, market, agent_ids[a.name], a.kind),
+            })
+        rows.sort(key=lambda r: r["log_score_float"], reverse=True)
+        round_fee = 0 if outcome["voided"] or as_int(
+            outcome["pools_wei"][outcome["winning_bucket"]]) == 0 \
+            else as_int(outcome["total_stake_wei"]) * FEE_BPS // 10_000
 
         result = {
             "network": "anvil fork of Ethereum mainnet", "fork_block": fork_block,
@@ -484,12 +540,19 @@ def main():
                           "erc8004_identity": IDENTITY, "erc8004_reputation": REPUTATION,
                           "settlement_token": WETH},
             "round": {"id": rid, "start": start, "delta_s": cm.DELTA, "n_segments": cm.N_SEGMENTS,
-                      "bounds": list(BOUNDS), "features": feats, "fee_bps": FEE_BPS},
+                      "bounds": list(BOUNDS), "features": feats, "fee_bps": FEE_BPS,
+                      "predictor_share_bps": PREDICTOR_SHARE_BPS,
+                      "commit_deadline": start - COMMIT_LEAD,
+                      "reveal_deadline": start - REVEAL_LEAD},
             "window": {"mode": "replay" if targets else "scripted", "real_segment_ticks": targets,
                        "real_realized_vol": real_rv},
             "outcome": outcome, "offchain_recompute": offchain, "chainlink": price,
             "agents": rows, "tamper_checks": checks, "bets": paid, "swaps": swaps,
             "fee_collected_wei": fee, "market_balance_after_wei": str(market_left),
+            "fee_split": {"fee_wei": str(round_fee), "owner_wei": fee,
+                          "predictors_wei": str(pred_pool), "predictor_share_bps":
+                          PREDICTOR_SHARE_BPS, "baseline_log_score": str(baseline),
+                          "baseline_log_score_float": baseline / 1e18},
         }
     RESULT.parent.mkdir(parents=True, exist_ok=True)
     RESULT.write_text(json.dumps(result, indent=2) + "\n")
@@ -507,19 +570,28 @@ def print_summary(r):
     print(f"Chainlink ETH/USD {p['feed_price_usd']:.2f} vs pool {p['pool_price_usd']:.2f}: "
           f"{p['deviation_bps']} bps (max 200), feed age {p['feed_age_s']} s (max 3900)")
     print(f"settle gas {o['gas_used']} (estimated limit {o['gas_limit']}), events {o['events']}")
-    print(f"{'agent':<20}{'agentId':>10}{'p_win':>8}{'logScore':>10}  ERC-8004 getSummary")
+    print(f"{'agent':<20}{'type':<13}{'agentId':>10}{'p_win':>8}{'logScore':>10}"
+          f"{'reward WETH':>13}  ERC-8004 getSummary")
     for a in r["agents"]:
         rep = a["reputation"]
         val = int(rep["summary_value"]) / 10 ** rep["summary_decimals"]
-        print(f"{a['agent']:<20}{a['agent_id']:>10}{a['p_win']:>8.3f}{a['log_score_float']:>10.3f}"
-              f"  count={rep['count']} value={val:.3f}")
+        kind = "zk proof" if a["model_type"] == "zk" else "commit-only"
+        print(f"{a['agent']:<20}{kind:<13}{a['agent_id']:>10}{a['p_win']:>8.3f}"
+              f"{a['log_score_float']:>10.3f}{int(a['predictor_reward_wei']) / 1e18:>13.6f}"
+              f"  count={rep['count']} value={val:.3f} ({rep['tag2']})")
+    api = [a for a in r["agents"] if a["model_type"] == "commit-only"]
+    for a in api:
+        print(f"{a['agent']}: commit-only, forecast source {a['forecast_source']}")
     for t in r["tamper_checks"]:
         print(f"{t['agent']}: honest proof verifies={t['honest_proof_verifies']}, "
               f"tampered output verifies={t['tampered_output_verifies']}")
     for b in r["bets"]:
         print(f"bettor {b['bettor'][:10]}… bucket {b['bucket']}: payout "
               f"{int(b['payout_wei']) / 1e18:.4f} WETH")
-    print(f"fee to owner {int(r['fee_collected_wei']) / 1e18:.4f} WETH, left in market "
+    fs = r["fee_split"]
+    print(f"fee {int(fs['fee_wei']) / 1e18:.4f} WETH: owner {int(fs['owner_wei']) / 1e18:.4f}, "
+          f"forecasters {int(fs['predictors_wei']) / 1e18:.4f} ({fs['predictor_share_bps']} bps, "
+          f"above baseline {fs['baseline_log_score_float']:.3f}), left in market "
           f"{int(r['market_balance_after_wei'])} wei")
     print(f"wrote {RESULT.relative_to(REPO)}")
 

@@ -30,6 +30,8 @@
   .badge.ok { background: rgba(63,185,80,.15); color: var(--ok); }
   .badge.bad { background: rgba(248,81,73,.15); color: var(--bad); }
   .badge.warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .badge.zk { background: rgba(88,166,255,.15); color: var(--accent); }
+  .badge.commit { background: rgba(139,148,158,.18); color: var(--text); }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
@@ -135,28 +137,44 @@ function render({ data: d, src }) {
     <div class="sub">Feed age ${cl.feed_age_s} s / max ${cl.max_age_s}</div>
     <div class="meter"><div style="width:${agePct}%;background:${agePct < 100 ? "var(--warn)" : "var(--bad)"}"></div></div>`);
 
+  const fs = d.fee_split;
+  const isZk = (a) => (a.model_type ?? "zk") === "zk";
+  const typeBadge = (a) => isZk(a)
+    ? `<span class="badge zk" title="reveal carries an EZKL proof the contract verified">zk proof</span>`
+    : `<span class="badge commit" title="committed before the deadline; no proof of which model made it">commit-only</span>`;
   const rows = d.agents.map((a) => {
     const max = Math.max(...a.probs);
     const bars = a.probs.map((p, i) => `<div class="${i === o.winning_bucket ? "win" : ""}"
       style="height:${Math.max(2, p / max * 40)}px" title="#${i} ${names[i]}: ${(p * 100).toFixed(2)}%"></div>`).join("");
     const rep = a.reputation, repVal = Number(rep.summary_value) / 10 ** rep.summary_decimals;
     const t = tamper[a.agent];
-    return `<tr><td><b>${a.agent}</b><div class="sub mono">${short(a.address)}</div></td>
+    const verification = isZk(a)
+      ? `${badge(a.proof_verified_onchain, "verified onchain", "missing")}<br>
+        ${t ? badge(!t.tampered_output_verifies, "tampered proof rejected", "tamper accepted!") : ""}
+        <div class="sub">prove ${a.prove_seconds ?? "?"} s · ${a.prove_peak_mb ?? "?"} MB</div>`
+      : `${badge(a.revealed, "committed, revealed in time", "not revealed")}
+        <div class="sub">no proof · source ${a.forecast_source ?? "?"}</div>`;
+    const reward = a.predictor_reward_wei != null
+      ? `<td class="num">${eth(a.predictor_reward_wei)}<div class="sub">${a.beat_baseline ? "beat baseline" : "at/below baseline"}</div></td>`
+      : `<td class="num">–</td>`;
+    return `<tr><td><b>${a.agent}</b> ${typeBadge(a)}<div class="sub mono">${short(a.address)}</div></td>
       <td><div class="probs">${bars}</div></td>
       <td class="num">${(a.p_win * 100).toFixed(1)}%</td>
       <td class="num"><b>${a.log_score_float.toFixed(3)}</b></td>
-      <td>${badge(a.proof_verified_onchain, "verified onchain", "missing")}<br>
-        ${t ? badge(!t.tampered_output_verifies, "tampered proof rejected", "tamper accepted!") : ""}
-        <div class="sub">prove ${a.prove_seconds ?? "?"} s · ${a.prove_peak_mb ?? "?"} MB</div></td>
+      ${reward}
+      <td>${verification}</td>
       <td>agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}
         <br><span class="mono">${rep.tag1} / ${rep.tag2}</span></div></td></tr>`;
   }).join("");
   const agentsCard = card("Agents · forecasts, scores and ERC-8004 reputation", `<table>
     <tr><th>Agent</th><th>Bucket probabilities (purple = outcome)</th><th class="num">p(outcome)</th>
-    <th class="num">Log score</th><th>zk proof (EZKL)</th><th>ERC-8004 reputation ${link(d.contracts.erc8004_reputation)}</th></tr>
+    <th class="num">Log score</th><th class="num">Fee share (WETH)</th><th>Verification</th><th>ERC-8004 reputation ${link(d.contracts.erc8004_reputation)}</th></tr>
     ${rows}</table>
     <div class="sub" style="margin-top:8px">Log score = max(ln p_outcome, −18), computed in VolMarket.settle and written by the
-    market contract to the deployed ERC-8004 Reputation Registry (summary filtered to the market as the only client).</div>`, "wide");
+    market contract to the deployed ERC-8004 Reputation Registry (summary filtered to the market as the only client;
+    commit-only scores carry tag2 <span class="mono">…-commit</span>). Every agent committed a hash before
+    ${r.commit_deadline ? fmtTime(r.commit_deadline) : "the commit deadline"} and revealed before the window opened.
+    ${fs ? `Forecasters above the uniform baseline (${fs.baseline_log_score_float.toFixed(3)}) split ${fs.predictor_share_bps / 100}% of the fee pro rata to their excess score.` : ""}</div>`, "wide");
 
   const chartCard = card("Window · 12 segments of 5 minutes",
     segmentChart(d.offchain_recompute.segment_mean_ticks, d.window.real_segment_ticks), "wide");
@@ -165,8 +183,10 @@ function render({ data: d, src }) {
     <td class="num">${eth(b.amount_wei)}</td><td class="num">${eth(b.payout_wei)}</td></tr>`).join("");
   const betsCard = card("Parimutuel bets (WETH)", `<table><tr><th>Bettor</th><th>Bucket</th>
     <th class="num">Stake</th><th class="num">Payout</th></tr>${betRows}</table>
-    <div class="sub" style="margin-top:8px">Fee ${r.fee_bps / 100}% of the pool${d.fee_collected_wei != null
-      ? `: ${eth(d.fee_collected_wei)} WETH collected to the owner, ${d.market_balance_after_wei} wei left in the market` : ""}.
+    <div class="sub" style="margin-top:8px">Fee ${r.fee_bps / 100}% of the pool${fs
+      ? `: ${eth(fs.fee_wei)} WETH, of which ${eth(fs.owner_wei)} to the owner and ${eth(fs.predictors_wei)} to forecasters` : d.fee_collected_wei != null
+      ? `: ${eth(d.fee_collected_wei)} WETH collected to the owner` : ""}${d.market_balance_after_wei != null
+      ? `, ${d.market_balance_after_wei} wei left in the market` : ""}.
     Bettor 0 followed the agents' consensus.</div>`);
 
   const c = d.contracts;
