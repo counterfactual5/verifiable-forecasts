@@ -363,7 +363,7 @@ function renderReplay({ data: d, src }) {
     <dt>VolMarket</dt><dd class="mono">${short(c.market)} (deployed on the fork)</dd></dl>`);
 
   const app = document.getElementById("app");
-  app.style.gridTemplateColumns = "repeat(auto-fit, minmax(400px, 1fr))";
+  app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
   app.innerHTML = overview + bucketCard + contractsCard + excessCard + rollCard +
     agentsCard + rewardCard + rvCard + roundsCard + clCard;
   document.getElementById("source").textContent =
