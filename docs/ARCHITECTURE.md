@@ -1,22 +1,22 @@
 # 架构说明：可验证 AI 预测的链上问责
 
-本文与根目录 `README.md` 配套：README 面向评审快速上手，本文记录已实现的组件边界、数据流、合约接口与信任边界。设计依据见 `docs/plans/实施计划.md` 第 4–8 节；标「计划中」的部分尚未实现，按当前收窄后的设计简述，实现后再更新对应小节。
+本文与根目录 `README.md` 配套：README 面向评审快速上手，本文记录已实现的组件边界、数据流、合约接口与信任边界。设计依据见 `docs/plans/实施计划.md` 第 4–8 节；未实现的内容集中在第 9 节。
 
 ## 1. 一句话
 
-合约从 Uniswap V3 池子的 `observe()` 自己算出考题输入和结算答案；AI agent 的预测只有附带 EZKL 推理证明、且证明的公开输入与合约自算的特征一致时才被接受；结算时合约按对数评分给每个预测打分。
+合约从 Uniswap V3 池子的 `observe()` 自己算出考题输入和结算答案；AI agent 的预测只有附带 EZKL 推理证明、且证明的公开输入与合约自算的特征一致时才被接受；结算时合约先用 Chainlink ETH/USD 交叉校验池子价格，再按对数评分给每个预测打分，并把分数以市场合约的身份写入该 agent 的 ERC-8004 信誉。
 
-## 2. 数据流（已实现部分）
+## 2. 数据流
 
 ```text
-Uniswap V3 ETH/USDC 0.05% 池（演示与测试中为 MockPool）
+Uniswap V3 ETH/USDC 0.05% 池（离线回合与测试中为 MockPool，演示中为主网 fork 上的真实池）
         │ observe(secondsAgos) → tickCumulative[]
         ▼
 VolMarket.createRound(startTime, bounds)
         │ 取 18 个点 [17Δ … 0] → 17 个段均值 → 16 个相邻差 f_j
         │ 存 x_int_j = clamp(f_j, −64, 64) × 128
         ▼
-agents/（每个 agent 一个模型、一个 operator 账户）
+agents/（每个 agent 一个模型、一个 operator 账户、一个 ERC-8004 agentId）
         │ getFeatures(id) → 本地核对与 contract_math 镜像一致
         │ EZKL witness → prove（子进程）
         ▼
@@ -29,13 +29,16 @@ VolMarket.submitPrediction(id, modelId, proof, outputs[5])     ← startTime 之
         ▼
 VolMarket.settle(id)                                          ← t_N 之后
         │ 已存检查点 + 其余点批量 observe（失败则逐点 try/catch）
-        │ RV（tick²）→ MarketMath.bucketOf → 获胜桶
         │ 覆盖率 < 90% → voided（全额退款）
+        │ 已配置喂价：池子最近 Δ 的 TWAP 价 vs Chainlink ETH/USD，偏离 > 200 bps 或过期 → voided
+        │ RV（tick²）→ MarketMath.bucketOf → 获胜桶
         │ 每个预测：logScore = max(ln p_win, −18e18)
+        │ 已配置信誉：对每个已绑定 agent try giveFeedback(agentId, logScore, 18, "logScore", tag2, …)
         ▼
-claim(id)：赢家按比例分池（扣 fee）；作废或获胜桶无人下注时全额退款
+claim(id)：赢家按比例分池（扣 fee，最后一个赢家拿余数）；作废或获胜桶无人下注时全额退款
+collectFee(id)：任何人把该轮协议费转给 owner
         ▼
-agents 读 getPrediction → out/compare_round.json（按链上分数排序）
+agents/round.py → out/compare_round.json；demo/fork_round.py → demo/out/fork_round.json → dashboard/
 ```
 
 ## 3. 合约
@@ -47,27 +50,31 @@ agents 读 getPrediction → out/compare_round.json（按链上分数排序）
 | 接口 | 谁调用 | 作用 |
 |---|---|---|
 | `registerModel(verifier, operator)` | owner | 登记一个模型的 EZKL 验证合约，返回 modelId；只有 `operator` 能用该模型提交（证明不绑定发送者，防止复制他人证明） |
+| `setReputation(identity, reputation)` | owner | 配置 ERC-8004 两个注册表；两者同为零地址即关闭，只有一侧为零会被拒绝 |
+| `linkAgent(modelId, agentId)` | 模型 operator | 把自己拥有的 ERC-8004 agentId 绑定到模型；`agentId == 0` 表示不归属任何 agent |
+| `setPriceFeed(feed)` | owner | 配置 Chainlink 喂价，零地址关闭 |
 | `createRound(startTime, bounds)` | 任何人 | `bounds` 为 4 个严格递增的 tick² 边界（5 个桶）；`startTime` 须晚于当前时间；从 `observe()` 快照 16 个特征 |
 | `bet(id, bucket, amount)` | 任何人 | `startTime` 前下注（ERC20 `transferFrom`） |
 | `submitPrediction(id, modelId, proof, outputs[5])` | 模型 operator | `startTime` 前、每个地址每轮一次、每轮最多 32 个预测者；证明通过才记录 |
 | `sample(id, k)` | 任何人 | `t_k` 之后存一个检查点，每个 k 一次 |
-| `settle(id)` | 任何人 | `t_N` 之后结算一次：算 RV、定桶、评分或作废 |
-| `claim(id)` | 下注者 | 赢家领取 `MarketMath.payout`；作废 / 无人押中时全额退款 |
-| `getRound` / `getFeatures` / `getCheckpoint` / `getStake` / `getPrediction` / `predictorCount` / `modelCount` | 只读 | 供 agents 与看板读取 |
+| `settle(id)` | 任何人 | `t_N` 之后结算一次：算 RV、喂价校验、定桶、评分、写信誉，或作废 |
+| `claim(id)` | 下注者 | 赢家领取 `MarketMath.payout`，最后一个领取的赢家拿 `total − fee − 已付`；作废 / 无人押中时全额退款 |
+| `collectFee(id)` | 任何人 | 把该轮协议费转给 owner，每轮一次；作废 / 无人押中的轮次没有费用 |
+| `getRound` / `getFeatures` / `getCheckpoint` / `getStake` / `getPrediction` / `predictorCount` / `modelCount` / `priceForTick` | 只读 | 供 agents、演示与看板读取 |
 
-事件：`ModelRegistered`、`RoundCreated`（含 bounds 与 features）、`BetPlaced`、`PredictionSubmitted`、`CheckpointSampled`、`RoundSettled`、`RoundVoided`、`PredictionScored`、`Claimed`。
+事件：`ModelRegistered`、`RoundCreated`（含 bounds 与 features）、`BetPlaced`、`PredictionSubmitted`、`CheckpointSampled`、`RoundSettled`、`RoundVoided`、`PredictionScored`、`Claimed`、`FeeCollected`、`ReputationSet`、`AgentLinked`、`ReputationWriteFailed`、`PriceFeedSet`、`PriceCheckFailed`。
 
-### `lib/MarketMath.sol`
+### `lib/MarketMath.sol`、`lib/TickPriceMath.sol`
 
-`bucketOf`（半开区间：桶 0 为 `v < b[0]`，桶 i 为 `b[i−1] ≤ v < b[i]`，最后一桶 `v ≥ b[n−1]`）、`log1e18`（1e18 定点自然对数，定义域 [1, 1e18]）、`payout`（`stake × (total − fee) / winners`，向下取整）。`BaseFeeMarket` 与 `VolMarket` 共用。
+`MarketMath`：`bucketOf`（半开区间：桶 0 为 `v < b[0]`，桶 i 为 `b[i−1] ≤ v < b[i]`，最后一桶 `v ≥ b[n−1]`）、`log1e18`（1e18 定点自然对数，定义域 [1, 1e18]）、`fee`、`payout`（`stake × (total − fee) / winners`，向下取整）。`TickPriceMath`：整数定点 `1.0001^tick` 换算成 8 位小数的 ETH/USD 价格（不移植 GPL 的 Uniswap TickMath）。
+
+### `erc8004/`
+
+`IdentityRegistryLite` 与 `ReputationRegistryLite`：按 erc-8004-contracts v2.0.0 接口写的最小子集，只供单测与离线回合使用（agentId 从 1 开始；Reputation 按 client 与 `tag1`/`tag2` 过滤，空 tag 为通配）。主网 fork 演示直接使用已部署的 v2.0.0 注册表。注意两者 `getSummary` 返回值不同：Lite 返回一个 `int256` 平均值，已部署版本返回 `(uint64 count, int128 summaryValue, uint8 summaryValueDecimals)`；`VolMarket` 只调用两者一致的 `ownerOf` 与 `giveFeedback`。
 
 ### `verifier/`
 
-EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`Mlp16Verifier`、`Mlp32AbsVerifier`），由 `agents/vol_agents/build.py` 安装，只改了合约名；`SpikeModelVerifier` 来自 `spikes/ezkl`，供 `VolMarket.t.sol` 用真实证明 fixture（`test/fixtures/spike_model_proof.json`）测试。这些文件不手改、不参与 `forge fmt`，按 `foundry.toml` 只对该目录开启 optimizer 以满足 EIP-170。
-
-### `BaseFeeMarket.sol`（legacy）
-
-旧方向的 base fee 市场，保留到提交前与 analysis 的 base fee 管线一起删除。
+EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`Mlp16Verifier`、`Mlp32AbsVerifier`），由 `agents/vol_agents/build.py` 安装，只改了合约名，内容不同时默认拒绝覆盖；`SpikeModelVerifier` 来自 `spikes/ezkl`，供 `VolMarket.t.sol` 用真实证明 fixture 测试。这些文件不手改、不参与 `forge fmt`，按 `foundry.toml` 只对该目录与 `VolMarket.sol` 开启 optimizer 以满足 EIP-170。
 
 ## 4. 波动率口径与公开输入编码
 
@@ -77,75 +84,68 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - 特征：开轮时 `secondsAgos = [17Δ, …, 0]`，17 个段均值的 16 个相邻差 `f_j`，`x_int_j = clamp(f_j, −64, 64) × 128`（模型输入 `x = x_int / 4096`，即 EZKL `input_scale = 12`）。
 - 域编码：非负 `x` 原样；负数编码为 `R − |x|`，R 为 BN254 标量域模数（`FIELD_R`）。
 - instances 顺序：`[16 个特征, 5 个输出]`，共 21 个。每个输出须 `< R/2`、总和 > 0；`probs[i] = out[i] × 1e18 / Σout`（i < 4），余数补到最后一桶，和恰为 1e18。
-- 一致性：合约、`agents/vol_agents/contract_math.py` 各自实现，互不 import，靠共享 fixture `contracts/test/fixtures/vol_rv_cases.json` 对拍。
+- 一致性：合约、`agents/vol_agents/contract_math.py`、`analysis/` 各自实现，互不 import，靠共享 fixture `contracts/test/fixtures/vol_rv_cases.json` 对拍。演示脚本在主网 fork 上再核对一次：开轮特征与同一区块 `observe()` 的离线计算一致，结算 RV 与检查点的离线重算一致。
 
-## 5. agents
+## 5. ERC-8004 信誉
+
+- agent 调 Identity 的 `register(agentURI)` 得到 agentId（ERC-721），模型 operator 调 `linkAgent(modelId, agentId)` 绑定；调用者必须是该模型的 operator 且拥有该 agentId。
+- `settle` 对每个已绑定且 agentId 非零的预测者，取已存的 `logScore`（不重算），以 try/catch 调用
+  `giveFeedback(agentId, int128(logScore), 18, "logScore", tag2, "", "", bytes32(0))`。`tag2` 由构造参数派生为 `vol-<delta>s-<nSegments>`（如 `vol-300s-12`）。注册表调用失败发 `ReputationWriteFailed`，不回滚结算与赔付。
+- 读取方以市场合约为唯一 client 过滤：`getSummary(agentId, [market], "logScore", tag2)`；第三方写的反馈不会混入。已部署的 Reputation 禁止 agent 的 owner/operator 自评，市场合约作为提交者不受影响。
+- 主网 fork 演示中三个 agent 在已部署的 Identity 上注册（演示那次得到 agentId 55212–55214，仅存在于 fork 上），结算后 `getSummary` 各返回 1 条、值等于链上 logScore。
+
+## 6. Chainlink 喂价交叉校验
+
+- owner 通过 `setPriceFeed(feed)` 开启；未配置时按池子 RV 照常结算，作废与退款行为不变。
+- 配置后，`settle` 在覆盖率通过后读结算时刻前 Δ 秒的 `observe([Δ, 0])`，向负无穷取整得到平均 tick，用 `TickPriceMath` 换算成 8 位小数 ETH/USD；`latestRoundData()` 的 answer 按 `decimals()` 归一到 8 位后比较。
+- `answer ≤ 0`、`updatedAt` 在未来或早于 3900 s、喂价调用失败、或绝对偏差严格大于 200 bps 时，发 `PriceCheckFailed` 并作废该轮，沿用 `claim` 全额退款；恰为 200 bps 时通过。迟结算比较的是结算时刻的价格。主网喂价 `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`（8 位小数）。
+- 不做 Chainlink Automation / CRE；`settle` 仍由任何人调用。
+
+## 7. agents 与 analysis
 
 - 模型：`linear_abs`（85 参数）、`mlp16`（357）、`mlp32_abs`（709），numpy 在合成 tick 路径上训练，标签按占位边界 `[8, 20, 45, 110]` 分桶；都以 `Clip(±3) → Softmax` 结尾，电路都在 logrows 15。
-- 构建：`build.py` 按模型缓存 EZKL 产物到 `agents/out/<model>/`（git-ignored），每步一个子进程并记录耗时与峰值内存；验证合约装进 `contracts/src/verifier/`。
-- 一轮：`round.py` 启动 anvil，部署 MockERC20、MockPool、VolMarket（Δ = 300、N = 12、fee 0）和 3 个验证合约，每个模型登记各自的 agent 为 operator；`agent.py` 读特征、生成 witness、核对公开输入、证明、提交；结算后写 `out/compare_round.json`。
-- 边界：只通过 Foundry（`forge create`）与 `contracts/test/fixtures/` 读合约侧内容；不 import `analysis/` 或 `spikes/`。
+- 构建：`build.py` 按模型缓存 EZKL 产物到 `agents/out/<model>/`（git-ignored），每步一个子进程并记录耗时与峰值内存；KZG SRS 须匹配固定的 sha256；验证合约装进 `contracts/src/verifier/`。
+- 离线回合：`round.py` 启动 anvil，部署 MockERC20、MockPool、VolMarket（Δ = 300、N = 12、fee 0）、Lite 注册表和 3 个验证合约，每个 agent 注册身份并绑定；`agent.py` 读特征、生成 witness、核对公开输入、证明、提交；结算后写 `out/compare_round.json`。
+- analysis：按 ≤10k 块分段拉取 Swap 事件，重建 tickCumulative，按第 4 节口径算历史 RV，按 p20/p40/p60/p80 校准出 `[342, 620, 1124, 2052]` tick²（2,010 个小时窗口）。模型尚未按它重训，所以演示与测试仍用占位边界。
+- 边界：agents 只通过 Foundry（`forge create`）与 `contracts/test/fixtures/` 读合约侧内容；agents 与 analysis 互不 import。
 
-## 6. 信任边界
+## 8. 演示与看板
+
+- `demo/run.sh`（薄入口）→ `demo/fork_round.py`：读 `MAINNET_RPC_URL`（缺省为公共 tenderly gateway），用独立的 Foundry 输出目录编译，以 `PYTHONPATH=agents` 复用 `vol_agents` 的 `Agent`、`build`、`Anvil`、`contract_math`。
+- fork 区块：最近一次「至少早于当前 1 小时 + 10 分钟」的 Chainlink ETH/USD 更新所在区块（或 `FORK_BLOCK`）。fork 上喂价不会再更新，结算时它约 3690 s 旧，留在 3900 s 限制之内；区块时间戳按每块 1 s 推进，部署耗时不会让喂价变旧。
+- fork 上的准备：清掉 anvil 公共测试账户在主网上的 EIP-7702 委托代码（否则无法接收 ERC-721 身份），给交易账户发 ETH，并在 0.3% 池换出 USDC（不碰被考的 0.05% 池）。
+- 窗口回放：从主网最新区块的 `observe()` 读出该小时 12 段真实 TWAP tick；每个检查点先 `sample`，再用带价格上限的 `exactInputSingle` 把 fork 上的池子推到该段真实 tick。若该小时已不在主网观测历史内，退回固定的来回小额 swap。
+- `settle` 用固定 gas 上限发送：`cast` 估算 gas 时会找到让 `try giveFeedback` 走 catch 分支也能成功的最低 gas，导致部分信誉写入因 gas 不足失败（见第 10 节）。
+- 输出 `demo/out/fork_round.json`（git-ignored）；`dashboard/index.html` 是无构建的静态页，只读该 JSON（缺省回退到提交的 `dashboard/sample-round.json`），不连钱包、不调用任何写接口。
+
+## 9. 未实现
+
+- 按校准边界与真实数据重训模型并重建验证合约。
+- Chainlink Automation / CRE 自动结算；ERC-8004 Validation 注册表。
+- 密封下注（commit-reveal / FHE）、LMSR、真实网络部署。
+
+## 10. 信任边界与已知问题
 
 | 由链上保证 | 不由链上保证 |
 |---|---|
-| 特征（模型输入）由合约从池子 `observe()` 算出，agent 无法自选输入 | 池子价格本身可被操纵；Chainlink 交叉校验为计划中，且只比一个价格点 |
+| 特征（模型输入）由合约从池子 `observe()` 算出，agent 无法自选输入 | 池子价格本身可被操纵；Chainlink 交叉校验只比较最近一个 Δ 的 TWAP 与一个喂价点 |
 | 预测在 `startTime` 前提交，且附带对已登记模型、对这些输入的有效推理证明 | 已登记的模型是否「好」、训练数据是否真实（目前为合成数据） |
 | 只有模型 operator 能用该模型提交，复制证明无效 | owner 决定登记哪些模型（`registerModel` 仅 owner） |
-| 结算 RV、获胜桶、对数评分、赔付全部在合约内整数计算 | 区间边界由开轮方传入（当前为占位值，校准为计划中） |
-| 观测缺失时作废并全额退款 | EZKL SRS 的来源未校验摘要（首次构建可能联网下载）；验证合约的可信度依赖它 |
+| 结算 RV、获胜桶、对数评分、赔付全部在合约内整数计算 | 区间边界由开轮方传入（当前为占位值） |
+| 观测缺失或喂价不符时作废并全额退款 | 验证合约的可信度依赖 EZKL 与 KZG SRS（构建时校验固定摘要） |
+| 信誉由市场合约写入，读取时可只认市场合约 | 信誉写入失败只发事件；结算调用者给的 gas 不足时，靠后的写入可能失败而结算照常成功 |
 
-另外：特征在 `createRound` 时快照，而预测截止在 `startTime`，两者之间的价格变化不在模型输入里；下注与预测都是公开的；fee 与取整粉尘留在合约内，没有取回函数。
+另外：特征在 `createRound` 时快照，而预测截止在 `startTime`，两者之间的价格变化不在模型输入里；下注与预测都是公开的。
 
-## 7. 计划中
-
-### ERC-8004 信誉
-
-R2 已将 ERC-8004 v2.0 Identity / Reputation 接口接入 `VolMarket`。owner 通过
-`setReputation(identity, reputation)` 配置两个注册表；传入 `address(0)`、
-`address(0)` 同时关闭。未配置或已关闭时，`settle` 不写信誉，原有结算与赔付行为不变。
-
-- 模型 operator 调用 `linkAgent(modelId, agentId)` 绑定 ERC-8004 身份。调用者必须是该
-  `modelId` 的 operator，并且必须拥有 `agentId` 对应的 Identity。`agentId == 0` 可以被
-  明确绑定，但只表示已配置的“无身份”绑定，按 unbound 处理，结算时不写反馈。
-- `settle` 对每个已链接且非零的预测者，使用预测记录中已保存的 `logScore`（不重新计算）
-  以非回滚调用写入信誉：
-  `try giveFeedback(agentId, int128(logScore), 18, "logScore", tag2, "", "", bytes32(0))`。
-  `tag2` 由构造参数运行时派生为 `vol-<delta>s-<nSegments>`（例如
-  `vol-300s-12`），不是硬编码的示例标签。注册表调用失败发出 `ReputationWriteFailed`
-  事件，但不回滚 `settle`，因此不会阻断结算或赔付。最多 32 个绑定预测者的测试结算
-  gas 实测小于 8M。
-- 读取信誉时，客户端应将市场合约作为唯一 submitter/client 过滤项：
-  `getSummary(agentId, [marketAddress], "logScore", tag2)`。`tag2` 可传空字符串以按
-  `logScore` 汇总所有窗口，也可传具体的 `vol-<delta>s-<nSegments>` 做精确筛选；第三方
-  submitter 的反馈不会混入结果。
-
-`IdentityRegistryLite` 与 `ReputationRegistryLite` 是仅供本地测试和 demo 的 ERC-8004
-接口子集：Identity 注册得到的 `agentId` 从 1 开始；Reputation 记录按 submitter/client
-保存，读取按 client 与 `tag1`/`tag2` 过滤（空 tag 按通配处理）。它们不代表完整生产注册表，
-也不实现 Validation 注册表。
-
-### Chainlink 喂价交叉校验
-
-- owner 通过 `setPriceFeed(feed)` 可选配置 Chainlink feed，零地址关闭；不改构造函数。未配置时按池子 RV 照常结算，作废和退款行为保持不变。
-- 配置后，`settle` 在覆盖率通过后读取结算时刻前 Δ 秒的池 `observe([Δ, 0])` tick cumulative，按负数向负无穷取整得到 mean tick，并用整数定点 `1.0001^tick` 转换成 8 位 ETH/USD；feed 通过 `latestRoundData()` 提供 answer/updatedAt，`decimals()` 用于归一到 8 位。ETH/USD 主网 feed 为 `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`（8 decimals）。
-- `answer <= 0`、updatedAt 为未来、超过 3900 秒过期、feed 数据调用失败，或绝对偏差严格大于 200 bps 时，发出 `PriceCheckFailed` 并将轮次作废；沿用 `claim` 全额退款路径。边界恰为 200 bps 时不因偏差作废。
-- Chainlink CRE / Automation 不实现；结算仍可由任何人 permissionless 调用。
-
-### 区间校准与演示（计划中）
-
-- analysis 拉取 Swap 事件重建 tickCumulative，按第 4 节口径算历史 RV，按 p20/p40/p60/p80 出 4 个严格递增的边界，写 analysis 自己的产物，不改共享 fixture 与 agents 的边界；之后模型需按新边界重训并重建验证合约。
-- 主网 fork 回放 + 只读看板（读合约事件与状态，不调用任何写接口）。
-
-## 8. 依赖方向
+## 11. 依赖方向
 
 ```text
-pool (observe) ──▶ contracts（唯一的结算权威）
+pool (observe) ──▶ contracts（唯一的结算权威） ◀── Chainlink feed（交叉校验）
+contracts ──(giveFeedback)──▶ ERC-8004 Reputation
 agents ──(forge create / cast, 读 test/fixtures)──▶ contracts
 agents ──(build.py 安装验证合约)──▶ contracts/src/verifier/
-analysis ──(校准出的 bounds，计划中)──▶ createRound 参数
-contracts ──(事件 / 状态)──▶ dashboard（计划中，只读）
+analysis ──(校准出的 bounds，待重训后接入)──▶ createRound 参数
+demo ──(PYTHONPATH 复用 vol_agents)──▶ agents；demo ──(JSON)──▶ dashboard（只读）
 ```
 
 禁止的边：`contracts →` 任何 Python 或链下组件；`agents ↔ analysis` 的 Python import；`dashboard →` 任一写入接口。
