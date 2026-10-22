@@ -224,7 +224,9 @@ EZKL 参数可见性是 `fixed`：权重写死在电路和验证合约里，换�
 
 **Q7：为什么用 log score？**
 log score 是严格适当评分规则（strictly proper scoring rule）：只有报出自己真实相信的概率才能期望得分最高，
-不能靠夸大或保守获利 `[待证据：文献出处]`。它和训练用的交叉熵是同一个量（第 3 节），模型训练目标与链上
+不能靠夸大或保守获利。出处：Gneiting & Raftery (2007), *Strictly Proper Scoring Rules, Prediction, and
+Estimation*, JASA 102(477):359–378, DOI 10.1198/016214506000001437，原文 “The logarithmic score is strictly
+proper relative to the class L¹ of the probability measures dominated by µ”（A）。它和训练用的交叉熵是同一个量（第 3 节），模型训练目标与链上
 考核目标一致。合约设 −18 的底线，避免概率为 0 时得负无穷、也避免极小概率比 0 得分更低的倒挂
 （`docs/plans/实施计划.md` 第 7 节）。
 
@@ -250,3 +252,29 @@ verifying key 96,391 B（`agents/out/<model>/`）。同配置 spike 的链上验
 **Q12：可信设置（trusted setup）安全吗？**
 用的是 KZG SRS（logrows 15），构建时强制校验 sha256，不符就拒绝（`build.py` 33–35、76–79 行）。
 该 SRS 来自 EZKL 的 `get_srs` 下载，其仪式来源 `[待证据]`。
+
+**Q13：Chainlink 不是已经有波动率喂价吗？**
+Chainlink 曾推出 Realized Volatility 喂价：24h / 7d / 30d 滚动窗口，数据提供方每 10 分钟采样价格
+（文档 <https://docs.chain.link/data-feeds/rates-feeds>，A）；close-to-close 口径见其博客
+<https://chain.link/blog/volatility-oracles>（C）。但它在主网从未上线：官方 reference data directory
+`feeds-mainnet.json` 中没有一条 volatility 条目，主网 ENS `ethusd-24hr-realized-volatility.data.eth`
+无法解析（2026-10-22 实测，X）；测试网（Sepolia、Arbitrum Sepolia、Polygon Amoy、Avalanche Fuji）的数据
+全部停在 2024-08-30（例如 Sepolia ETH-USD 24hr `0x31D04174D0e1643963b38d87f26b0675Bb7dC96e`，
+`updatedAt = 1725059400`，同日实测，X）。
+而且它衡量的是过去 ≥ 24 小时已经发生的波动；我们做的是对**未来 1 小时**的可问责预测，结算由合约直接从
+Uniswap `observe()` 读取，不需要波动率喂价。Chainlink 在本项目里的角色是 ETH/USD 价格交叉校验
+（`docs/ARCHITECTURE.md` 第 6 节）。
+
+量级换算（估算，X）：本项目 RV（tick²）约对应年化波动率 `1.2% × √RV`。推导：1 tick ≈ ln(1.0001) ≈ 1e-4
+的对数价格；RV 是 11 个相邻段均差的平方和（`_realizedVol` 归一到 `nSegments − 1 = 11` 项，
+`VolMarket.sol` 593–617 行），布朗运动下两段 300 s 均值之差的方差为 (2/3)×300 s 的方差，11 项合计有效时长约
+11 × (2/3) × 300 = 2,200 s，所以年化波动率 ≈ 1e-4 × √(RV × 31,536,000 / 2,200) ≈ 0.012 × √RV。
+例如年化 60% ≈ 2,500 tick²。这只是量级参考：真实价格有跳变和微观结构噪声，不满足布朗运动假设。
+
+**Q14：大模型 / 无法用 zk 的模型怎么办？**
+问责的四层里，事前承诺（链上时间戳）、客观结算（`observe()` + Chainlink 交叉校验）、成绩可携带
+（ERC-8004）都不依赖 zk，可以直接复用；只有“出处：确实是该模型算的”需要 zk。路线图是分级验证：zk
+（已实现，小模型）、TEE 远程证明（大模型 / LLM，需信任硬件厂商）、commit-reveal 仅承诺（任意模型，不保证
+出处），opML 乐观验证也可作为选项；后三者**均未实现**。非 zk 等级必须用 commit-reveal，否则后提交者能照抄
+公开的预测。写入 ERC-8004 时用 tag 标注等级，读取方自选信任哪一级。详见 `docs/ARCHITECTURE.md` 第 9 节
+“分级验证”与 `docs/PITCH.md` “Tiered verification”。
