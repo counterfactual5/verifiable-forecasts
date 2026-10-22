@@ -456,6 +456,10 @@ contract VolMarketTest is Test {
         market.settle(id);
         (bool voided,,) = _rv(id);
         assertTrue(voided);
+        uint256 before = token.balanceOf(alice);
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(alice) - before, 100e18);
 
         _deploy(0);
         _segments(_mixed());
@@ -547,6 +551,33 @@ contract VolMarketTest is Test {
         market.settle(id);
         (voided,,) = _rv(id);
         assertTrue(voided, "one unit beyond voids");
+    }
+
+    /// @dev Mirror of the boundary above with the pool below the feed: feedPrice = 50 * poolPrice / 49
+    ///      puts the deviation at exactly MAX_DEVIATION_BPS of the feed price.
+    function test_PriceFeedDeviationBelowFeedBoundary() public {
+        _deploy(0);
+        int24 tick = 196001;
+        while (market.priceForTick(tick) % 49 != 0) {
+            ++tick;
+            assertLt(tick, 196001 + 1000, "no tick with a pool price divisible by 49");
+        }
+        uint256 poolPrice = market.priceForTick(tick);
+        int256 atLimit = int256(poolPrice * 50 / 49);
+        assertEq((uint256(atLimit) - poolPrice) * 10_000, uint256(atLimit) * 200, "exactly 200 bps");
+
+        uint256 id = _roundEndingAtTick(tick);
+        feed.setAnswer(atLimit, block.timestamp);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertFalse(voided, "exactly MAX_DEVIATION_BPS below the feed settles");
+
+        id = _roundEndingAtTick(tick);
+        feed.setAnswer(atLimit + 1, block.timestamp);
+        _expectPriceCheckFailed(id, tick, atLimit + 1, 4);
+        market.settle(id);
+        (voided,,) = _rv(id);
+        assertTrue(voided, "one unit beyond below the feed voids");
     }
 
     function test_PriceFeedDecimalsScaled() public {
@@ -976,6 +1007,50 @@ contract VolMarketTest is Test {
         _settleAfterWindow(id);
         (,,, int256 score) = market.getPrediction(id, bob);
         assertEq(score, MarketMath.log1e18(probs[0]));
+    }
+
+    /// @dev _mixed() settles in bucket 3; a revealed forecast with zero weight there must not block
+    ///      settlement (log1e18(0) reverts) and scores the floor.
+    function test_ZeroWinProbabilityScoresFloor() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        uint256[5] memory out = [uint256(1), 1, 1, 0, 1];
+        _commitOnly(id, bob, out);
+        vm.prank(alice);
+        market.bet(id, 3, 100e18);
+        vm.warp(COMMIT_END);
+        _reveal(id, bob, "", out);
+        (,, uint256[5] memory probs,) = market.getPrediction(id, bob);
+        assertEq(probs[3], 0);
+
+        _settleAfterWindow(id);
+        (bool voided, uint256 bucket,) = _rv(id);
+        assertFalse(voided);
+        assertEq(bucket, 3);
+        (,,, int256 score) = market.getPrediction(id, bob);
+        assertEq(score, market.MIN_LOG_SCORE());
+        uint256 before = token.balanceOf(alice);
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(alice) - before, 100e18);
+    }
+
+    function test_TinyWinProbabilityClampedToFloor() public {
+        _deploy(0);
+        _segments(_mixed());
+        uint256 id = _create();
+        uint256[5] memory out = [uint256(2e17), 2e17, 2e17, 1, 2e17];
+        _commitOnly(id, bob, out);
+        vm.warp(COMMIT_END);
+        _reveal(id, bob, "", out);
+        (,, uint256[5] memory probs,) = market.getPrediction(id, bob);
+        assertEq(probs[3], 1);
+        assertLt(MarketMath.log1e18(probs[3]), market.MIN_LOG_SCORE(), "raw log score below the floor");
+
+        _settleAfterWindow(id);
+        (,,, int256 score) = market.getPrediction(id, bob);
+        assertEq(score, market.MIN_LOG_SCORE());
     }
 
     function test_OutputsMustNotOverflowProbabilityScale() public {
@@ -1441,6 +1516,23 @@ contract VolMarketTest is Test {
         vm.prank(alice);
         market.claim(id);
         assertEq(token.balanceOf(alice) - a0, 100e18);
+    }
+
+    /// @dev Settling an id before it is created must not mark the round created under it later as
+    ///      settled and voided.
+    function test_SettleUnknownRoundReverts() public {
+        _deploy(0);
+        _segments(_mixed());
+        vm.warp(T0);
+        vm.expectRevert(VolMarket.RoundNotFound.selector);
+        market.settle(0);
+
+        uint256 id = _create();
+        assertEq(id, 0);
+        _settleAfterWindow(id);
+        (bool voided, uint256 bucket,) = _rv(id);
+        assertFalse(voided);
+        assertEq(bucket, 3);
     }
 
     function test_CreateRoundValidation() public {
