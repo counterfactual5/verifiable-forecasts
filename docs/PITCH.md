@@ -82,10 +82,50 @@ rounds with outside agents.
 8. **Limits, stated plainly.** Synthetic training data and placeholder buckets `[8, 20, 45, 110]` tick²
    (real hourly RV calibrates to `[342, 620, 1124, 2052]`; grade X, `analysis/`), so today nearly every
    real round lands in the top bucket. The fork demo replays the real hour by swaps. Features are
-   snapshotted at `createRound`. Bets and forecasts are public. No Automation / CRE.
+   snapshotted at `createRound`. Bets and forecasts are public. No Automation / CRE. Only small models
+   fit the zk path; TEE and commit-reveal tiers for larger models are roadmap only.
 9. **Next.** Retrain on calibrated bounds and real history, rebuild verifiers; open model registration
    to outside agents; sealed forecasts; Chainlink Automation for `settle`; ERC-8004 Validation
-   Registry once the spec settles.
+   Registry once the spec settles; tiered verification so models too large for zk can still be held
+   accountable (roadmap, not implemented; see "Tiered verification" below).
+
+## Tiered verification (roadmap, not implemented) / 分级验证（路线图，未实现）
+
+Accountability has four layers. Three of them do not need zk at all:
+
+| Layer | Mechanism | Needs zk? |
+|---|---|---|
+| Committed before the outcome | onchain timestamp, deadline `startTime` | no |
+| Objective settlement | contract reads `observe()`, cross-checked with Chainlink | no |
+| Portable record | score written to ERC-8004 by the market contract | no |
+| Provenance: this model really computed it | zk proof of inference | yes |
+
+So provenance can be offered in tiers, and readers choose which tier they trust:
+
+- **zk (implemented, small models).** What runs today: EZKL proof on contract-derived inputs.
+- **TEE remote attestation (not implemented).** For large models and LLMs; trusts the hardware vendor.
+- **Commit-reveal, commitment only (not implemented).** Any model; proves timing, not provenance.
+- opML (optimistic verification with fraud proofs) is another option for large models [not evaluated].
+
+Non-zk tiers must use commit-reveal: forecasts are public once submitted, so without a sealed commit a
+late submitter could copy an earlier one. The zk tier does not have this problem: outputs are only
+accepted with a proof from the submitter's own registered model (fixed weights, contract-computed
+inputs), and the contract only lets that model's registered operator submit, so neither someone
+else's proof nor someone else's probabilities can be reused. The proof itself does not bind the
+sender; the `modelId → operator` check in `submitPrediction` does (`contracts/src/VolMarket.sol`).
+
+When writing to ERC-8004, the tier can be recorded in a tag (today tag1 = `logScore`,
+tag2 = `vol-300s-12`), so `getSummary` filters by the tier a reader accepts. This follows ERC-8004's
+own design: "Trust models are pluggable and tiered", listing client-feedback reputation,
+stake-secured re-execution, zkML proofs and TEE oracles (grade A, EIP-8004).
+
+问责分四层：事前承诺（链上时间戳）、客观结算（`observe()` + Chainlink 交叉校验）、成绩可携带
+（ERC-8004）都不依赖 zk；只有“出处：确实是该模型算的”依赖 zk。出处可以分级：zk（已实现，小模型）；
+TEE 远程证明（大模型 / LLM，需信任硬件厂商，未实现）；commit-reveal 仅承诺（任意模型，不保证出处，
+未实现）；opML 乐观验证也是一种选项（未评估）。非 zk 路径必须用 commit-reveal，否则后提交者可照抄先
+提交者的公开预测；zk 路径没有这个问题，因为输出必须附带提交者自己已登记模型的证明，且合约只允许该模型
+的 operator 提交（证明本身不绑定发送者，绑定靠合约的 `modelId → operator` 检查）。写入 ERC-8004 时用
+tag 记录验证等级，读取方按自己接受的等级过滤。
 
 ## Problem evidence / 痛点证据
 

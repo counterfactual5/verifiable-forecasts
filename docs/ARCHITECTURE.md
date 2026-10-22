@@ -125,6 +125,29 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - 按校准边界与真实数据重训模型并重建验证合约。
 - Chainlink Automation / CRE 自动结算；ERC-8004 Validation 注册表。
 - 密封下注（commit-reveal / FHE）、LMSR、真实网络部署。
+- 分级验证（见下，路线图）。
+
+### 分级验证（路线图，未实现）
+
+问责可以拆成四层，只有最后一层依赖 zk：
+
+| 层 | 机制 | 依赖 zk |
+|---|---|---|
+| 事前承诺 | 链上时间戳，`startTime` 前提交 | 否 |
+| 客观结算 | 合约读 `observe()`，Chainlink 交叉校验 | 否 |
+| 成绩可携带 | 市场合约写入 ERC-8004 | 否 |
+| 出处：确实是该模型算的 | 推理的 zk 证明 | 是 |
+
+因此“出处”可以分级提供，由读取方选择信任哪一级：
+
+- **zk**（已实现，仅小模型）：即本文第 2–4 节的 EZKL 路径。
+- **TEE 远程证明**（未实现）：适用于大模型 / LLM，需要信任硬件厂商及其证明服务。
+- **commit-reveal 仅承诺**（未实现）：任意模型，只证明预测在事前定下，不保证是哪个模型算的。
+- opML（乐观验证 + 欺诈证明）是大模型的另一种选项，未评估。
+
+非 zk 等级必须走 commit-reveal：预测一经提交即公开，若不先提交密封承诺，后提交者可以照抄先提交者的预测。zk 等级没有这个问题：`submitPrediction` 只接受附带提交者自己已登记模型证明的输出（权重固定在验证合约里，公开输入由合约自算），且只允许该模型登记的 operator 提交，所以既不能复用别人的证明，也不能直接报别人的概率。注意证明本身不绑定发送者，防复制靠的是合约的 `modelId → operator` 检查（第 3 节 `registerModel`）。
+
+写入 ERC-8004 时可用 tag 记录验证等级（当前 tag1 = `logScore`、tag2 = `vol-<delta>s-<nSegments>`，例如在 tag2 后附加等级），读取方用 `getSummary` 按自己接受的等级过滤。这与 ERC-8004 原文一致：“Trust models are pluggable and tiered”，列出的信任模型为客户反馈信誉、质押保障的重新执行、zkML 证明和 TEE 预言机（A，<https://eips.ethereum.org/EIPS/eip-8004>）。具体 tag 格式与是否改用 Validation 注册表待定。
 
 ## 10. 信任边界与已知问题
 
@@ -138,6 +161,8 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 | 信誉由市场合约写入，读取时可只认市场合约；结算 gas 不足以完成写入时整笔 revert，不会静默跳过 | 注册表自身 revert 或超过 50 万 gas 上限时只发 `ReputationWriteFailed`，该分数不进信誉 |
 
 另外：特征在 `createRound` 时快照，而预测截止在 `startTime`，两者之间的价格变化不在模型输入里；下注与预测都是公开的。
+
+出处保证只覆盖能放进 EZKL 电路的小模型。上表左列中的 `startTime` 前提交、合约内结算与作废、市场合约写信誉这几项不依赖 zk，可以复用给大模型；大模型的出处只能靠第 9 节的 TEE 或 commit-reveal 等级，目前均未实现。
 
 ## 11. 依赖方向
 
