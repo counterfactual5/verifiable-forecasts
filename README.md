@@ -171,7 +171,7 @@ recording outline.
 
 **Not done**
 
-- Rolling recalibration and retraining as the market regime shifts; longer evaluation.
+- Deploying rolling retrained models as the market regime shifts (new verifier contracts and new `modelId`s).
 - Chainlink Automation / CRE for calling `settle`, ERC-8004 Validation Registry.
 
 ## Models and evaluation
@@ -194,7 +194,10 @@ period only. Mean log score on the test period (closer to 0 is better; details i
 All three beat the uniform forecast; `mlp32_abs` does **not** beat the previous-hour transition
 baseline, and the other two beat it only by about 0.03. The test period is 7 days of one market
 regime, and it already drifted: only 9 % of its hours fall in the lowest bucket (about 20 % in
-training).
+training). An offline 4-fold walk-forward evaluation (weekly test periods from 09-24 to 10-22, bounds
+and models refit per fold) gives mean log scores of −1.345 (`linear_abs`), −1.383 (`mlp16`), −1.398
+(`mlp32_abs`), −1.395 (transition baseline) and −1.609 (uniform); only `linear_abs` beats the baseline
+in all 4 folds (`agents/MODEL_CARD.md` §6.1). The onchain models are still the single-split set above.
 
 ## Tech stack
 
@@ -259,7 +262,9 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for data flow and trust bound
 
 - **Short evidence.** A 7-day test period and a 1-day replay (24 rounds) do not prove forecasting
   skill. The models are small, see one pool and the last 85 minutes only, and are close to a simple
-  previous-hour baseline (`mlp32_abs` is behind it).
+  previous-hour baseline (`mlp32_abs` is behind it); the offline 4-fold walk-forward keeps that picture,
+  and its shared hyperparameters were picked on the 10-08 validation week, a mild look-ahead for the
+  first two folds.
 - **Drift.** The bounds come from the training period; the test week already put only 9 % of hours in
   the lowest bucket. Keeping the buckets meaningful needs periodic recalibration and retraining, and a
   retrained model is a new verifier and a new `modelId`.

@@ -88,6 +88,6 @@ make check && make test
 
 ## 后续
 
-已完成：analysis 区间校准、ERC-8004 接入、Chainlink 交叉校验、主网 fork 演示与看板、README / 架构 / 演示 / pitch 文档、SRS 摘要校验、验证合约覆盖保护、结算取整 fuzz 与协议费提取、删除旧 base fee 代码、按训练期边界重训模型并重建 EZKL 验证合约、24 小时连续回放（R5）。
+已完成：analysis 区间校准、ERC-8004 接入、Chainlink 交叉校验、主网 fork 演示与看板、README / 架构 / 演示 / pitch 文档、SRS 摘要校验、验证合约覆盖保护、结算取整 fuzz 与协议费提取、删除旧 base fee 代码、按训练期边界重训模型并重建 EZKL 验证合约、24 小时连续回放（R5）、4 折滚动离线评估（R8，4 折均值 linear_abs −1.345）。
 
-1. 滚动重新校准边界与重训，更长测试期的稳定性评估。
+1. 滚动重训上线（重建验证合约并重新登记 modelId）。

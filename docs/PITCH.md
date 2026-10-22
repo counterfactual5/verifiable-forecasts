@@ -44,8 +44,9 @@ ERC-8004: `linear_abs` −35.5 and `mlp32_abs` −35.8 in total beat the uniform
 **2:30 Track fit and next (30 s).** Verifiable AI: onchain-verified inference on contract-derived
 inputs. Agent Infra: ERC-8004 identity plus a reputation signal nobody can self-report. Chainlink:
 the feed is the settlement guard. Honest limits: our three models are small, trained on four weeks of
-one pool and tested on one week; one day of replay says little about skill. Next: rolling retraining,
-then live rounds with outside agents.
+one pool and tested on one week; one day of replay says little about skill; an offline 4-fold walk-forward is done, and only
+`linear_abs` beats the transition baseline in every fold. Next: rolling retraining of the deployed
+models, then live rounds with outside agents.
 
 ## 3 分钟讲稿（中文）
 
@@ -57,7 +58,7 @@ then live rounds with outside agents.
 
 **演示（50 秒）**：主网 fork 上用真实池子、已部署的 ERC-8004 注册表和真实 Chainlink 喂价，连续回放 24 个真实小时（2026-10-21 06:00 至 10-22 06:00 UTC），每小时一轮。三个 zk agent 和一个仅承诺 agent 先承诺后公开，篡改过的证明被拒；24 轮全部结算、0 作废，每轮特征与实际波动率都与主网重算一致，并附 Etherscan 区块链接。看板展示从 ERC-8004 读回的战绩：`linear_abs` 总分 −35.5、`mlp32_abs` −35.8 跑赢均匀基线 −38.6，`mlp16` −39.2 没有跑赢。
 
-**赛道与下一步（30 秒）**：Verifiable AI——链上验证的推理、合约自算的输入；Agent Infra——ERC-8004 身份加无法自报的信誉；Chainlink——喂价是结算护栏。局限：三个模型很小，只用一个池子约四周数据训练、一周测试，一天回放说明不了模型能力；下一步滚动重训，再开放给外部 agent 跑真实轮次。
+**赛道与下一步（30 秒）**：Verifiable AI——链上验证的推理、合约自算的输入；Agent Infra——ERC-8004 身份加无法自报的信誉；Chainlink——喂价是结算护栏。局限：三个模型很小，只用一个池子约四周数据训练、一周测试，一天回放说明不了模型能力；离线 4 折滚动评估里只有 linear_abs 每折都胜过转移矩阵基线（−1.345 对 −1.395）；下一步把滚动重训上线（新验证合约与 modelId），再开放给外部 agent 跑真实轮次。
 
 ## Slide outline (9 slides)
 
@@ -97,12 +98,14 @@ then live rounds with outside agents.
    tick² from the training period only; on the 7-day test period `linear_abs` −1.418 and `mlp16`
    −1.423 beat the previous-hour transition baseline (−1.452) by only ≈ 0.03, `mlp32_abs` (−1.469)
    does not; uniform is −1.609 (grade X, `agents/MODEL_CARD.md`). The test week drifted (9 % of hours
-   in the lowest bucket). A week of test data and a day of replay do not prove skill. Weights are
+   in the lowest bucket). An offline 4-fold walk-forward gives means of `linear_abs` −1.345 vs the
+   baseline's −1.395, with `mlp32_abs` −1.398 slightly behind it (grade X, `agents/MODEL_CARD.md`
+   §6.1). A week of test data and a day of replay do not prove skill. Weights are
    public in the circuit, not hidden. The fork demo replays real hours by swaps. Features are
    snapshotted at `createRound`. Bets are public; forecasts are public after reveal, which ends before
    the window opens. No Automation / CRE, no paying users. Only small models fit the zk path; larger
    models can join as commit-only (timing, not provenance); a TEE tier is roadmap only.
-9. **Next.** Rolling recalibration and retraining with longer evaluation; open model registration
+9. **Next.** Deploying rolling retrained models (new verifier + `modelId`); open model registration
    to outside agents; Chainlink Automation for `settle`; ERC-8004 Validation Registry once the spec
    settles; a TEE tier and submission stake (roadmap, not implemented; see "Tiered verification"
    below).
@@ -283,6 +286,7 @@ BasisOS are grade C only and are deliberately not used.
 | Verifier size / `verifyProof` gas | ≈ 21.8 KB (< 24,576 B) / ≈ 849k gas | X, `agents/MODEL_CARD.md` §1, `docs/DEMO.md` |
 | Fork replay | 24 real hours, 24 settled, 0 voided, ≈ 12 min | X, `docs/DEMO.md` |
 | Test-period mean log score | `linear_abs` −1.418, `mlp16` −1.423, transition baseline −1.452, `mlp32_abs` −1.469, uniform −1.609 | X, `agents/MODEL_CARD.md` §6 |
+| 4-fold walk-forward mean log score | `linear_abs` −1.345, `mlp16` −1.383, transition baseline −1.395, `mlp32_abs` −1.398, uniform −1.609 | X, `agents/MODEL_CARD.md` §6.1 |
 | Settle gas, 32 revealed forecasters bound to ERC-8004 (Lite registry) | 4,415,928 | X, `forge test --match-test test_SettleGasWith32BoundPredictors` |
 | Pool observation history (worst case) | ≈ 2.41 h, so a 1 h window is always readable | X, `spikes/facts/FACTS.md` §1 |
 | Bucket bounds | `[202, 474, 856, 1712]` tick², quintiles of the training period (2026-09-10 – 10-08 UTC) | X, `agents/MODEL_CARD.md` §3 |
