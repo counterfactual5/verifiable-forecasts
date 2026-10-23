@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from . import contract_math as cm
+from . import history
 from . import tsfm_forecast as sf
 from .agent import Forecaster
 from .chain import Anvil, address_of, as_int
@@ -230,13 +231,22 @@ class ApiAgent(Forecaster):
         """bytes32 to register with registerModel(address(0), operator, hash) when reproducible."""
         return sf.model_hash(self.config.model) if self.tier == sf.REPRODUCIBLE else None
 
-    def api_probs(self, feats, bounds, info) -> list[float]:
+    def context(self, feats, info) -> history.Context:
+        """The series sent to the model: the long off-chain one when the model takes it (and
+        $VOL_HISTORY_CACHE provides it), else the 16 onchain differences."""
+        if self.inference and sf.spec(self.config.model).long_context:
+            return history.round_context(feats, info["start"], info["delta_s"])
+        reason = "reproducible tier reads onchain features only" if self.inference else None
+        return history.Context(sf.context(feats), sf.ONCHAIN, reason)
+
+    def api_probs(self, feats, bounds, info, ctx: history.Context | None = None) -> list[float]:
         cfg = self.config
         if self.inference:
-            resp = call_api(cfg, sf.build_request(feats, info, cfg.model),
+            ctx = ctx or self.context(feats, info)
+            resp = call_api(cfg, sf.build_request(ctx.diffs, info, cfg.model),
                             url=cfg.url.rstrip("/") + "/forecast")
             levels, steps = sf.step_quantiles(resp)
-            return sf.probs(levels, steps, bounds, info["n_segments"], cfg.model)
+            return sf.probs(levels, steps, bounds, info["n_segments"], cfg.model, ctx.source)
         return probs_from_response(call_api(cfg, build_request(feats, bounds, info)), bounds)
 
     def prepare(self, chain: Anvil, market: str, round_id: int) -> dict:
@@ -248,12 +258,14 @@ class ApiAgent(Forecaster):
         n = as_int(chain.call(market, "nSegments()(uint8)")[0])
         info = {"market": market, "id": round_id, "start": as_int(r[0]), "delta_s": delta,
                 "n_segments": n}
+        ctx = self.context(feats, info)
         if self.config:
-            probs = self.api_probs(feats, bounds, info)
+            probs = self.api_probs(feats, bounds, info, ctx)
         else:
             probs = probs_from_quantiles(*placeholder_quantiles(feats), bounds)
         return {"features": feats, "outputs": quantize(probs), "proof": "0x",
-                "source": self.source, "api_probs": probs}
+                "source": self.source, "api_probs": probs, "context_source": ctx.source,
+                "context_points": len(ctx.diffs), "context_reason": ctx.reason}
 
 
 def tsfm_agents(config: ApiConfig, keys, models=None) -> list[ApiAgent]:

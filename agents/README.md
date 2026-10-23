@@ -96,7 +96,9 @@ to `out/<name>/timing.jsonl`.
 | `VOL_TSFM_API_SCHEMA` | `inference` (default) or `vol-forecast-request/v1` (the generic schema below) |
 | `VOL_TSFM_MODEL` | inference model id of a single `ApiAgent` built from `ApiConfig.from_env()`, default `remote-model`; `GET {url}/models` lists what the key may use |
 | `VOL_TSFM_MODELS` | comma-separated models for `api_agent.tsfm_agents` (one independent agent each), default `timesfm-3.0,timestral-209m,chronos-2` |
-| `VOL_TSFM_TIMEOUT_S` | request timeout, default 30 |
+| `VOL_TSFM_TIMEOUT_S` | request timeout, default 30 (120 recommended for inference) |
+| `VOL_HISTORY_CACHE` | absolute path of the swap cache written by `analysis/src/fetch_swaps.py --tail` (with its `.coverage.json`); unset: every agent sends the 16 onchain features |
+| `VOL_HISTORY_CONTEXT` | long-context length in segment differences, default 512 |
 
 Error messages never contain the key or the response body. Tests use a local mock HTTP server only.
 
@@ -113,6 +115,13 @@ vol, histograms the draws into the bounds (floor 1e-4) and mixes with uniform by
 `UNIFORM_MIX = 0.3` (every bucket keeps at least 0.06). Request and post-processing live in
 `vol_agents/tsfm_forecast.py`; spreads were chosen on the validation period 2026-10-08 .. 10-15
 only (scores and reasons in `MODEL_CARD.md` 6.2).
+
+Commit-only models send the long context of `history.round_context` instead (512 differences from
+`VOL_HISTORY_CACHE`, falling back to the 16 features when the cache is missing, stale or disagrees
+with them) and use the long-context calibration `history.LONG_CONTEXT_CALIBRATION`; the reproducible
+`timesfm-3.0` always sends the 16 features, so its recompute needs chain data only. The forecast
+record carries `context_source` (`swaps` / `onchain`), `context_points` and `context_reason` next to
+`api_probs`.
 
 `tsfm_agents(config, keys)` builds one agent per model with its own name, key and address:
 

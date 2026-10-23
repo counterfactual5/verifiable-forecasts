@@ -197,8 +197,11 @@ cd ../agents && uv run python -m vol_agents.walkforward   # 写 models/walkforwa
 ### 6.2 inference API 上的三个时序大模型 agent（离线）
 
 三个独立 agent（`api_agent.tsfm_agents`，后处理在 `tsfm_forecast.py`）：`agent-timesfm3`
-（`timesfm-3.0`）、`agent-timestral`（`timestral-209m`）、`agent-chronos`（`chronos-2`）。输入和 zk 模型
-一样，只有链上 16 个特征（÷128 后是 tick 差分）。模型给出后 13 步每一步差分的分位数；agent 对窗口内
+（`timesfm-3.0`）、`agent-timestral`（`timestral-209m`）、`agent-chronos`（`chronos-2`）。输入有两种
+（`history.round_context`，`Context.source`）：`onchain` 是和 zk 模型一样的链上 16 个特征（÷128 后是
+tick 差分，下称 c16）；`swaps` 是链下 swap 缓存算出的 512 个 5 分钟段均值差分（约 42.7 小时，最后 16 点
+与链上特征一致，下称 c512）。仅承诺档（timestral、chronos-2）请求 c512，缓存缺失或与链上特征对不上时
+回退 c16；可复现档 timesfm-3.0 固定用 c16（理由见下）。模型给出后 13 步每一步差分的分位数；agent 对窗口内
 11 步各自独立抽样 4000 次（固定种子），乘以按模型设定的 spread，平方求和得到实际方差，再落桶。
 **不做分位数相加**：相加会把水平低估约 42%，并得到 U 形分布。
 
@@ -207,6 +210,11 @@ cd ../agents && uv run python -m vol_agents.walkforward   # 写 models/walkforwa
   常常落空，所以这里没有用更小的比例。
 - **spread**（按模型，在验证期上选定，混合权重固定为 0.3）：timesfm-3.0 0.5、timestral-209m 0.5、
   chronos-2 0.35。从 16 个点得到的逐步分位数太宽，不缩放的话所有模型都远差于 uniform（约 −2.6 到 −3.4）。
+- **校准跟着输入走**（`tsfm_forecast.calibration(model, source)`）：`onchain` 用上面的 spread 和
+  0.3；`swaps` 用 `history.LONG_CONTEXT_CALIBRATION`，同样只在验证期上选（spread ∈ {0.5..1.2}，
+  mix ∈ {0.2, 0.3, 0.4}，用本节的抽样后处理）：timesfm-3.0 (0.8, 0.3)、timestral-209m (0.8, 0.2)、
+  chronos-2 (0.8, 0.3)。mix 下限定为 0.2（每桶至少 0.04）。揭示记录里 `context_source` /
+  `context_points` / `context_reason` 写明这一轮实际用的是哪种输入。
 
 测试期（10-15 至 10-22，174 个整点轮次，每轮单独请求一次 API，和实盘一致）平均对数得分；
 uniform = −1.6094，linear_abs = −1.3906（回放 24 轮：−1.4795），transition = −1.4350：
@@ -220,6 +228,25 @@ uniform = −1.6094，linear_abs = −1.3906（回放 24 轮：−1.4795），tr
 回放 24 轮 uniform 的总分是 −38.63，linear_abs 是 −35.51。三个模型都没赢过 linear_abs；timestral 和
 chronos 在测试期上相对 uniform 的优势约为 2.5 个标准误，timesfm 只有约 1.5 个。在回放的 24 轮上，
 三个模型和 uniform 之间的差别都落在噪声范围内。
+
+同一测试期改用 c512（c512 校准；测试期请求为批量请求，前面已验证批量与单独请求逐位一致）。
+`history.round_context` 在 6 周 swap 缓存上为验证期加测试期 339 轮重建的 512 点序列与评测所用序列
+339/339 逐位一致：
+
+| agent | c16 测试期 | c512 测试期 | c512 相对 uniform | c512 相对 linear_abs | c512 回放 24 轮（总分） |
+|---|---|---|---|---|---|
+| agent-timesfm3 | −1.5250 | −1.4834 | +0.126 ± 0.042 | −0.093 ± 0.042 | −1.531（−36.75） |
+| agent-timestral | −1.5005 | −1.4177 | +0.192 ± 0.043 | −0.027 ± 0.029 | −1.449（−34.77） |
+| agent-chronos | −1.4964 | −1.4465 | +0.163 ± 0.045 | −0.056 ± 0.035 | −1.493（−35.83） |
+
+长上下文让三个模型都提升了 0.04–0.08，三者相对 uniform 都超过 3 个标准误。测试期上仍然没有一个赢过
+linear_abs；timestral 只差 0.027 ± 0.029，在噪声内。回放 24 轮上 timestral 的总分（−34.77）高于
+linear_abs（−35.51），但 24 轮的标准误约 0.12/轮，不能据此说它更好。上线时实际用 c512 还是回退 c16 取决于
+`VOL_HISTORY_CACHE` 是否及时刷新，看揭示记录的 `context_source`。
+
+timesfm-3.0 用 c512 也能提升（−1.5250 → −1.4834），但仍保持 c16：可复现档要求任何人只凭链上数据重算出
+同一揭示向量。c512 的序列来自链下 swap 缓存；`tsfm_recompute` 要能凭 RPC 拉 swap 日志逐位重建同样的
+512 点，需要新代码和新的一致性验证，这些今天都没有做。c16 的 174/174 与 24/24 逐位一致是已经验证过的。
 
 **档位判断**（要求三条都满足：权重公开、API 在固定参数下重复调用逐位一致、本地用公开权重重算出的
 揭示向量与 API 逐位一致）：

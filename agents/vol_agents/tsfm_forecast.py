@@ -1,8 +1,9 @@
 """inference /forecast request and the post-processing from per-step quantiles to bucket
 probabilities, shared by the API agents and the local recompute of the reproducible ones.
 
-The 16 contract features (differences of Δ-second mean ticks, / 128) go out as one series; the model
-returns quantiles of each next difference. Each window difference is drawn independently from its
+The context (differences of Δ-second mean ticks: the 16 contract features / 128, or the long
+off-chain series of history.round_context) goes out as one series; the model returns quantiles of
+each next difference. Each window difference is drawn independently from its
 quantiles (summing per-step quantiles instead underestimates the level and makes the distribution
 U-shaped), scaled by the model's spread, squared and summed into realized vol, and the draws are
 histogrammed into the round's buckets and mixed with uniform. A fixed seed makes the probabilities
@@ -23,6 +24,7 @@ import numpy as np
 
 from . import contract_math as cm
 from .chain import keccak
+from .history import LONG_CONTEXT_CALIBRATION
 
 # Interval levels asked for: with the median they cover the 21 native quantiles of most models
 # (0.01, 0.05, 0.1 .. 0.9 step 0.05, 0.95, 0.99); models with fewer levels answer the nearest.
@@ -35,6 +37,9 @@ MC_PROB_FLOOR = 1e-4
 # uniform there for timesfm-3.0 and timestral-209m (draws from 16-point contexts miss often).
 UNIFORM_MIX = 0.3
 REPRODUCIBLE, COMMIT_ONLY = "reproducible", "commit-only"
+ONCHAIN, SWAPS = "onchain", "swaps"  # history.Context.source
+# Long-context (spread, mix) for models without an entry in history.LONG_CONTEXT_CALIBRATION
+DEFAULT_LONG_CALIBRATION = (0.8, 0.3)
 
 
 @dataclass(frozen=True)
@@ -49,18 +54,22 @@ class TsfmModel:
     # reproducible only where the public weights recompute the API's revealed vector bit for bit
     # on CPU (174/174 test rounds for timesfm-3.0; chronos-2 173/174; timestral-209m unchecked)
     tier: str
+    # Whether the agent asks history.round_context for the long off-chain series. A reproducible
+    # model stays on the 16 onchain features: its recompute must rebuild the context from chain
+    # data alone.
+    long_context: bool
 
 
 MODELS = {m.model: m for m in (
     TsfmModel("timesfm-3.0", "agent-timesfm3",
                  "google/timesfm-3.0-pytorch@43046b85ec22d584a13f8098c2ed39c889e129c2",
-                 "TimesFM-NC-1.0", 0.5, REPRODUCIBLE),
+                 "TimesFM-NC-1.0", 0.5, REPRODUCIBLE, False),
     TsfmModel("timestral-209m", "agent-timestral", "mistralai/Timestral-209M@9874d252ab0aae16",
-                 "Mistral-Modified-MIT", 0.5, COMMIT_ONLY),
+                 "Mistral-Modified-MIT", 0.5, COMMIT_ONLY, True),
     TsfmModel("chronos-2", "agent-chronos",
                  "amazon/chronos-2@29ec3766d36d6f73f0696f85560a422f50e8498c", "Apache-2.0", 0.35,
-                 COMMIT_ONLY),
-    TsfmModel("remote-model", "agent-remote", "", "Proprietary", 0.5, COMMIT_ONLY),
+                 COMMIT_ONLY, True),
+    TsfmModel("remote-model", "agent-remote", "", "Proprietary", 0.5, COMMIT_ONLY, True),
 )}
 DEFAULT_MODELS = ("timesfm-3.0", "timestral-209m", "chronos-2")
 
@@ -68,7 +77,7 @@ DEFAULT_MODELS = ("timesfm-3.0", "timestral-209m", "chronos-2")
 def spec(model: str) -> TsfmModel:
     """Known models as listed; any other inference id runs commit-only at the median spread."""
     return MODELS.get(model) or TsfmModel(model, f"agent-{model}", "", "unknown", 0.5,
-                                             COMMIT_ONLY)
+                                             COMMIT_ONLY, True)
 
 
 def iso(t: int) -> str:
@@ -85,11 +94,18 @@ def context(features) -> list[int]:
     return [x // cm.MULT for x in features]
 
 
-def build_request(features, round_info, model: str) -> dict:
-    """/forecast body: the feature differences in ticks as one series whose last point is the
-    createRound segment ending at start - delta, forecast up to the window's last difference."""
+def calibration(model: str, source: str = ONCHAIN) -> tuple[float, float]:
+    """(spread, uniform mix) for the context the forecast was made from."""
+    if source == SWAPS:
+        return LONG_CONTEXT_CALIBRATION.get(model, DEFAULT_LONG_CALIBRATION)
+    return spec(model).spread, UNIFORM_MIX
+
+
+def build_request(diffs, round_info, model: str) -> dict:
+    """/forecast body: the context differences in ticks (oldest first) as one series whose last
+    point is the createRound segment ending at start - delta, forecast up to the window's last
+    difference."""
     delta = round_info["delta_s"]
-    diffs = context(features)
     last = round_info["start"] - delta
     freq = f"{delta // 60}min" if delta % 60 == 0 else f"{delta}s"
     uid = f"round-{round_info['id']}"
@@ -154,9 +170,9 @@ def probs_from_step_quantiles(levels, steps, bounds, n_diffs, spread=1.0, mix=0.
     return [float((1 - mix) * v + mix / cm.BUCKETS) for v in p]
 
 
-def probs(levels, steps, bounds, n_segments: int, model: str) -> list[float]:
-    return probs_from_step_quantiles(levels, steps, bounds, n_segments - 1, spec(model).spread,
-                                     UNIFORM_MIX)
+def probs(levels, steps, bounds, n_segments: int, model: str, source: str = ONCHAIN):
+    scale, mix = calibration(model, source)
+    return probs_from_step_quantiles(levels, steps, bounds, n_segments - 1, scale, mix)
 
 
 def model_hash_preimage(model: str) -> dict:

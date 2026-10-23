@@ -12,6 +12,7 @@ import pytest
 
 from vol_agents import api_agent as api
 from vol_agents import contract_math as cm
+from vol_agents import history
 from vol_agents import tsfm_forecast as sf
 from vol_agents import tsfm_recompute as sr
 from vol_agents.chain import DEV_KEYS, Anvil, address_of, as_int
@@ -73,6 +74,12 @@ def server():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv
     srv.shutdown()
+
+
+@pytest.fixture(autouse=True)
+def no_history_cache(monkeypatch):
+    monkeypatch.delenv(history.CACHE_ENV, raising=False)
+    monkeypatch.delenv(history.CONTEXT_ENV, raising=False)
 
 
 def _url(srv, path):
@@ -150,7 +157,7 @@ def test_config_from_env():
 # ---------------------------------------------------------------- inference format
 
 def test_tsfm_request_puts_the_features_on_the_round_grid():
-    body = sf.build_request(FEATURES, INFO, "chronos-2")
+    body = sf.build_request(sf.context(FEATURES), INFO, "chronos-2")
     assert body["model"] == "chronos-2" and body["freq"] == "5min"
     assert body["options"] == {"cleaning": {"preset": "raw"}}
     assert body["h"] == cm.N_SEGMENTS + 1
@@ -205,7 +212,7 @@ def test_tsfm_agent_over_http(server):
     req = server.requests[-1]
     assert req["path"] == "/v1/forecast"
     assert req["headers"]["Authorization"] == f"Bearer {SECRET}"
-    assert req["body"] == sf.build_request(FEATURES, INFO, "remote-model")
+    assert req["body"] == sf.build_request(sf.context(FEATURES), INFO, "remote-model")
     levels, steps = sf.step_quantiles(server.replies["/v1/forecast"])
     assert probs == sf.probs(levels, steps, BOUNDS, cm.N_SEGMENTS, "remote-model")
     assert max(range(5), key=lambda i: probs[i]) == 3
@@ -237,6 +244,44 @@ def test_three_model_agents_are_independent_with_honest_tiers(server):
         api.models_from_env({"VOL_TSFM_MODELS": "chronos-2,chronos-2"})
     with pytest.raises(ValueError):
         api.tsfm_agents(cfg, keys[:2])
+
+
+def test_calibration_follows_the_context_source():
+    assert sf.calibration("chronos-2") == (0.35, sf.UNIFORM_MIX)
+    assert sf.calibration("chronos-2", sf.SWAPS) == history.LONG_CONTEXT_CALIBRATION["chronos-2"]
+    assert sf.calibration("unknown-model", sf.SWAPS) == sf.DEFAULT_LONG_CALIBRATION
+    # no long-context forecast may drop below a 4% floor per bucket
+    for m in sf.MODELS:
+        assert sf.calibration(m, sf.SWAPS)[1] >= 0.2
+
+
+def test_long_context_goes_to_commit_only_models_only(server, monkeypatch):
+    long_diffs = list(range(-250, 250)) + sf.context(FEATURES)
+    calls = []
+
+    def fake_round_context(features, start, delta, env=None):
+        calls.append((features, start, delta))
+        return history.Context(long_diffs, sf.SWAPS, None)
+
+    monkeypatch.setattr(api.history, "round_context", fake_round_context)
+    cfg = api.ApiConfig(url=_url(server, "/v1"), key=SECRET)
+    timesfm, timestral, _ = api.tsfm_agents(cfg, OTHER_KEYS)
+    levels, steps = sf.step_quantiles(server.replies["/v1/forecast"])
+
+    probs = timestral.api_probs(FEATURES, BOUNDS, INFO)
+    assert calls == [(FEATURES, INFO["start"], INFO["delta_s"])]
+    pts = server.requests[-1]["body"]["series"]
+    assert [p["y"] for p in pts] == long_diffs
+    # the long series ends on the same createRound segment as the 16 features
+    assert pts[-1]["ds"] == "2026-10-21T05:55:00Z"
+    assert probs == sf.probs(levels, steps, BOUNDS, cm.N_SEGMENTS, "timestral-209m", sf.SWAPS)
+    assert probs != sf.probs(levels, steps, BOUNDS, cm.N_SEGMENTS, "timestral-209m")
+
+    ctx = timesfm.context(FEATURES, INFO)
+    assert len(calls) == 1 and ctx.source == sf.ONCHAIN and "reproducible" in ctx.reason
+    timesfm.api_probs(FEATURES, BOUNDS, INFO)
+    assert len(calls) == 1
+    assert [p["y"] * cm.MULT for p in server.requests[-1]["body"]["series"]] == FEATURES
 
 
 def test_model_hash_binds_public_weights_parameters_and_code():
@@ -346,6 +391,9 @@ def test_commit_only_agent_round_and_predictor_share(server):
 
         forecast = agent.commit(c, market, 0)
         assert forecast["source"] == "inference:remote-model" and forecast["proof"] == "0x"
+        # no $VOL_HISTORY_CACHE: the long-context model falls back to the onchain features
+        assert forecast["context_source"] == sf.ONCHAIN and forecast["context_points"] == 16
+        assert history.CACHE_ENV in forecast["context_reason"]
         sent = server.requests[-1]["body"]["series"]
         assert sent[-1]["ds"] == sf.iso(start - cm.DELTA)
         assert [p["y"] * cm.MULT for p in sent] == FEATURES
