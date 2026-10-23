@@ -209,9 +209,7 @@ def placeholder_quantiles(features):
 class ApiAgent(Forecaster):
     config: ApiConfig | None = None
 
-    # The chain-facing kind stays commit-only for every API agent: registration by tier (see
-    # `tier` and `model_hash`) is the caller's choice, and fork_round treats "reproducible" as the
-    # Chronos-Bolt runner.
+    # Reveals carry no proof whatever the tier; the caller registers by `tier` and `model_hash`.
     kind = "commit-only"
 
     @property
