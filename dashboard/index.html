@@ -486,9 +486,17 @@ function markScrollHints() {
 
 async function load() {
   const param = new URLSearchParams(location.search).get("data");
-  const sources = [param, "live-replay.json", "../demo/out/fork_replay.json", "sample-replay.json",
+  if (param) {
+    let r;
+    try { r = await fetch(param, { cache: "no-store" }); }
+    catch (_) { throw new Error(`Could not load ?data=${param}: network error`); }
+    if (!r.ok) throw new Error(`Could not load ?data=${param}: HTTP ${r.status}`);
+    try { return { data: await r.json(), src: param }; }
+    catch (_) { throw new Error(`Could not load ?data=${param}: invalid JSON`); }
+  }
+  const sources = ["live-replay.json", "../demo/out/fork_replay.json", "sample-replay.json",
                    "../demo/out/fork_round.json", "sample-round.json"];
-  for (const src of sources.filter(Boolean)) {
+  for (const src of sources) {
     try {
       const r = await fetch(src, { cache: "no-store" });
       if (r.ok) return { data: await r.json(), src };
@@ -1746,7 +1754,10 @@ load().then((x) => {
   });
 }).catch((e) => {
   document.getElementById("subtitle").textContent = "";
-  document.getElementById("app").innerHTML = `<div id="error">${e.message}</div>`;
+  const err = document.createElement("div");
+  err.id = "error";
+  err.textContent = e.message;
+  document.getElementById("app").replaceChildren(err);
 });
 </script>
 </body>

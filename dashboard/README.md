@@ -26,11 +26,13 @@ python3 -m http.server 8765 --bind 127.0.0.1   # from the repo root
 open http://127.0.0.1:8765/dashboard/
 ```
 
-Data source, first found wins: `?data=<url>`, `../demo/out/fork_replay.json` (latest demo run),
-`sample-replay.json` (committed 24-hour replay, so the page works without running the demo),
-`../demo/out/fork_round.json`, `sample-round.json` (committed single round; open it with
-`?data=sample-round.json`). The page has to be served over HTTP: browsers block `fetch` from
-`file://`.
+Data source: `?data=<url>` is exclusive; if it fails to load (missing, non-2xx, invalid JSON,
+unreachable) the page shows an error naming it, with no fallback. Without it, first found wins:
+`live-replay.json` (written hourly by `demo/live.sh`, git-ignored, local only),
+`../demo/out/fork_replay.json` (latest demo run), `sample-replay.json` (committed 24-hour replay, so
+the page works without running the demo), `../demo/out/fork_round.json`, `sample-round.json`
+(committed single round; open it with `?data=sample-round.json`). The page has to be served over
+HTTP: browsers block `fetch` from `file://`.
 
 ## Boundary
 
