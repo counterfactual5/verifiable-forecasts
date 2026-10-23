@@ -33,12 +33,12 @@
   .backdrop::after { content: ""; position: absolute; inset: 0; opacity: .05; mix-blend-mode: overlay;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
-  header { padding: 28px 40px 6px; display: flex; gap: 14px; align-items: center; }
+  header { padding: 28px 40px 6px; display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
   .mark { flex: none; width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
           background: linear-gradient(145deg, rgba(88,166,255,.22), rgba(63,185,80,.14)); border: 1px solid var(--line-2);
           box-shadow: 0 0 24px -6px rgba(88,166,255,.5), inset 0 1px 0 rgba(255,255,255,.08); color: var(--text); }
   .mark svg { width: 20px; height: 20px; }
-  .head { min-width: 0; }
+  .head { flex: 1 1 360px; min-width: 0; }
   h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: .01em; }
   .sub { color: var(--muted); margin-top: 4px; }
   header .sub { margin-top: 2px; font-size: 12.5px; }
@@ -76,12 +76,19 @@
   .claim em { font-style: normal; background: linear-gradient(92deg, #9ecbff 0%, #7ee2b8 55%, #56d4dd 100%);
               -webkit-background-clip: text; background-clip: text; color: transparent; }
   .claim-en { margin: 10px 0 18px; color: var(--muted); font-size: 15px; max-width: 900px; }
-  #summary { position: relative; background: rgba(15,20,28,.72); border: 1px solid var(--line); border-radius: 12px;
-             padding: 9px 16px 9px 88px; color: var(--muted); font: 12.5px/1.6 var(--mono); overflow-wrap: anywhere;
-             backdrop-filter: blur(6px); }
-  #summary::before { content: "TL;DR"; position: absolute; left: 12px; top: 8px; padding: 1px 8px; border-radius: 6px;
-                     font: 700 10.5px/1.7 var(--mono); letter-spacing: .12em; color: #0b1018; background: var(--accent); }
-  #summary b { color: var(--text); font-weight: 600; }
+  #kpis { padding: 10px 40px 0; }
+  #kpis:empty { display: none; }
+  #summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; overflow: hidden;
+             border: 1px solid var(--line); border-radius: 14px; background: var(--line); }
+  .kpi { background: rgba(15,20,28,.92); padding: 12px 16px 11px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .kpi .v { display: block; font: 600 24px/1.15 var(--mono); color: var(--text); letter-spacing: -.02em; margin-bottom: 3px; }
+  .kpi .v.ok { color: #7ee2a0; } .kpi .v.warn { color: #e3b341; }
+  .kpi b { color: var(--text); font-weight: 600; font-family: var(--mono); }
+  .asof { margin-left: auto; flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+          border: 1px solid var(--line-2); background: rgba(15,20,28,.7); font: 11.5px/1.3 var(--mono); color: var(--muted); }
+  .asof:empty { display: none; }
+  .asof::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  .asof b { color: var(--text); font-weight: 600; }
 
   .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; list-style: none; margin: 18px 0 0; padding: 0; }
   .step { position: relative; min-width: 0; padding: 18px 20px 16px; border-radius: 16px; border: 1px solid var(--line);
@@ -130,7 +137,7 @@
   /* Load choreography: transform-only motion stays outside #app, whose geometry the acceptance probes measure. */
   .intro .claim, .intro .claim-en, .intro .step, .intro .headline { animation: rise .8s var(--ease) both; }
   .intro .claim-en { animation-delay: .08s; }
-  .intro #summary { animation: fade .8s var(--ease) .14s both; }
+  .intro #summary { animation: fade .8s var(--ease) .1s both; }
   .intro .step:nth-child(1) { animation-delay: .18s; } .intro .step:nth-child(2) { animation-delay: .28s; }
   .intro .step:nth-child(3) { animation-delay: .38s; } .intro .headline { animation-delay: .48s; }
   .intro #app > * { animation: fade .9s var(--ease) .5s both; }
@@ -152,7 +159,6 @@
   }
   @media (max-width: 760px) {
     #hero { display: flex; flex-direction: column; }
-    #summary { order: 2; margin-top: 14px; }
     .steps { grid-template-columns: 1fr; order: 3; gap: 30px; }
     .step:not(:last-child) .flow { top: auto; bottom: -28px; right: auto; left: 38px; width: 12px; height: 26px; margin: 0; }
     .flow::before { left: 5px; right: auto; top: 0; bottom: 8px; width: 2px; height: auto;
@@ -242,7 +248,12 @@
     .badge:has(.en) { border-radius: 8px; flex-wrap: wrap; row-gap: 0; }
     .badge .en { display: block; flex-basis: 100%; padding-left: 12px; white-space: nowrap; }
     .badge .sep { display: none; }
-    #summary { padding-left: 14px; padding-top: 34px; }
+    #kpis { padding: 8px 12px 0; }
+    #summary { grid-template-columns: 1fr 1fr; }
+    .kpi { padding: 10px 12px; }
+    .kpi .v { font-size: 20px; }
+    header { flex-wrap: wrap; }
+    .asof { flex: 1 1 100%; min-width: 0; margin-left: 0; white-space: normal; }
   }
   @media (max-width: 1000px) {
     .scroll-hint { display: block; }
@@ -259,7 +270,9 @@
     <h1>Verifiable AI Forecasts · VolMarket round</h1>
     <div class="sub" id="subtitle">loading…</div>
   </div>
+  <div class="asof" id="asof"></div>
 </header>
+<div id="kpis"></div>
 <div id="hero"></div>
 <main id="app"></main>
 <footer id="source"></footer>
@@ -512,17 +525,22 @@ function summaryLine(d) {
   const s = d.summary, u = s.uniform_total_log_score, ag = Object.entries(s.agents);
   const beat = ag.filter(([, v]) => v.total_log_score > u).length;
   const [bestName, bestSum] = ag.reduce((a, b) => (b[1].total_log_score > a[1].total_log_score ? b : a));
-  const parts = [`<b>${s.settled}/${s.rounds}</b> rounds settled`,
-    `<b>${beat}/${ag.length}</b> agents beat uniform on total Σ ln p`,
-    `best <b>${bestName.replace("agent-", "")}</b> <b>${bestSum.total_log_score.toFixed(1)}</b> vs uniform <b>${u.toFixed(1)}</b>`];
+  const kpi = (v, label, cls = "") => `<div class="kpi"><span class="v ${cls}">${v}</span>${label}</div>`;
+  const tiles = [kpi(`${s.settled}/${s.rounds}`, "rounds settled · 轮已结算", s.settled === s.rounds ? "ok" : "warn"),
+    kpi(`${beat}/${ag.length}`, "agents beat uniform on total Σ ln p · 跑赢瞎猜"),
+    kpi(bestSum.total_log_score.toFixed(1), `best <b>${bestName.replace("agent-", "")}</b> Σ ln p vs uniform <b>${u.toFixed(1)}</b>`, "ok")];
   const tc = d.tamper_checks ?? [];
-  if (tc.length) parts.push(`tampered zk proofs rejected <b>${tc.filter((t) => t.tampered_output_verifies === false).length}/${tc.length}</b>`);
+  if (tc.length) {
+    const rej = tc.filter((t) => t.tampered_output_verifies === false).length;
+    tiles.splice(2, 0, kpi(`${rej}/${tc.length}`, "tampered zk proofs rejected · 篡改证明被拒", rej === tc.length ? "ok" : "warn"));
+  }
   const fs = s.fee_strategies;
   if (fs) {
     const low = lowestFee(fs);
-    parts.push(`lowest fee MAE: <b>${low.key.replace("_", " ")} ${low.mae.toFixed(2)}</b> bps (forecast-driven <b>${fs.mae_bps.forecast.toFixed(2)}</b>)`);
+    tiles.push(kpi(fs.mae_bps.forecast.toFixed(2), `forecast-driven fee MAE bps · lowest MAE: <b>${low.key.replace("_", " ")} ${low.mae.toFixed(2)}</b>`,
+      low.key === "forecast" ? "ok" : "warn"));
   }
-  return `<div id="summary">${parts.join(" · ")}</div>`;
+  return `<div id="summary">${tiles.join("")}</div>`;
 }
 
 // Best scorer among the proof-carrying agents, falling back to every agent when none carries a proof.
@@ -579,7 +597,6 @@ function heroHtml(d, isZk) {
   const ratio = Math.exp(b.excess);
   return `<p class="claim">AI 预测<em>先承诺、再证明</em>，<br class="br">链上按<em>真实结果</em>打分；AMM 直接读它定手续费。</p>
     <p class="claim-en">Forecasts are committed, zk-proven and scored on-chain against the real mainnet hour; an AMM fee reads them.</p>
-    ${summaryLine(d)}
     <ol class="steps">${s1}${s2}${s3}</ol>
     <div class="headline"><div class="bignum${up ? "" : " neg"}"><span class="n" data-to="${b.excess}">${up ? "+" : ""}${b.excess.toFixed(2)}</span><small>nats</small></div>
       <div class="what"><b>${up ? "比瞎猜更准" : "没跑赢瞎猜"}：</b>最佳${b.zk ? " zk" : ""} agent <b>${b.name.replace("agent-", "")}</b>
@@ -826,6 +843,9 @@ function renderReplay({ data: d, src }) {
     <dt>Settlement token</dt><dd>${link(c.settlement_token)} WETH</dd>
     <dt>VolMarket</dt><dd class="mono">${short(c.market)} (fork)</dd></dl>`);
 
+  document.getElementById("kpis").innerHTML = summaryLine(d);
+  const mb = rounds.map((r) => r.mainnet).filter(Boolean);
+  document.getElementById("asof").innerHTML = mb.length ? `Ethereum mainnet · blocks <b>${mb[0].block_from.toLocaleString()}–${mb[mb.length - 1].block_to.toLocaleString()}</b> · ${rp.start_utc.slice(0, 10)} → ${rp.end_utc.slice(5, 10)} · replayed on a fork` : "";
   document.getElementById("hero").innerHTML = heroHtml(d, isZk);
   const app = document.getElementById("app");
   app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
