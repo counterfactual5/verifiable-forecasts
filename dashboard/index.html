@@ -165,6 +165,35 @@
     .stage { grid-template-columns: 1fr; }
     .stage .headline { grid-template-columns: auto minmax(0, 1fr); }
   }
+  /* ---------- activity feed ---------- */
+  .feed-note { margin: -4px 0 10px; color: var(--muted); font-size: 12.5px; }
+  .feed { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+  .fr { display: grid; grid-template-columns: 52px 66px minmax(150px, 1.3fr) minmax(200px, 2fr) minmax(130px, 1.2fr) 86px minmax(110px, 1fr);
+        gap: 10px; align-items: center; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  .fr:nth-child(even):not(.fh) { background: rgba(27, 26, 23, .025); }
+  .fr.fh { font: 600 10.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); border-bottom-color: var(--line-2); }
+  .fr.more { display: none; }
+  #feed-card.all .fr.more { display: grid; }
+  .fr.cur { box-shadow: inset 3px 0 0 var(--vermil); background: rgba(216, 67, 27, .06); }
+  .fr .fg { text-align: right; }
+  .fr .ft, .fr .dim { color: var(--muted); }
+  .fr .who { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); }
+  .fr .who i { width: 9px; height: 9px; border-radius: 50%; outline: 1px solid var(--ink); }
+  .net { justify-self: start; font: 600 10px/1 var(--mono); padding: 3px 6px; border-radius: 4px; border: 1px solid; }
+  .net.mainnet { color: var(--accent); border-color: var(--accent); background: #e3e8fa; }
+  .net.fork { color: var(--muted); border-color: var(--line-2); }
+  .feed-more { margin-top: 10px; font: 600 12px/1 var(--mono); color: var(--ink); background: var(--panel); border: 1px solid var(--ink);
+               border-radius: 8px; padding: 7px 12px; cursor: pointer; box-shadow: 2px 2px 0 var(--ink); }
+  .feed-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 900px) {
+    .fr { grid-template-columns: 44px 60px minmax(0, 1fr) auto; gap: 4px 8px; }
+    .fr.fh { display: none; }
+    .fr .fb { grid-column: 3 / -1; }
+    .fr .fa { grid-column: 1 / 4; }
+    .fr .fw { grid-column: 1 / 3; }
+    .fr .fg { grid-column: 3; text-align: left; }
+    .fr .fx { grid-column: 4; justify-self: end; }
+  }
   /* ---------- round player ---------- */
   .player { margin-top: 22px; background: var(--panel); border: 1px solid var(--ink); border-radius: 16px; padding: 14px 16px 16px;
             box-shadow: 5px 5px 0 var(--ink); }
@@ -900,16 +929,16 @@ function renderReplay({ data: d, src }) {
   STATE.data = d;
   if (!STATE.model) STATE.model = flowModel(d, (a) => agents.find((x) => x.agent === a.agent).color);
   document.getElementById("hero").innerHTML = heroHtml(d, isZk);
-  roundListeners.forEach((f) => f());
   FLOW.canvas = null;
   flowKick();
   const app = document.getElementById("app");
   app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
   // The excess chart must stay the first .card.wide: every chart takes its width from it.
-  app.innerHTML = excessCard + agentsCard + feeCard +
+  app.innerHTML = excessCard + feedCard(d) + agentsCard + feeCard +
     `<div class="divider">审计证据 · Audit trail：回放参数、逐轮主网区块与分数、Chainlink 回放、合约地址</div>` +
     `<div class="trio">${overview}${bucketCard}${contractsCard}</div>` +
     rollCard + rvCard + rewardCard + roundsCard + clCard;
+  roundListeners.forEach((f) => f());
   document.getElementById("source").textContent =
     `Data: ${src} · generated ${d.generated_at ? new Date(d.generated_at * 1000).toISOString() : "?"} · read-only view, no wallet, no writes.`;
 }
@@ -1054,6 +1083,64 @@ roundListeners.push((tick) => {
     el.classList.toggle("locked", k > n);
     el.classList.toggle("now", STATE.playing && !calm && k === n);
   });
+});
+
+// Explorer-style log of every on-chain action the replay records, newest first; only mainnet rows get an Etherscan link.
+const FEED_SHOWN = 12;
+function feedRows(d) {
+  const rows = [], p = d.params;
+  const tierOf = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
+  const tierBy = Object.fromEntries(d.agents.map((a, i) => [a.agent, { tier: tierOf(a), color: PALETTE[i % PALETTE.length] }]));
+  for (const c of d.replay.chainlink_reports ?? []) {
+    if (c.mainnet_block == null) continue;
+    const h = d.rounds.findIndex((r) => c.mainnet_updated_at < r.end);
+    rows.push({ t: c.mainnet_updated_at, h, net: "mainnet", block: blockLink(c.mainnet_block), act: "Chainlink ETH/USD transmit",
+                who: `$${c.answer_usd.toFixed(2)}`, gas: "—", tx: c.mainnet_tx ? txLink(c.mainnet_tx) : "—" });
+  }
+  d.rounds.forEach((r, h) => {
+    for (const [name, ra] of Object.entries(r.agents)) {
+      const k = tierBy[name] ?? { tier: "commit-only", color: "#8a8170" };
+      rows.push({ t: r.start - p.reveal_lead_s, h, net: "fork", block: "—", act: k.tier === "zk" ? "VolMarket.reveal + verifyProof" : "VolMarket.reveal",
+                  who: `<span class="who"><i style="background:${k.color}"></i>${name.replace("agent-", "")}</span>`,
+                  gas: ra.reveal_gas?.toLocaleString() ?? "—", tx: "fork" });
+    }
+    const fo = r.fee?.onchain;
+    if (fo?.block != null) rows.push({ t: fo.timestamp ?? r.start, h, net: "fork", block: fo.block.toLocaleString(), act: "VolFeeConsumer.setFee",
+      who: `${(fo.fee_pips / 100).toFixed(2)} bps`, gas: "—", tx: "fork" });
+    if (r.mainnet) rows.push({ t: r.end - 1, h, net: "mainnet", block: `${blockLink(r.mainnet.block_from)}–${blockLink(r.mainnet.block_to)}`,
+      act: `Uniswap V3 swaps × ${r.mainnet.swap_count}`, who: "pool", gas: "—", tx: r.mainnet.last_swap_tx ? txLink(r.mainnet.last_swap_tx) : "—" });
+    const o = r.outcome;
+    if (o.settle_block != null) rows.push({ t: r.end, h, net: "fork", block: o.settle_block.toLocaleString(),
+      act: o.voided ? "VolMarket.settle（作废）" : `VolMarket.settle → 档位 #${o.winning_bucket}`, who: `${o.erc8004_feedback_logs ?? 0} × ERC-8004 feedback`,
+      gas: o.gas_used?.toLocaleString() ?? "—", tx: "fork" });
+  });
+  return rows.sort((a, b) => b.t - a.t);
+}
+
+function feedCard(d) {
+  const rows = feedRows(d);
+  if (!rows.length) return "";
+  const hhmm = (s) => new Date(s * 1000).toISOString().slice(11, 16);
+  const row = (r, i) => `<li class="fr${i >= FEED_SHOWN ? " more" : ""}" data-h="${r.h}"><span class="ft mono">${hhmm(r.t)}</span>
+    <span class="net ${r.net}">${r.net}</span><span class="fb mono">${r.block}</span><span class="fa">${r.act}</span>
+    <span class="fw">${r.who}</span><span class="fg mono">${r.gas}</span><span class="fx">${r.tx === "fork" ? `<span class="dim">fork 内</span>` : r.tx}</span></li>`;
+  return `<section class="card wide${STATE.feedAll ? " all" : ""}" id="feed-card"><h2>最近链上动作 · On-chain activity</h2>
+    <p class="feed-note">按时间倒序，共 ${rows.length} 条。<b>mainnet</b> 行链接到 Etherscan；<b>fork</b> 行发生在本地 anvil 分叉上，没有公网浏览器链接。
+      reveal 时间取揭示截止时刻（开窗前 ${d.params.reveal_lead_s}s），回放 JSON 未记录其区块号与交易哈希。</p>
+    <ol class="feed"><li class="fr fh" aria-hidden="true"><span>UTC</span><span>链</span><span>区块</span><span>动作</span><span>主体</span><span>gas</span><span>交易</span></li>
+      ${rows.map(row).join("")}</ol>
+    ${rows.length > FEED_SHOWN ? `<button type="button" class="feed-more" data-feed>${STATE.feedAll ? "收起" : `显示全部 ${rows.length} 条`}</button>` : ""}</section>`;
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest?.("[data-feed]")) return;
+  STATE.feedAll = !STATE.feedAll;
+  const c = document.getElementById("feed-card"), n = c.querySelectorAll(".fr:not(.fh)").length;
+  c.classList.toggle("all", STATE.feedAll);
+  e.target.textContent = STATE.feedAll ? "收起" : `显示全部 ${n} 条`;
+});
+roundListeners.push((tick) => {
+  if (tick) return;
+  document.querySelectorAll("#feed-card .fr[data-h]").forEach((el) => el.classList.toggle("cur", Number(el.dataset.h) === STATE.round));
 });
 
 const FLOW = { parts: [], canvas: null, ctx: null, w: 0, h: 0, raf: 0, last: 0, acc: 0, pulse: 0, radii: [] };
