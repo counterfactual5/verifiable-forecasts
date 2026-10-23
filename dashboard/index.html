@@ -487,6 +487,10 @@ function markScrollHints() {
 async function load() {
   const param = new URLSearchParams(location.search).get("data");
   if (param) {
+    // String fields of the JSON are rendered as HTML, so only same-origin data is trusted.
+    let origin;
+    try { origin = new URL(param, location.href).origin; } catch (_) { origin = null; }
+    if (origin !== location.origin) throw new Error(`Could not load ?data=${param}: only same-origin data is allowed`);
     let r;
     try { r = await fetch(param, { cache: "no-store" }); }
     catch (_) { throw new Error(`Could not load ?data=${param}: network error`); }
