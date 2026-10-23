@@ -165,6 +165,10 @@ uv run python -m vol_agents.tsfm_recompute --model chronos-2 --rpc-url <RPC> \
   --market <MARKET> --round <ROUND> --model-id <MODEL_ID>
 ```
 
+It exits 1 on a model hash mismatch, a missing reveal or a bucket beyond tolerance, and 2 when the
+runner fails; there is no fallback forecast. `tests/test_api_agent.py` runs registration, reveal
+and every verdict on anvil with a stand-in runner, so `uv run pytest` needs no `VOL_REPRO_PYTHON`.
+
 ### Generic format (`VOL_TSFM_API_SCHEMA=vol-forecast-request/v1`)
 
 **Request** (`Content-Type: application/json`), built from the contract's own features:
@@ -210,43 +214,6 @@ fitted through the top two; bucket probabilities are the CDF differences at the 
 are then floored at 1e-6 (a zero bucket would score the −18 floor if it wins) and quantized to
 1e18-scaled integers that sum exactly to 1e18 (largest remainder), which are the revealed outputs.
 
-## Reproducible agent
-
-`ReproAgent` (`repro_agent.py`) runs public pinned weights, `amazon/chronos-bolt-tiny` at revision
-`a0e552de83495b5c28c14c71c374f3e33280b340`, through `vol_agents/repro_runner.py` in a separate
-interpreter named by `VOL_REPRO_PYTHON` (needs `chronos-forecasting` 2.x and torch; the agents
-environment stays torch-free). The runner reads the pinned snapshot offline (`HF_HUB_OFFLINE=1`),
-one CPU thread, deterministic torch algorithms, float32. Pre-download once:
-
-```bash
-$VOL_REPRO_PYTHON -c "from huggingface_hub import snapshot_download; \
-  snapshot_download('amazon/chronos-bolt-tiny', revision='a0e552de83495b5c28c14c71c374f3e33280b340')"
-```
-
-Input is the squared segment-mean tick differences `(f // 128)²` of the 16 contract features; the
-runner forecasts the next 11 steps and sums each quantile level over them (an approximation:
-quantiles are not additive). The quantiles become bucket probabilities as for the API agent, then
-whole basis points (each bucket ≥ 1 bp, sum 10000) times 1e14, so the reveal sums to exactly 1e18.
-The model is registered with `registerModel(address(0), operator, modelHash)` where
-`modelHash = keccak256(sha256(model.safetensors) ‖ sha256(config.json) ‖ sha256(repro_runner.py))`
-(`verificationTier` 1), and the agent's ERC-8004 card (a base64 `data:` URI) carries the model,
-`modelHash` and the recompute command. Anyone can check a reveal:
-
-```bash
-VOL_REPRO_PYTHON=/path/to/python uv run python -m vol_agents.recompute \
-  --rpc-url URL --market ADDR --round N --model-id M      # exit 0 only if all 5 buckets match
-uv run python -m vol_agents.recompute --features=f1,...,f16 --bounds=b1,...,b4   # offline vector
-```
-
-It exits non-zero on a model hash mismatch, a missing reveal, any differing bucket or a runner
-failure; there is no fallback forecast. Bit-equality is only claimed on the same machine and
-software stack; across CPUs or library versions the float quantiles can differ, and basis-point
-quantization only makes a differing bucket rare, not impossible.
-
-`tests/test_repro_agent.py` runs the model, so `uv run pytest` (and `make verify`) needs
-`VOL_REPRO_PYTHON` set with the snapshot downloaded; without it those tests fail with that message
-rather than being skipped.
-
 ## Layout
 
 | module | role |
@@ -264,9 +231,6 @@ rather than being skipped.
 | `vol_agents/tsfm_recompute.py` | recompute a reproducible model agent's reveal without the inference service, within tolerance |
 | `vol_agents/swap_logs.py` | the pool's Swap logs over JSON-RPC in the history cache format, for the recompute's 512-point context |
 | `vol_agents/history.py` | long context for the model agents: 512 five-minute segment-mean differences from the analysis swap cache (`fetch_swaps.py --tail`), no reads at or after createRound, fallback to the 16 onchain features |
-| `vol_agents/repro_agent.py` | reproducible `ReproAgent`: runner call, basis-point quantization, model hash, agent card, registration |
-| `vol_agents/repro_runner.py` | pinned Chronos-Bolt inference, run by `VOL_REPRO_PYTHON` |
-| `vol_agents/recompute.py` | recompute a reproducible reveal from onchain data |
 | `vol_agents/round.py` | deploy, open, commit, reveal, settle, compare |
 
 ## Boundary

@@ -79,7 +79,9 @@ docs/
 make check && make test
 ```
 
-`make check` 会运行 agents 的 pytest，其中 `test_repro_agent` 要求环境变量 `VOL_REPRO_PYTHON` 指向装有 Chronos-Bolt 依赖（`chronos-forecasting`、torch）且已预先下载固定版本权重的 Python 解释器，未设置时这些测试直接失败，配置方法见 `agents/README.md`「Reproducible agent」。
+`make check` 会运行 agents 的 pytest；可复现档的测试 `test_api_agent` 用替身 runner 在 anvil 上走完三参数登记、揭示与 `tsfm_recompute` 的 exact / tolerant / fail 判定，不需要 `VOL_REPRO_PYTHON`，也不下载权重。
+
+用真实公开权重重算时，未设置 `VOL_REPRO_PYTHON` 则 `tsfm_recompute` 直接失败退出、不回退；它应指向装有 torch 与各模型运行时的 Python 解释器，配置见 `agents/README.md`「Reproducible tier」。
 
 ## 界面与冒烟验证
 

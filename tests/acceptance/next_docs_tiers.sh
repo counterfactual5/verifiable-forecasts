@@ -60,8 +60,15 @@ lines = [l for l in (block.group(1).splitlines() if block else []) if l.strip() 
 check(lines == ["make check && make test"], f"SPEC Full Verify code block is exactly the one-line command {lines}")
 outside = re.sub(r"```.*?```", "", fv, flags=re.S)
 sents = [x for x in re.split(r"(?<=[。.;；])(?!\d)\s*|\n\s*\n", outside) if x.strip()]
-check(any("VOL_REPRO_PYTHON" in x and re.search(r"失败|fail", x, re.I) and not re.search(r"跳过|可选|skip|optional", x, re.I) for x in sents),
-      "SPEC Full Verify says outside the code block that the agents tests fail without VOL_REPRO_PYTHON")
+check(any("VOL_REPRO_PYTHON" in x and "test_api_agent" in x and re.search(r"不需要|无需|without", x) for x in sents),
+      "SPEC Full Verify says outside the code block that the agents tests (test_api_agent) run without VOL_REPRO_PYTHON")
+check(any("VOL_REPRO_PYTHON" in x and "tsfm_recompute" in x and re.search(r"失败|fail", x, re.I) and re.search(r"不回退|no fallback", x) for x in sents),
+      "SPEC Full Verify says tsfm_recompute fails without VOL_REPRO_PYTHON, with no fallback")
+check(not re.search(r"Chronos-Bolt|test_repro_agent", fv, re.I), "SPEC Full Verify no longer names the retired Chronos-Bolt tests")
+import glob
+skips = [p for p in glob.glob("agents/tests/*.py")
+         if re.search(r"skip[\s\S]{0,200}?VOL_REPRO_PYTHON", open(p, encoding="utf-8").read())]
+check(not skips, f"no agents test is skipped on VOL_REPRO_PYTHON {skips}")
 
 print("PASS" if not fail else "FAIL")
 sys.exit(fail)
