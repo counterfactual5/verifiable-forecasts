@@ -28,8 +28,8 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
   const pal = (((html.match(/const PALETTE = \[([^\]]*)\]/) || [])[1] || "").match(/#[0-9a-fA-F]{6}/g) || []);
   for (const width of [1280, 375]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
-    await page.goto(`${base}/dashboard/?data=sample-replay.json`);
-    await page.waitForSelector("#app svg", { timeout: 15000 });
+    await page.goto(`${base}/dashboard/?data=sample-replay.json#/rounds`);
+    await page.waitForSelector("#app table", { timeout: 15000 });
     const r = await page.evaluate((pal) => {
       const norm = (c) => { const d = document.createElement("div"); d.style.color = c; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; };
       const palN = pal.map(norm);

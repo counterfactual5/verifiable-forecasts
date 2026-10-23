@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # R10 acceptance: dashboard layout, colour, legend and mobile polish. Agent line colours never reuse
-# the winning-bucket colour, the 1280 px grid leaves no half-empty row, legend entries never break
+# the winning-bucket colour, the 1280 px grid of every replay view leaves no half-empty row, legend entries never break
 # inside a series name at 375 px, and the single-round probability bars name their buckets without
 # relying on colour; no horizontal overflow.
 set -uo pipefail
@@ -24,16 +24,21 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
 (async () => {
   let browser;
   try { browser = await pw.chromium.launch(); } catch (_) { browser = await pw.chromium.launch({ channel: "chrome" }); }
-  for (const [data, width] of [["sample-replay.json", 1280], ["sample-round.json", 1280], ["sample-replay.json", 375], ["sample-round.json", 375]]) {
+  // Every replay view is checked: cards of the views not shown take no space, so rows count rendered cards only.
+  const views = ["", "#/live", "#/rounds", "#/agents", "#/fee", "#/chain"];
+  const runs = [["sample-round.json", 1280, ""], ["sample-round.json", 375, ""]]
+    .concat(views.flatMap((v) => [["sample-replay.json", 1280, v], ["sample-replay.json", 375, v]]));
+  for (const [data, width, view] of runs) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
-    await page.goto(`${base}/dashboard/?data=${data}`);
-    await page.waitForSelector("#app svg", { timeout: 15000 });
+    await page.goto(`${base}/dashboard/?data=${data}${view}`);
+    await page.waitForSelector("#app svg", { timeout: 15000, state: "attached" });
+    await page.waitForFunction(() => !document.querySelector("#app > [data-v]") || document.body.dataset.view, null, { timeout: 15000 });
     const r = await page.evaluate(() => {
       const norm = (c) => { const d = document.createElement("div"); d.style.color = c; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; };
       const win = norm(getComputedStyle(document.documentElement).getPropertyValue("--win").trim());
       const lineColours = [...document.querySelectorAll("#app svg polyline, #app svg path")].map((p) => p.getAttribute("stroke")).filter((s) => s && s !== "none").map(norm);
       const app = document.querySelector("#app");
-      const cards = [...app.children].filter((c) => c.classList.contains("card"));
+      const cards = [...app.children].filter((c) => c.classList.contains("card") && c.getClientRects().length);
       const rows = {};
       for (const c of cards) { const t = Math.round(c.getBoundingClientRect().top); (rows[t] = rows[t] || []).push(c); }
       const appW = app.getBoundingClientRect().width;
@@ -57,12 +62,12 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
       return { winVar, legendCount, win, clash: lineColours.filter((c) => c === win).length, lines: lineColours.length, holes, legendBreaks,
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
-    if (data === "sample-replay.json") check(r.lines > 0 && r.clash === 0, `${data} @${width}: no agent line uses the winning-bucket colour ${r.win} (${r.clash}/${r.lines})`);
-    if (width === 1280) check(r.holes.length === 0, `${data} @${width}: no grid row is left half empty ${JSON.stringify(r.holes)}`);
-    check(r.winVar === "#a371f7", `${data} @${width}: the winning-bucket colour --win stays #a371f7 (${r.winVar})`);
-    if (data === "sample-replay.json" && width === 375) check(r.legendCount > 0, `${data} @${width}: legend entries are found (${r.legendCount})`);
-    if (width === 375) check(r.legendBreaks.length === 0, `${data} @${width}: no legend entry breaks inside its name ${JSON.stringify(r.legendBreaks.slice(0, 3))}`);
-    check(r.overflow <= 0, `${data} @${width}: no horizontal overflow (${r.overflow}px)`);
+    if (data === "sample-replay.json") check(r.lines > 0 && r.clash === 0, `${data}${view} @${width}: no agent line uses the winning-bucket colour ${r.win} (${r.clash}/${r.lines})`);
+    if (width === 1280) check(r.holes.length === 0, `${data}${view} @${width}: no grid row is left half empty ${JSON.stringify(r.holes)}`);
+    check(r.winVar === "#a371f7", `${data}${view} @${width}: the winning-bucket colour --win stays #a371f7 (${r.winVar})`);
+    if (data === "sample-replay.json" && width === 375) check(r.legendCount > 0, `${data}${view} @${width}: legend entries are found (${r.legendCount})`);
+    if (width === 375) check(r.legendBreaks.length === 0, `${data}${view} @${width}: no legend entry breaks inside its name ${JSON.stringify(r.legendBreaks.slice(0, 3))}`);
+    check(r.overflow <= 0, `${data}${view} @${width}: no horizontal overflow (${r.overflow}px)`);
 
     if (data === "sample-round.json" && width === 1280) {
       const p = await page.evaluate(() => {

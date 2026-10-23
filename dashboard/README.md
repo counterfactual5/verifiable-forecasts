@@ -14,6 +14,10 @@ wallet, no writes. It renders either JSON the demo writes:
   probabilities, realized vol, log scores, ERC-8004 reputation, the Chainlink cross-check and the zk
   verification status.
 
+The replay view is split into six hash-routed views, one tab each: `#/overview` (default),
+`#/live`, `#/rounds`, `#/agents`, `#/fee`, `#/chain`; `#/how` scrolls to the "How it works" card at
+the bottom of the overview. Keys `1`–`6` jump to a view and `[` / `]` step through them.
+
 ## Run
 
 ```bash
