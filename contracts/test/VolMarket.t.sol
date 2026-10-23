@@ -476,6 +476,42 @@ contract VolMarketTest is Test {
         assertTrue(voided, "answer from the future");
     }
 
+    function test_VoidedRoundRefundsEveryBucket() public {
+        _deploy(100);
+        _segments(_mixed());
+        uint256 id = _create();
+        market.setPriceFeed(address(feed));
+        vm.prank(alice);
+        market.bet(id, 0, 100e18);
+        vm.prank(bob);
+        market.bet(id, 3, 40e18);
+        vm.warp(END + 10);
+        feed.setAnswer(3000e8, block.timestamp);
+        _expectPriceCheckFailed(id, 196001, 3000e8, 4);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertTrue(voided);
+
+        uint256 aliceBefore = token.balanceOf(alice);
+        vm.expectEmit(true, true, false, true, address(market));
+        emit VolMarket.Claimed(id, alice, 100e18);
+        vm.prank(alice);
+        market.claim(id);
+        assertEq(token.balanceOf(alice) - aliceBefore, 100e18, "bucket-0 staker gets stake back, not the pool");
+
+        uint256 bobBefore = token.balanceOf(bob);
+        vm.expectEmit(true, true, false, true, address(market));
+        emit VolMarket.Claimed(id, bob, 40e18);
+        vm.prank(bob);
+        market.claim(id);
+        assertEq(token.balanceOf(bob) - bobBefore, 40e18, "non-zero-bucket staker is refunded");
+        assertEq(token.balanceOf(address(market)), 0, "no fee taken on a voided round");
+
+        vm.prank(bob);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.claim(id);
+    }
+
     function test_PriceFeedRevertVoids() public {
         _deploy(0);
         _segments(_mixed());
