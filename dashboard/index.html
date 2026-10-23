@@ -20,6 +20,8 @@
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px;
           min-width: 0; overflow-x: auto; }
   .card.wide { grid-column: 1 / -1; }
+  /* 1116px to 1471px is where the 340px main grid has exactly three columns. */
+  @media (min-width: 1116px) and (max-width: 1471px) { .card.span2 { grid-column: span 2; } }
   .card h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
              color: var(--muted); font-weight: 600; }
   .big { font-size: 30px; font-weight: 650; }
@@ -96,7 +98,8 @@ const eth = (wei) => (Number(BigInt(wei) / 10n ** 12n) / 1e6).toFixed(4);
 const SCAN = "https://etherscan.io";
 const blockLink = (n) => `<a class="mono" href="${SCAN}/block/${n}" target="_blank" rel="noopener">${n.toLocaleString()}</a>`;
 const txLink = (h, text) => `<a class="mono" href="${SCAN}/tx/${h}" target="_blank" rel="noopener">${text ?? short(h)}</a>`;
-const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#a371f7", "#f778ba", "#79c0ff"];
+// Agent colours never reuse --win or the fee-card series colours.
+const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#f778ba", "#39c5bb", "#79c0ff"];
 const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 // The hint is shown only up to 1000 px, where a card's content box is under 900 px, so these tables always overflow.
 const scrollTable = (inner, minWidth = 0) => `<div class="table-scroll"><table${minWidth ? ` style="min-width:${minWidth}px"` : ""}>${inner}</table></div>` +
@@ -183,6 +186,7 @@ function render({ data: d, src }) {
     const max = Math.max(...a.probs);
     const bars = a.probs.map((p, i) => `<div class="${i === o.winning_bucket ? "win" : ""}"
       style="height:${Math.max(2, p / max * 40)}px" title="#${i} ${names[i]}: ${(p * 100).toFixed(2)}%"></div>`).join("");
+    const probsLabel = `Bucket probabilities: ${a.probs.map((p, i) => `#${i} ${names[i]} ${(p * 100).toFixed(1)}%`).join(", ")}; outcome #${o.winning_bucket}`;
     const rep = a.reputation, repVal = Number(rep.summary_value) / 10 ** rep.summary_decimals;
     const t = tamper[a.agent];
     const verification = isZk(a)
@@ -195,7 +199,7 @@ function render({ data: d, src }) {
       ? `<td class="num">${eth(a.predictor_reward_wei)}<div class="sub">${a.beat_baseline ? "beat baseline" : "at/below baseline"}</div></td>`
       : `<td class="num">–</td>`;
     return `<tr><td><b class="nowrap">${a.agent}</b> ${typeBadge(a)}<div class="sub mono nowrap">${short(a.address)}</div></td>
-      <td><div class="probs">${bars}</div></td>
+      <td><div class="probs" role="img" aria-label="${attr(probsLabel)}">${bars}</div></td>
       <td class="num">${(a.p_win * 100).toFixed(1)}%</td>
       <td class="num"><b>${a.log_score_float.toFixed(3)}</b></td>
       ${reward}
@@ -204,7 +208,7 @@ function render({ data: d, src }) {
         <br><span class="mono">${rep.tag1} / ${rep.tag2}</span></div></td></tr>`;
   }).join("");
   const agentsCard = card("Agents · forecasts, scores and ERC-8004 reputation", `${scrollTable(`
-    <tr><th>Agent</th><th>Bucket probabilities (purple = outcome)</th><th class="num">p(outcome)</th>
+    <tr><th>Agent</th><th>Bucket probabilities (outcome bucket highlighted)</th><th class="num">p(outcome)</th>
     <th class="num">Log score</th><th class="num">Fee share (WETH)</th><th>Verification</th><th>ERC-8004 reputation ${link(d.contracts.erc8004_reputation)}</th></tr>
     ${rows}`, 960)}
     <div class="sub" style="margin-top:8px">Log score = max(ln p_outcome, −18), computed in VolMarket.settle and written by the
@@ -226,7 +230,7 @@ function render({ data: d, src }) {
       ? `: ${eth(fs.fee_wei)} WETH, of which ${eth(fs.owner_wei)} to the owner and ${eth(fs.predictors_wei)} to forecasters` : d.fee_collected_wei != null
       ? `: ${eth(d.fee_collected_wei)} WETH collected to the owner` : ""}${d.market_balance_after_wei != null
       ? `, ${d.market_balance_after_wei} wei left in the market` : ""}.
-    Bettor 0 followed the agents' consensus.</div>`);
+    Bettor 0 followed the agents' consensus.</div>`, "span2");
 
   const c = d.contracts;
   const contractsCard = card("Contracts", `<dl class="kv">
@@ -285,7 +289,7 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
     return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
   }).join("");
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-dasharray="5 4"/>` : "";
-  const legend = series.map((s) => `<span style="color:${s.color}">${!s.dash ? "━" : s.dash === "2 4" ? "┈" : "┅"}</span> ${s.name}`).join(" &nbsp; ");
+  const legend = series.map((s) => `<span class="nowrap"><span style="color:${s.color}">${!s.dash ? "━" : s.dash === "2 4" ? "┈" : "┅"}</span> ${s.name}</span>`).join(" &nbsp; ");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}${lines}${xl}</svg><div class="sub">${legend}</div>`;
 }
 
@@ -367,7 +371,7 @@ function renderReplay({ data: d, src }) {
   const rollCard = card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, label: chartLabel(rollTitle, roll) }) +
     `<div class="sub">Dashed line: uniform baseline ln(1/5).</div>`, "wide");
 
-  const rvSeries = [{ name: "realized vol (tick²)", color: "#a371f7", values: rounds.map((r) => r.outcome.realized_vol ?? r.real_realized_vol) }];
+  const rvSeries = [{ name: "realized vol (tick²)", color: "#c9d1d9", values: rounds.map((r) => r.outcome.realized_vol ?? r.real_realized_vol) }];
   const rvTitle = "Realized volatility per round";
   const rvCard = card(rvTitle,
     lineChart(rvSeries, labels, { min: 0, tip: (v) => v.toFixed(0), label: chartLabel(rvTitle, rvSeries) }) +
@@ -388,15 +392,15 @@ function renderReplay({ data: d, src }) {
     const best = Math.min(...strategies.map(([k]) => fs.mae_bps[k]));
     const tiles = strategies.map(([k, name, meanKey], i) => {
       const mae = fs.mae_bps[k], win = mae === best;
-      return `<div class="fee-tile${win ? " best" : ""}"><div class="sub"><span style="color:${feeSeries[i + 1].color}">${feeSeries[i + 1].dash ? "┅" : "━"}</span>
-        ${name}</div><div><span class="fee-mae" data-mae="${k}">${mae.toFixed(2)}</span> <span class="sub">bps MAE</span>
+      return `<div class="fee-tile${win ? " best" : ""}"><div class="sub"><span class="nowrap"><span style="color:${feeSeries[i + 1].color}">${feeSeries[i + 1].dash ? "┅" : "━"}</span>
+        ${name}</span></div><div><span class="fee-mae" data-mae="${k}">${mae.toFixed(2)}</span> <span class="sub">bps MAE</span>
         ${win ? `<span class="badge ok">lowest</span>` : ""}</div><div class="sub">mean ${fs.mean_bps[meanKey].toFixed(2)} bps</div></div>`;
     }).join("");
     const fallback = fs.equal_weight_fallback_rounds ? ` ${fs.equal_weight_fallback_rounds} of ${fs.rounds} rounds used the equal-weight fallback.` : "";
     const feeTitle = "Consumer example · forecast-driven AMM fee vs fair LVR fee (bps)";
     feeCard = card(feeTitle,
       lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), label: chartLabel(feeTitle, feeSeries) }) +
-      `<div class="fee-tiles"><div class="fee-tile"><div class="sub"><span style="color:#e6edf3">━</span> fair LVR fee</div>
+      `<div class="fee-tiles"><div class="fee-tile"><div class="sub"><span class="nowrap"><span style="color:#e6edf3">━</span> fair LVR fee</span></div>
         <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div>
         <div class="sub">reference</div></div>${tiles}</div>
       <div class="sub" style="margin-top:8px">Fair = LVR break-even fee σ²/8 × 2L√P ÷ the hour's real mainnet volume.
@@ -474,7 +478,7 @@ function renderReplay({ data: d, src }) {
     <dt>Chainlink ETH/USD</dt><dd>${link(c.chainlink_feed)}</dd>
     <dt>Uniswap V3 pool</dt><dd>${link(c.pool)}</dd>
     <dt>Settlement token</dt><dd>${link(c.settlement_token)} WETH</dd>
-    <dt>VolMarket</dt><dd class="mono">${short(c.market)} (deployed on the fork)</dd></dl>`);
+    <dt>VolMarket</dt><dd class="mono">${short(c.market)} (deployed on the fork)</dd></dl>`, "wide");
 
   const app = document.getElementById("app");
   app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
