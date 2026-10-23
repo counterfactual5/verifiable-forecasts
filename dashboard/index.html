@@ -218,6 +218,14 @@
     .fr .fg { grid-column: 3; text-align: left; }
     .fr .fx { grid-column: 4; justify-self: end; }
   }
+  /* ---------- live nowcast ---------- */
+  .nowcast { margin: 0 0 20px; background: var(--panel); border: 1px solid var(--ink); border-radius: 16px; padding: 14px 16px 12px;
+             box-shadow: 5px 5px 0 var(--ink); }
+  .nowcast h3 .badge { font-size: 12px; vertical-align: middle; }
+  .nowcast .nc-cd { font: 600 13px/1 var(--mono); color: var(--muted); margin-left: 6px; white-space: nowrap; }
+  .nowcast .nc-cd b { color: var(--vermil); }
+  .nowcast svg { display: block; margin: 8px 0 6px; }
+  .nowcast .table-scroll { margin: 6px 0; }
   /* ---------- round player ---------- */
   .player { margin-top: 22px; background: var(--panel); border: 1px solid var(--ink); border-radius: 16px; padding: 14px 16px 16px;
             box-shadow: 5px 5px 0 var(--ink); }
@@ -675,7 +683,98 @@ function liveBadge(d) {
   return `<span class="badge live" id="live-badge">LIVE · 最近更新 ${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
 }
 
-function heroHtml(d, isZk) {
+const PROVIDER_ZH = { "self-built zk": "自建 zk", "self-hosted inference": "自部署推理服务" };
+const TIER_ZH = { zk: "zk 证明", reproducible: "可复现", "commit-only": "仅承诺" };
+const QS = [0.05, 0.25, 0.5, 0.75, 0.95];
+// Quantile q of the RV distribution a 5-bucket forecast implies: inside each bucket the CDF is
+// linear in log(RV) between the bucket bounds; the two open buckets are closed one bound ratio
+// beyond the outer bounds (b0²/b1 below, b3²/b2 above) so every bucket spans a finite log interval.
+function bucketQuantile(probs, b, q) {
+  const n = b.length, e = [b[0] * b[0] / b[1], ...b, b[n - 1] * b[n - 1] / b[n - 2]];
+  const tot = probs.reduce((x, y) => x + y, 0);
+  let acc = 0;
+  for (let i = 0; i < probs.length; i++) {
+    const p = probs[i] / tot;
+    if (p > 0 && acc + p >= q) {
+      const t = Math.min(1, Math.max(0, (q - acc) / p));
+      return Math.exp(Math.log(e[i]) + t * (Math.log(e[i + 1]) - Math.log(e[i])));
+    }
+    acc += p;
+  }
+  return e[e.length - 1];
+}
+
+function nowcastTick() {
+  const el = document.getElementById("nowcast-cd");
+  if (!el) return;
+  const s = Number(el.dataset.end) - Math.floor(Date.now() / 1000);
+  el.textContent = s > 0 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "已结束，待下一次运行结算";
+}
+
+// The hour in progress (pending_round of a live run): past realized vol, then each entered agent's
+// median and 50% / 90% intervals for this hour, unsettled.
+function nowcastHtml(d, agents, tierOf) {
+  const pr = d.pending_round;
+  if (!pr) return "";
+  const b = d.params.bounds;
+  const past = d.rounds.slice(-24).map((r) => ({ t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol }))
+    .filter((x) => x.v != null);
+  const fc = agents.filter((a) => pr.agents[a.agent]?.entered && pr.agents[a.agent].probs)
+    .map((a) => ({ ...a, q: QS.map((q) => bucketQuantile(pr.agents[a.agent].probs, b, q)) }));
+  const W = Math.min(1200, chartWidth), H = W < 600 ? 240 : 280, L = 50, R = 10, T = 26, B = 26;
+  const split = L + (W - L - R) * (W < 600 ? 0.4 : 0.58);
+  const vals = past.map((x) => Math.max(1, x.v)).concat(fc.flatMap((a) => a.q), b);
+  const lo = Math.min(...vals) / 1.4, hi = Math.max(...vals) * 1.4;
+  const y = (v) => T + (Math.log(hi) - Math.log(Math.max(v, lo))) / (Math.log(hi) - Math.log(lo)) * (H - T - B);
+  const px = (i) => L + 10 + (past.length < 2 ? 0 : i * (split - L - 26) / (past.length - 1));
+  const grid = b.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="rgba(27,26,23,.14)" stroke-dasharray="3 4"/>
+    <text class="ax" x="${L - 6}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`).join("");
+  const line = past.map((x, i) => `${i ? "L" : "M"}${px(i).toFixed(1)},${y(x.v).toFixed(1)}`).join("");
+  const step = Math.ceil(past.length / Math.max(2, Math.floor((split - L) / 46)));
+  const dots = past.map((x, i) => `<circle cx="${px(i).toFixed(1)}" cy="${y(x.v).toFixed(1)}" r="3" fill="#1b1a17"><title>${x.t} UTC: RV ${x.v} tick²</title></circle>` +
+    (i % step ? "" : `<text class="ax" x="${px(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${x.t}</text>`)).join("");
+  const colW = (W - R - split - 8) / Math.max(1, fc.length), bw = Math.max(6, Math.min(26, colW * 0.6));
+  const fmt = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(1);
+  const bands = fc.map((a, k) => {
+    const cx = split + 4 + (k + 0.5) * colW, [q05, q25, q50, q75, q95] = a.q;
+    const box = (top, bot, op) => `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(top).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y(bot) - y(top)).toFixed(1)}" rx="3" fill="${a.color}" opacity="${op}"/>`;
+    return `<g data-agent="${a.agent}" ${QS.map((q, i) => `data-q${String(Math.round(q * 100)).padStart(2, "0")}="${a.q[i]}"`).join(" ")}>
+      <title>${a.agent}: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, 90% ${fmt(q05)}–${fmt(q95)} tick²</title>
+      ${box(q95, q05, 0.2)}${box(q75, q25, 0.5)}<line x1="${(cx - bw / 2 - 3).toFixed(1)}" x2="${(cx + bw / 2 + 3).toFixed(1)}" y1="${y(q50).toFixed(1)}" y2="${y(q50).toFixed(1)}" stroke="${a.color}" stroke-width="3" stroke-linecap="round"/></g>`;
+  }).join("");
+  const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(`Realized volatility of the last ${past.length} hours and, for the hour ${hour} (pending), each agent's median with 50% and 90% intervals, log scale`)}">
+    <rect x="${split.toFixed(1)}" y="${T - 20}" width="${(W - R - split).toFixed(1)}" height="${H - B - T + 20}" rx="8" fill="var(--accent)" opacity=".06"/>
+    ${grid}<path d="${line}" fill="none" stroke="#1b1a17" stroke-width="2.2" stroke-linejoin="round"/>${dots}
+    <text class="ax" x="${L + 10}" y="${T - 8}">${W < 600 ? "实际 RV" : `过去 ${past.length} 小时 · 链上实际 RV`}</text>
+    <text class="ax" x="${(split + 8).toFixed(1)}" y="${T - 8}">${W < 600 ? "当前小时" : "当前小时 · 待结算"}</text>${bands}
+    <text class="ax" x="${((split + W - R) / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${hour}</text></svg>`;
+  const hm = (t) => new Date(t * 1000).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const zero = (h) => !h || /^0x0*$/.test(h);
+  const rows = d.agents.map((a) => {
+    const g = agents.find((x) => x.agent === a.agent), f = fc.find((x) => x.agent === a.agent), tier = tierOf(a);
+    const prov = a.provider ? PROVIDER_ZH[a.provider] ?? a.provider : tier === "zk" ? "自建 zk" : "自建";
+    const pa = pr.agents[a.agent];
+    const range = f ? `<b>${fmt(f.q[2])}</b><div class="sub">50% ${fmt(f.q[1])}–${fmt(f.q[3])} · 90% ${fmt(f.q[0])}–${fmt(f.q[4])}</div>`
+      : `<span class="sub">本轮未参赛${pa?.skip_reason ? ` · ${attr(pa.skip_reason)}` : ""}</span>`;
+    return `<tr data-agent="${a.agent}" data-provider="${attr(prov)}"><td class="nowrap"><span style="color:${g?.color ?? "inherit"}">●</span> <b>${a.agent}</b>
+      <div class="sub mono">${attr(a.model ?? "")}</div></td><td>${prov}</td>
+      <td><span class="mono" title="fork 上的演示账户（anvil 测试私钥），不在主网上活动">${short(a.address)}</span></td>
+      <td class="num">${a.agent_id}</td><td>${TIER_ZH[tier] ?? tier}</td>
+      <td class="mono">${zero(a.model_hash) ? "—" : short(a.model_hash)}</td><td class="num">${range}</td></tr>`;
+  }).join("");
+  return `<section class="nowcast" id="nowcast" aria-labelledby="nc-title"><div class="flow-head"><span class="eyebrow">live nowcast · 实时预测</span>
+    <h3 id="nc-title">实时预测 · 当前小时 ${hour} <span class="badge warn">待结算</span>
+      <span class="nc-cd">距本小时结束 <b id="nowcast-cd" data-end="${pr.end}"></b></span></h3></div>
+    <div class="sub">上次更新 ${hm(d.generated_at)} · 运行于服务器，每小时自动更新；这一小时结束后，下一次运行把它当作已结束小时重放并结算。</div>
+    ${svg}
+    ${scrollTable(`<tr><th>Agent</th><th>提供方</th><th>地址</th><th class="num">ERC-8004 agentId</th><th>档位</th><th>modelHash</th><th class="num">中位数 · 区间 (tick²)</th></tr>${rows}`, 760)}
+    <div class="sub">左侧实线：过去各小时链上结算的真实 RV（tick²，对数轴，虚线为档位边界）。右侧：每个 agent 对当前小时已揭示的 5 档概率，
+    档内按 log(RV) 线性插值（两端开放档各外延一个边界倍数）得到中位数、50% 与 90% 区间。地址与 agentId 都在 fork 上，不在主网。</div>
+    <div class="sub"><b>演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（无许可）。</b></div></section>`;
+}
+
+function heroHtml(d, isZk, nowcast = "") {
   const s = d.summary, rounds = d.rounds, rp = d.replay;
   const zkN = d.agents.filter(isZk).length, repN = d.agents.filter((a) => a.tier === "reproducible").length;
   const tc = d.tamper_checks ?? [], rej = tc.filter((t) => t.tampered_output_verifies === false).length;
@@ -718,7 +817,7 @@ function heroHtml(d, isZk) {
 
   const ratio = Math.exp(b.excess);
   return `<p class="claim">可验证 AI 预测协议：模型<em>先承诺、再证明</em>，<br class="br">链上按<em class="v">真实结果</em>打分、按信誉加权；第一个消费者：AMM 动态手续费。</p>
-    <p class="claim-en">A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.</p>
+    <p class="claim-en">A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.</p>${nowcast}
     <div class="stage">${flowCard(d)}<div class="headline"><div class="bignum${up ? "" : " neg"}"><span class="n" data-to="${b.excess}">${up ? "+" : ""}${b.excess.toFixed(2)}</span><small>nats</small></div>
       <div class="what"><b>${up ? "比瞎猜更准" : "没跑赢瞎猜"}：</b>最佳${b.zk ? " zk" : ""} agent <b>${b.name.replace("agent-", "")}</b>
         ${rounds.length} 小时累计得分比“每档都猜 1/5”${up ? "高" : "低"} ${Math.abs(b.excess).toFixed(2)} nats，
@@ -786,8 +885,8 @@ function renderReplay({ data: d, src }) {
   const typeBadge = (a) => {
     const tier = tierOf(a);
     if (tier === "zk") return `<span class="badge zk" title="each reveal carries an EZKL proof the contract verified">zk proof</span>`;
-    if (tier === "reproducible" && a.recompute_command)
-      return tierBadge("commit", `modelHash ${a.model_hash ? short(a.model_hash) : "?"} registered onchain; public weights recompute each reveal bit for bit offline (${a.recompute_command}); not re-run by this replay`, "可复现", "reproducible · offline check");
+    if (tier === "reproducible" && a.recompute)
+      return tierBadge("commit", `modelHash ${a.model_hash ? short(a.model_hash) : "?"} registered onchain; public weights recompute each reveal bit for bit ${a.recompute}; not re-run by this replay`, "可复现", "reproducible · offline check");
     if (tier === "reproducible") {
       const { checked, failed } = repro(a), hash = a.model_hash ? short(a.model_hash) : "?";
       const how = `modelHash ${hash} registered onchain; every reveal re-run from the onchain features with the public weights at a pinned revision (python -m vol_agents.recompute) and matched bucket by bucket`;
@@ -916,9 +1015,9 @@ function renderReplay({ data: d, src }) {
   const tsfmInfo = (a) => {
     const repo = a.weights ? a.weights.split("@")[0] : null;
     const lic = /^TimesFM/i.test(a.license ?? "") ? `<b>TimesFM license: non-commercial</b>` : `license ${attr(a.license ?? "?")}`;
-    const out = a.sum.rounds_sat_out ? `<div class="sub">未参赛 ${a.sum.rounds_sat_out} 轮（API 失败，可复现档不提交替身）</div>` : "";
-    return `<div class="sub">${a.provider} · <span class="mono">${attr(a.model)}</span> · ${repo ? `公开权重 <span class="mono">${attr(repo)}</span>` : "闭源"} · ${lic}</div>` +
-      (a.recompute_command ? `<div class="sub">可复现（公开权重 ${attr(repo)}，可离线逐位复核：<span class="mono">${attr(a.recompute_command)}</span>）</div>`
+    const out = a.sum.rounds_sat_out ? `<div class="sub">未参赛 ${a.sum.rounds_sat_out} 轮（推理失败，可复现档不提交替身）</div>` : "";
+    return `<div class="sub">${PROVIDER_ZH[a.provider] ?? attr(a.provider)} · <span class="mono">${attr(a.model)}</span> · ${repo ? `公开权重 <span class="mono">${attr(repo)}</span>` : "闭源"} · ${lic}</div>` +
+      (a.recompute ? `<div class="sub">可复现（公开权重 ${attr(repo)}，可离线逐位复核，方法见 agents/README.md）</div>`
         : `<div class="sub">no proof; reveal checked against commit only</div>`) + ctxSummary(a) + out;
   };
   const agentRows = agents.map((a) => {
@@ -932,7 +1031,7 @@ function renderReplay({ data: d, src }) {
       <td class="num">${m.beat_baseline_rounds}</td><td class="num">${eth(m.predictor_reward_wei)}</td>
       <td>${isZk(a) ? `${t ? badge(!t.tampered_output_verifies, "tampered proof rejected", "tamper accepted!") : ""}
         <div class="sub">prove ${prove} avg${t?.verify_proof_gas ? ` · verifyProof ${t.verify_proof_gas.toLocaleString()} gas` : ""}</div>`
-        : a.provider ? tsfmInfo(a)
+        : a.provider === "self-hosted inference" ? tsfmInfo(a)
         : tierOf(a) === "reproducible" ? (({ checked, failed }) => `${checked
           ? badge(!failed, `${checked}/${checked} reveals recomputed`, `${failed} of ${checked} not reproduced`) : ""}
         <div class="sub">no proof; public weights, model <span class="mono">${a.model_hash ? short(a.model_hash) : "?"}</span></div>`)(repro(a))
@@ -993,7 +1092,9 @@ function renderReplay({ data: d, src }) {
   document.getElementById("asof").innerHTML = mb.length ? `Ethereum mainnet · blocks <b>${mb[0].block_from.toLocaleString()}–${mb[mb.length - 1].block_to.toLocaleString()}</b> · ${rp.start_utc.slice(0, 10)} → ${rp.end_utc.slice(5, 10)} · replayed on a fork` : "";
   STATE.data = d;
   if (!STATE.model) STATE.model = flowModel(d, (a) => agents.find((x) => x.agent === a.agent).color);
-  document.getElementById("hero").innerHTML = heroHtml(d, isZk);
+  document.getElementById("hero").innerHTML = heroHtml(d, isZk, nowcastHtml(d, agents, tierOf));
+  nowcastTick();
+  if (d.pending_round && !STATE.nowcastTimer) STATE.nowcastTimer = setInterval(nowcastTick, 1000);
   FLOW.canvas = null;
   flowKick();
   const app = document.getElementById("app");
@@ -1097,7 +1198,7 @@ function playerBody(d) {
       (t && t.tampered_output_verifies === false ? ` ${bad("篡改 ✗ revert")}` : "") +
       (ra.prove_seconds != null ? ` <span class="mono dim">证明 ${ra.prove_seconds}s</span>` : "");
     else if (ra.entered === false) b = mute(`本轮未参赛 · ${ra.skip_reason ?? "—"}`);
-    else if (k === "reproducible" && a.recompute_command) b = mute("可复现 · 公开权重可离线复核");
+    else if (k === "reproducible" && a.recompute) b = mute("可复现 · 公开权重可离线复核");
     else if (k === "reproducible") b = ra.reproduced === true ? ok("可复现 ✓ 链下重算一致")
       : ra.reproduced === false ? bad("可复现 ✗ 重算不一致") : mute("可复现 · 本轮未核验");
     else b = mute("无证明 · 仅承诺");

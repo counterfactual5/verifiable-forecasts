@@ -192,18 +192,23 @@ updated and when the next run starts, and warns when the file is older than 2 ho
   test funds, and reputation restarts with each fork (it accumulates over the 6 replayed hours).
 - A zk proof is cached per (model, round features), so each hour proves only the new hour; the
   contract still runs `verifyProof` on every reveal. Rounds served from the cache say so.
-- Three inference agents enter every round through the inference API (`api_agent.tsfm_agents`):
-  `agent-timesfm3` is reproducible (public weights `google/timesfm-3.0-pytorch`, modelHash
-  registered; anyone can re-check a reveal bit for bit offline with
-  `python -m vol_agents.tsfm_recompute`, which needs torch and is not run on the server; TimesFM
-  license: non-commercial), `agent-timestral` and `agent-chronos` are commit-only. The commit-only
-  ones read a long context of mainnet swaps fetched each hour (`analysis/src/fetch_swaps.py --tail`)
-  and fall back to the round's 16 onchain points; the dashboard shows which context each used.
-- If the API fails, a commit-only inference agent commits its local placeholder forecast, labelled
-  `placeholder (API failed)`; the reproducible agent sits the round out instead of committing a
+- Three time-series model agents, `agent-timesfm-3.0`, `agent-timestral-209m` and
+  `agent-chronos-2`, forecast through a self-hosted inference service (not on the demo server).
+  Each registers the tier its model supports: a model whose public weights reproduce its reveal bit
+  for bit registers as reproducible with its modelHash, and anyone can re-check it offline (needs
+  torch; see `agents/README.md`); the others are commit-only. timesfm-3.0 weights
+  (`google/timesfm-3.0-pytorch`) carry the TimesFM license: non-commercial. The commit-only models
+  read a long context of mainnet swaps fetched each hour (`analysis/src/fetch_swaps.py --tail`) and
+  fall back to the round's 16 onchain points; the dashboard shows which context each used.
+- If inference fails, a commit-only model falls back to its local placeholder forecast, labelled
+  `placeholder (API failed)`; a reproducible agent sits the round out instead of committing a
   stand-in that would not be its registered model.
+- Each run also opens the round for the hour in progress: every agent commits and reveals on that
+  round's real features, and the dashboard shows the forecasts as pending until the next run
+  replays the hour as completed and settles it.
 - One live run locally: `make live` (needs network; reads `MAINNET_RPC_URL`, `VOL_TSFM_*` from
-  `.env`). Deploying: `bash deploy/push.sh` ships the committed tree only (`git archive HEAD`).
+  `.env`). Deploying: `VF_DEPLOY_HOST=user@host bash deploy/push.sh` ships the committed tree only
+  (`git archive HEAD`).
 
 ## Consumer example: forecast-driven AMM fee (simulated)
 
@@ -416,8 +421,6 @@ the full list):
 On 10-22 the history was rewritten once to replace local absolute paths and the project's earlier
 working name; authors and timestamps are unchanged, and the hashes above are the rewritten ones.
 
-**On-site increment (10-24).** 待补充 / to be added.
-
 **Originality (authors' statement).** This is a new project started for ETH Shenzhen 2026, not an
 iteration of a project from an earlier event. To the best of our knowledge it has not won an award at
 any other hackathon and has not received a grant. The base-fee prototype, once under `legacy/`, was written
@@ -431,6 +434,9 @@ history (last present in `e93932c`).
 - Third-party code: forge-std v1.17.0 vendored in `contracts/lib/forge-std` (MIT / Apache-2.0); Python
   dependencies pinned in `agents/uv.lock` and `analysis/uv.lock` (EZKL, numpy, ONNX, onnxruntime,
   pytest, ruff); the EZKL KZG SRS is downloaded at build time and checked against a pinned sha256.
+- Model weights downloaded at runtime from Hugging Face (the public weights behind the time-series
+  model agents and their offline recompute) are not part of this repository and keep their own
+  licenses; the timesfm-3.0 weights carry the TimesFM license: non-commercial use only.
 - External onchain contracts that the code calls but does not contain: the Uniswap V3 pool, the
   deployed ERC-8004 registries and the Chainlink ETH/USD feed. `contracts/src/erc8004/` is our own
   minimal subset written from the ERC-8004 spec for tests and the offline round.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Replays HOURS (default 24) consecutive real hours of VolMarket rounds on one local anvil fork of
-# Ethereum mainnet; see demo/fork_round.py. Reads MAINNET_RPC_URL, VOL_TSFM_* (inference agents) and
+# Ethereum mainnet; see demo/fork_round.py. Reads MAINNET_RPC_URL, VOL_TSFM_* (inference service) and
 # optional HOURS / REPLAY_START from the environment or the repo's .env (the environment wins).
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"

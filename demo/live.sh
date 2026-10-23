@@ -13,7 +13,7 @@ if command -v flock >/dev/null; then
   exec 9>"$REPO/demo/out/live.lock"
   if ! flock -n 9; then echo "previous live run still running; skipping" >&2; exit 0; fi
 fi
-# Long context for the inference agents (vol_agents.history): mainnet swaps of the last days,
+# Long context for the time-series model agents (vol_agents.history): mainnet swaps of the last days,
 # appended incrementally. A failed fetch only leaves the cache older; history.py then falls back
 # to the round's 16 onchain points.
 export VOL_HISTORY_CACHE="${VOL_HISTORY_CACHE:-$REPO/analysis/data/swaps_tail.csv}"

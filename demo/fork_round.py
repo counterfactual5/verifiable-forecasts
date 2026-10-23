@@ -3,11 +3,11 @@
 The market reads the real Uniswap V3 ETH/USDC 0.05% pool, writes scores to the deployed ERC-8004
 registries and cross-checks the pool price against the Chainlink ETH/USD feed. Each hour is one
 round: the three EZKL agents from agents/ prove on the round's onchain features, and, when
-VOL_TSFM_API_URL is set, one agent per inference model (api_agent.tsfm_agents, VOL_TSFM_MODELS)
-forecasts through the inference API. A inference model whose public weights recompute its reveal bit
-for bit (timesfm-3.0) registers as reproducible with its modelHash; anyone can re-check a reveal
-offline with `python -m vol_agents.tsfm_recompute` (torch; not run here). The others register
-commit-only. Every agent commits a hash first and reveals once commits close; the zk agents'
+VOL_TSFM_API_URL is set, one agent per time-series model (timesfm-3.0, timestral-209m, chronos-2;
+VOL_TSFM_MODELS) forecasts through a self-hosted inference service, named agent-<model id>. A model
+whose public weights recompute its reveal bit for bit registers as reproducible with its modelHash
+(the tier and hash are read from the agent); anyone can re-check a reveal offline (torch; see
+agents/README.md; not run here). The others register commit-only. Every agent commits a hash first and reveals once commits close; the zk agents'
 reveals carry the proof.
 Forecasts above the uniform baseline share half of each round's fee.
 
@@ -29,15 +29,18 @@ Everything happens on the local fork: nothing is broadcast.
 
 Environment: MAINNET_RPC_URL (archive; default the public tenderly gateway), HOURS (default 24),
 REPLAY_START (unix seconds or ISO-8601 UTC, a full hour; default 2026-10-21T06:00:00Z, inside the
-models' test period), VOL_TSFM_* (inference agents; see api_agent.py). Usage: bash demo/run.sh
+models' test period), VOL_TSFM_* (inference service; see api_agent.py). Usage: bash demo/run.sh
 (writes demo/out/fork_replay.json)
 
-A inference API failure never stops the replay: a reproducible agent sits the round out (a stand-in
+An inference failure never stops the replay: a reproducible agent sits the round out (a stand-in
 forecast would not be the registered model's), a commit-only agent commits its local placeholder
 forecast, labelled "placeholder (API failed)".
 
 LIVE=1 (demo/live.sh, run hourly on a server) replays the HOURS (default LIVE_HOURS) most recent
 completed mainnet hours on a fresh fork and writes dashboard/live-replay.json with "live": true.
+It also opens the round for the hour in progress, which starts where the replay ends: its features
+are past segments, so every agent commits and reveals on real data, but nothing settles it until the
+next run replays it as a completed hour. It is written as "pending_round".
 zk proofs are cached by (model, round features) in
 agents/out/proof-cache, so each hourly run proves only the hour it has not seen.
 """
@@ -90,7 +93,7 @@ BETTOR_KEYS = [
     "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a",
     "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
 ]
-# Operators of the inference agents, fork-local only: anvil dev accounts 6 and 9, then fixed keys
+# Operators of the time-series model agents, fork-local only: anvil dev accounts 6 and 9, then fixed keys
 # outside anvil's ten, funded with anvil_setBalance.
 TSFM_KEYS = [
     "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
@@ -98,8 +101,7 @@ TSFM_KEYS = [
     "0x" + "5e" * 32,
     "0x" + "5f" * 32,
 ]
-TSFM_RECOMPUTE = "python -m vol_agents.tsfm_recompute --model {model} --rpc-url <fork> " \
-    "--market <market> --round <id> --model-id <modelId>"
+PROVIDER_ZK, PROVIDER_TSFM = "self-built zk", "self-hosted inference"
 # anvil dev accounts 7 and 8 (unlocked on the fork): the pool trader and the checkpoint sampler
 TRADER_INDEX, SAMPLER_INDEX = 7, 8
 FEE_BPS = 100
@@ -481,7 +483,7 @@ def deploy(c, owner, api_agents=(), proof_cache=None):
                                  f"{agent.model_hash}: refusing to run rounds")
             kind = f"reproducible, modelHash {onchain}"
         elif tier == "commit-only":
-            kind = f"commit-only, forecasts from {agent.source}"
+            kind = f"commit-only, forecasts from {agent.config.model if agent.config else 'placeholder'}"
         else:
             kind = f"zk, verifier {verifier}"
         log(f"{agent.name}: model {agent.model_id}, {kind}, ERC-8004 agentId {agent_id}")
@@ -503,7 +505,7 @@ API_ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError)
 
 
 def commit_api(c, agent, market, rid):
-    """A inference agent's committed forecast, so one failed request never stops the replay. On an
+    """A time-series model agent's committed forecast, so one failed request never stops the replay. On an
     API failure a commit-only agent commits its local placeholder, labelled as such; a
     reproducible agent returns None and sits the round out: a stand-in is not its registered
     model."""
@@ -521,13 +523,21 @@ def commit_api(c, agent, market, rid):
 
 
 def tsfm_info(agent):
-    """What the dashboard shows about a inference agent's model: public weights, licence and, for
-    the reproducible tier, the offline re-check command (torch; never run by this replay)."""
+    """What the dashboard shows about a time-series model agent: public weights, licence and, for
+    the reproducible tier, where the offline re-check is described (torch; never run here)."""
     m = sf.spec(agent.config.model)
-    out = {"provider": "inference API", "weights": m.weights or None, "license": m.license}
+    out = {"provider": PROVIDER_TSFM, "weights": m.weights or None, "license": m.license}
     if agent.tier == "reproducible":
-        out["recompute_command"] = TSFM_RECOMPUTE.format(model=m.model)
+        out["recompute"] = "offline from the public weights; see agents/README.md"
     return out
+
+
+def forecast_source(agent, sub):
+    if not isinstance(agent, ApiAgent):
+        return sub.get("source", "ezkl")
+    if sub.get("source", "").startswith("placeholder"):
+        return sub["source"]
+    return f"{PROVIDER_TSFM}: {agent.config.model}"
 
 
 def deploy_fee_consumer(c, owner, market, fee):
@@ -783,7 +793,7 @@ class Replay:
             row = {"entered": True, "probs": probs[a.name], "probs_e18": probs_e18[a.name],
                    "prove_seconds": prove[a.name], "proof_cached": cached[a.name],
                    "reveal_gas": reveal_gas[a.name],
-                   "forecast_source": sub.get("source", "ezkl")}
+                   "forecast_source": forecast_source(a, sub)}
             for k in ("context_source", "context_points", "context_reason"):
                 if k in sub:
                     row[k] = sub[k]
@@ -974,11 +984,14 @@ def main():
         raise SystemExit("HOURS must be >= 1 and REPLAY_START a full hour")
     api_config, skipped = ApiConfig.from_env(), []
     api_agents = tsfm_agents(api_config, TSFM_KEYS) if api_config else []
+    for a in api_agents:
+        a.name = f"agent-{a.config.model}"
     if not api_config:
-        skipped.append({"agent": "inference agents", "tier": "-",
+        skipped.append({"agent": "time-series model agents", "tier": "-",
                         "reason": "VOL_TSFM_API_URL unset"})
-        log("inference agents: not entered (VOL_TSFM_API_URL unset)")
+        log("time-series model agents: not entered (VOL_TSFM_API_URL unset)")
     end = start + hours * hour
+    opened = hours + 1 if live else hours
     warm = start - ROUND_LEAD_S - (cm.N_FEATURES + 1) * step
     grid = list(range(warm, end + 1, step))
     mainnet = Mainnet(rpc_url)
@@ -1020,7 +1033,7 @@ def main():
             if g in ticks and ticks[g] != tick_now:
                 batch.append(swap_tx(c, tick_now, ticks[g]))
             h_open = (g + ROUND_LEAD_S - start) // hour
-            opening = (g + ROUND_LEAD_S - start) % hour == 0 and 0 <= h_open < hours
+            opening = (g + ROUND_LEAD_S - start) % hour == 0 and 0 <= h_open < opened
             if opening:
                 points = [g - (cm.N_FEATURES + 1 - i) * step for i in range(cm.N_FEATURES + 2)]
                 real_feats = cm.features_from_cumulatives([cums[t] for t in points])
@@ -1056,6 +1069,11 @@ def main():
                      for a in agents}
         market_left = balance(c, WETH, market)
 
+    pending = rp.rounds.pop(hours, None)
+    if pending:
+        pending.pop("features_real")
+        pending.update({"end": pending["start"] + hour, "window_utc": [
+            utc(pending["start"]), utc(pending["start"] + hour)]})
     rounds = [rp.rounds[h] for h in sorted(rp.rounds)]
     result = {
         "schema": "vol-replay/v1",
@@ -1082,7 +1100,7 @@ def main():
                     "model_type": a.kind, "tier": tiers[a.name], "model_hash": hashes[a.name],
                     "address": a.address, "model_id": a.model_id,
                     "agent_id": agent_ids[a.name], "verifier": verifiers[a.name],
-                    **(tsfm_info(a) if isinstance(a, ApiAgent) else {})}
+                    **(tsfm_info(a) if isinstance(a, ApiAgent) else {"provider": PROVIDER_ZK})}
                    for a in agents],
         "tamper_checks": rp.tamper,
         "rounds": rounds,
@@ -1096,6 +1114,8 @@ def main():
         result.update({"live": True, "live_interval_s": LIVE_INTERVAL_S,
                        "next_run_at": (now - LIVE_OFFSET_S) // LIVE_INTERVAL_S * LIVE_INTERVAL_S
                        + LIVE_INTERVAL_S + LIVE_OFFSET_S})
+        if pending:
+            result["pending_round"] = pending
         out = LIVE_RESULT
     out.parent.mkdir(parents=True, exist_ok=True)
     # Written then renamed: the live dashboard is served from this file while the next run writes.
@@ -1138,6 +1158,11 @@ def print_summary(r, out):
           + ", ".join(f"{k} {v:.3f}" for k, v in fs_["mae_bps"].items())
           + f"; mirror matches {fs_['mirror_matches']}, equal-weight rounds "
           f"{fs_['equal_weight_fallback_rounds']}")
+    p = r.get("pending_round")
+    if p:
+        entered = [n for n, a in p["agents"].items() if a["entered"]]
+        print(f"pending round {p['id']} {p['window_utc'][0]}: {len(entered)} agents revealed, "
+              f"settles in the next run")
     print(f"left in market {int(r['market_balance_after_wei'])} wei; wrote "
           f"{out.relative_to(REPO)}")
 
