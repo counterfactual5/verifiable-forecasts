@@ -615,7 +615,7 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
   const vals = series.flatMap((s) => s.values).filter((v) => v != null).concat(zero ?? []);
   const dmin = Math.min(...vals), dmax = Math.max(...vals);
   let lo = dmin, hi = dmax;
-  if (hi === lo) { hi += 1; lo -= 1; }
+  if (hi === lo) { const pad = lo === 0 ? 1 : Math.abs(lo) * 0.1; hi += pad; lo -= pad; }
   if (min != null && dmin >= min) lo = Math.max(lo, min);
   if (max != null && dmax <= max) hi = Math.min(hi, max);
   const raw = (hi - lo) / 5, mag = 10 ** Math.floor(Math.log10(raw));
@@ -1690,7 +1690,8 @@ load().then((x) => {
   if (!calm) document.body.classList.add("intro");
   draw(x);
   const fit = () => {
-    const w = Math.min(1200, measureChartWidth());
+    // A card not laid out yet measures 0 or less; the nowcast forecast column goes negative below ~70.
+    const w = Math.max(280, Math.min(1200, measureChartWidth()));
     if (w !== chartWidth) { chartWidth = w; draw(x); }
   };
   fit();
