@@ -84,10 +84,10 @@
   .kpi .v { display: block; font: 600 24px/1.15 var(--mono); color: var(--text); letter-spacing: -.02em; margin-bottom: 3px; }
   .kpi .v.ok { color: var(--accent); } .kpi .v.warn { color: var(--vermil); }
   .kpi b { color: var(--text); font-weight: 600; font-family: var(--mono); }
-  .asof { margin-left: auto; flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  .asof { margin-left: auto; flex: 0 1 auto; min-width: 0; display: inline-block; padding: 6px 12px; border-radius: 999px;
           border: 1px solid var(--ink); background: var(--panel); font: 11.5px/1.3 var(--mono); color: var(--muted); box-shadow: 2px 2px 0 var(--ink); }
   .asof:empty { display: none; }
-  .asof::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--vermil); }
+  .asof::before { content: ""; display: inline-block; vertical-align: 1px; margin-right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--vermil); }
   .asof b { color: var(--text); font-weight: 600; }
 
   .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; list-style: none; margin: 18px 0 0; padding: 0; }
@@ -143,6 +143,33 @@
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
   @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+
+  /* ---------- signature flow ---------- */
+  .stage { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(300px, 1fr); gap: 20px; margin-top: 18px; }
+  .stage .headline { margin-top: 0; grid-template-columns: 1fr; gap: 12px; align-content: center; }
+  .flowcard { position: relative; min-width: 0; background: var(--panel); border: 1px solid var(--ink); border-radius: 16px;
+              padding: 14px 16px 12px; box-shadow: 5px 5px 0 var(--ink); }
+  .flow-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 4px; }
+  .flow-head h3 { margin: 0; font: 700 18px/1.3 var(--display); }
+  .flow-head h3 b { color: var(--vermil); font-family: var(--mono); font-size: 15px; }
+  .rc { margin-left: auto; display: inline-flex; gap: 6px; }
+  .rc button { font: 600 12px/1 var(--mono); color: var(--ink); background: var(--panel); border: 1px solid var(--ink); border-radius: 8px;
+               padding: 6px 10px; cursor: pointer; box-shadow: 2px 2px 0 var(--ink); }
+  .rc button:hover { background: var(--panel-2); }
+  .rc button:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--ink); }
+  .rc button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #flow { display: block; width: 100%; height: 340px; }
+  .flow-cap { margin-top: 4px; color: var(--muted); font-size: 12px; }
+  .flow-cap i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 3px 0 0; }
+  @media (max-width: 1100px) {
+    .stage { grid-template-columns: 1fr; }
+    .stage .headline { grid-template-columns: auto minmax(0, 1fr); }
+  }
+  @media (max-width: 760px) {
+    .stage .headline { order: -1; grid-template-columns: 1fr; }
+    #flow { height: 300px; }
+    .rc { margin-left: 0; }
+  }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
   }
@@ -248,7 +275,9 @@
     .kpi { padding: 10px 12px; }
     .kpi .v { font-size: 20px; }
     header { flex-wrap: wrap; }
-    .asof { flex: 1 1 100%; min-width: 0; margin-left: 0; white-space: normal; }
+    .asof { flex: 1 1 100%; min-width: 0; margin-left: 0; white-space: normal; border-radius: 12px; }
+    .head { flex: 1 1 0; }
+    .kpi:last-child:nth-child(odd) { grid-column: 1 / -1; }
   }
   @media (max-width: 1000px) {
     .scroll-hint { display: block; }
@@ -592,13 +621,13 @@ function heroHtml(d, isZk) {
   const ratio = Math.exp(b.excess);
   return `<p class="claim">AI 预测<em>先承诺、再证明</em>，<br class="br">链上按<em class="v">真实结果</em>打分；AMM 直接读它定手续费。</p>
     <p class="claim-en">Forecasts are committed, zk-proven and scored on-chain against the real mainnet hour; an AMM fee reads them.</p>
-    <ol class="steps">${s1}${s2}${s3}</ol>
-    <div class="headline"><div class="bignum${up ? "" : " neg"}"><span class="n" data-to="${b.excess}">${up ? "+" : ""}${b.excess.toFixed(2)}</span><small>nats</small></div>
+    <div class="stage">${flowCard(d)}<div class="headline"><div class="bignum${up ? "" : " neg"}"><span class="n" data-to="${b.excess}">${up ? "+" : ""}${b.excess.toFixed(2)}</span><small>nats</small></div>
       <div class="what"><b>${up ? "比瞎猜更准" : "没跑赢瞎猜"}：</b>最佳${b.zk ? " zk" : ""} agent <b>${b.name.replace("agent-", "")}</b>
         ${rounds.length} 小时累计得分比“每档都猜 1/5”${up ? "高" : "低"} ${Math.abs(b.excess).toFixed(2)} nats，
         即它给真实结果的联合概率是瞎猜的 <b>${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)} 倍</b>。
         <div class="sub">${b.beat}/${b.of} 个${b.zk ? " zk" : ""} agent 跑赢瞎猜 · nats = 自然对数单位，得分 = ln(给真实结果的概率)</div></div>
-      <div class="spark-wrap">${sparkline(d, b.name)}</div></div>`;
+      <div class="spark-wrap">${sparkline(d, b.name)}</div></div></div>
+    <ol class="steps">${s1}${s2}${s3}</ol>`;
 }
 
 const ICONS = {
@@ -841,7 +870,11 @@ function renderReplay({ data: d, src }) {
   document.getElementById("kpis").innerHTML = summaryLine(d);
   const mb = rounds.map((r) => r.mainnet).filter(Boolean);
   document.getElementById("asof").innerHTML = mb.length ? `Ethereum mainnet · blocks <b>${mb[0].block_from.toLocaleString()}–${mb[mb.length - 1].block_to.toLocaleString()}</b> · ${rp.start_utc.slice(0, 10)} → ${rp.end_utc.slice(5, 10)} · replayed on a fork` : "";
+  if (!STATE.model) STATE.model = flowModel(d, (a) => agents.find((x) => x.agent === a.agent).color);
   document.getElementById("hero").innerHTML = heroHtml(d, isZk);
+  roundListeners.forEach((f) => f());
+  FLOW.canvas = null;
+  flowKick();
   const app = document.getElementById("app");
   app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
   // The excess chart must stay the first .card.wide: every chart takes its width from it.
@@ -854,6 +887,245 @@ function renderReplay({ data: d, src }) {
 }
 
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Shared round selection for the flow and the round player; survives the resize redraw because it lives outside the DOM.
+const STATE = { round: 0, playing: true, elapsed: 0, model: null };
+const ROUND_SECONDS = 7;
+const roundListeners = [];
+function setRound(h, keepPlaying = true) {
+  const m = STATE.model;
+  if (!m) return;
+  STATE.round = (h + m.rounds.length) % m.rounds.length;
+  STATE.elapsed = 0;
+  if (!keepPlaying) STATE.playing = false;
+  roundListeners.forEach((f) => f());
+}
+function roundButtons() {
+  return `<span class="rc"><button type="button" data-rc="prev" aria-label="previous round">◀</button>
+    <button type="button" data-rc="play" aria-label="play or pause the round replay">${STATE.playing ? "❚❚" : "▶"}</button>
+    <button type="button" data-rc="next" aria-label="next round">▶▶</button></span>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("[data-rc]");
+  if (!b) return;
+  const k = b.dataset.rc;
+  if (k === "play") { STATE.playing = !STATE.playing; STATE.elapsed = 0; roundListeners.forEach((f) => f()); }
+  else setRound(STATE.round + (k === "next" ? 1 : -1), false);
+});
+setInterval(() => {
+  if (!STATE.model || document.hidden || !STATE.playing) return;
+  STATE.elapsed += 0.5;
+  roundListeners.forEach((f) => f(true));
+  if (STATE.elapsed >= ROUND_SECONDS) setRound(STATE.round + 1);
+}, 500);
+
+// Per-round inputs of the flow, all read from the replay JSON.
+function flowModel(d, colorOf) {
+  const u = d.params.baseline_log_score_float, names = BUCKET_NAMES(d.params.bounds);
+  const cum = Object.fromEntries(d.agents.map((a) => [a.agent, 0]));
+  const rounds = d.rounds.map((r) => {
+    const w = r.fee?.mirror?.weights?.map(Number);
+    const agents = d.agents.map((a, i) => {
+      const ra = r.agents[a.agent] ?? {};
+      if (!r.outcome.voided && ra.log_score_float != null) cum[a.agent] += ra.log_score_float - u;
+      return { name: a.agent.replace("agent-", ""), color: colorOf(a), probs: ra.probs ?? [0.2, 0.2, 0.2, 0.2, 0.2],
+               weight: w && w.length === d.agents.length ? w[i] : 1, cum: cum[a.agent], score: ra.log_score_float };
+    });
+    const tw = agents.reduce((x, a) => x + a.weight, 0) || 1;
+    agents.forEach((a) => { a.share = a.weight / tw; });
+    return { h: r.h ?? r.id, label: r.window_utc[0].slice(11, 16), win: r.outcome.voided ? -1 : r.outcome.winning_bucket,
+             rv: r.outcome.realized_vol ?? r.real_realized_vol, fee: r.fee?.forecast_bps, fair: r.fee?.fair_bps, agents,
+             fallback: !!r.fee?.mirror?.equal_weight_fallback };
+  });
+  return { rounds, names };
+}
+
+function flowCard(d) {
+  const r = STATE.model?.rounds[STATE.round];
+  return `<section class="flowcard"><div class="flow-head"><span class="eyebrow">reputation → probability → fee</span>
+    <h3>声誉 / 概率流 · <b id="flow-round">${r ? `#${r.h} ${r.label} UTC` : ""}</b></h3>${roundButtons()}</div>
+    <canvas id="flow" role="img" aria-label="Probability flow from agents to volatility buckets to the AMM fee"></canvas>
+    <div class="flow-cap">左：agent（圆大小 = 截至本轮累计得分，粒子数 ∝ ERC-8004 声誉权重）→ 中：按各自揭示的概率流向 5 个波动率档位（tick²），
+    <i style="background:var(--win)"></i>紫色 = 本轮真实落档 → 右：VolFeeConsumer 本轮设定的手续费。</div></section>`;
+}
+
+const FLOW = { parts: [], canvas: null, ctx: null, w: 0, h: 0, raf: 0, last: 0, acc: 0, pulse: 0, radii: [] };
+const FONT_MONO = '"SF Mono", ui-monospace, Menlo, Consolas, monospace';
+const FONT_SERIF = '"Iowan Old Style", Charter, "Songti SC", Georgia, serif';
+
+function flowGeom(w, h, n) {
+  const narrow = w < 560;
+  const ax = narrow ? Math.max(96, w * 0.28) : Math.max(120, w * 0.17);
+  const bx = w * (narrow ? 0.6 : 0.58), bw = narrow ? 58 : 92, bh = Math.min(48, (h - 40) / 5 - 10);
+  const fx = w - (narrow ? 34 : 64), fy = h / 2, fr = narrow ? 20 : 28;
+  const ay = (i) => 30 + (i + 0.5) * (h - 60) / n;
+  const by = (k) => 22 + (k + 0.5) * (h - 44) / 5;
+  return { narrow, ax, bx, bw, bh, fx, fy, fr, ay, by };
+}
+
+function bez(p0, p1, p2, p3, t) {
+  const s = 1 - t;
+  return s * s * s * p0 + 3 * s * s * t * p1 + 3 * s * t * t * p2 + t * t * t * p3;
+}
+
+function flowSetup() {
+  const c = document.getElementById("flow");
+  if (!c) return false;
+  const w = c.clientWidth, h = c.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
+  if (c !== FLOW.canvas || w !== FLOW.w || h !== FLOW.h) {
+    FLOW.canvas = c; FLOW.w = w; FLOW.h = h;
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+    FLOW.ctx = c.getContext("2d");
+    FLOW.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    FLOW.ctx.fillStyle = "#fbf8f1"; FLOW.ctx.fillRect(0, 0, w, h);
+  }
+  return true;
+}
+
+function flowFrame(now) {
+  FLOW.raf = 0;
+  if (document.hidden || !STATE.model || !flowSetup()) return;
+  const dt = Math.min(0.05, FLOW.last ? (now - FLOW.last) / 1000 : 0.016);
+  FLOW.last = now;
+  const ctx = FLOW.ctx, w = FLOW.w, h = FLOW.h, m = STATE.model, r = m.rounds[STATE.round];
+  const g = flowGeom(w, h, r.agents.length);
+  ctx.fillStyle = calm ? "#fbf8f1" : "rgba(251,248,241,0.3)";
+  ctx.fillRect(0, 0, w, h);
+
+  const cums = r.agents.map((a) => a.cum), lo = Math.min(...cums), hi = Math.max(...cums);
+  r.agents.forEach((a, i) => {
+    const target = (g.narrow ? 6 : 8) + (g.narrow ? 8 : 12) * (hi > lo ? (a.cum - lo) / (hi - lo) : 0.5);
+    FLOW.radii[i] = FLOW.radii[i] == null || calm ? target : FLOW.radii[i] + (target - FLOW.radii[i]) * Math.min(1, dt * 4);
+  });
+  const ax0 = (i) => g.ax + FLOW.radii[i], bl = g.bx - g.bw / 2, br = g.bx + g.bw / 2;
+  const seg1 = (i, k, t, off) => {
+    const mx = (ax0(i) + bl) / 2;
+    return [bez(ax0(i), mx, mx, bl, t), bez(g.ay(i), g.ay(i) + off, g.by(k) + off, g.by(k), t)];
+  };
+  const seg2 = (k, t, off) => {
+    const mx = (br + g.fx - g.fr) / 2;
+    return [bez(br, mx, mx, g.fx - g.fr, t), bez(g.by(k), g.by(k) + off, g.fy + off * 0.4, g.fy, t)];
+  };
+
+  // Ink guide paths: width follows probability × reputation share.
+  ctx.lineCap = "round";
+  r.agents.forEach((a, i) => a.probs.forEach((p, k) => {
+    ctx.beginPath();
+    for (let s = 0; s <= 24; s++) { const [x, y] = seg1(i, k, s / 24, 0); s ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.strokeStyle = `rgba(27,26,23,${(0.05 + 0.5 * p * a.share).toFixed(3)})`;
+    ctx.lineWidth = calm ? 1 + 14 * p * a.share : 0.6 + 6 * p * a.share;
+    ctx.stroke();
+  }));
+  const mix = [0, 1, 2, 3, 4].map((k) => r.agents.reduce((x, a) => x + a.share * a.probs[k], 0));
+  mix.forEach((p, k) => {
+    ctx.beginPath();
+    for (let s = 0; s <= 24; s++) { const [x, y] = seg2(k, s / 24, 0); s ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.strokeStyle = `rgba(29,63,196,${(0.08 + 0.5 * p).toFixed(3)})`;
+    ctx.lineWidth = calm ? 1 + 12 * p : 0.8 + 5 * p;
+    ctx.stroke();
+  });
+
+  if (!calm) {
+    const cap = g.narrow ? 170 : 300, rate = g.narrow ? 45 : 80;
+    FLOW.acc += dt * rate;
+    while (FLOW.acc >= 1 && FLOW.parts.length < cap) {
+      FLOW.acc -= 1;
+      let u = Math.random(), i = 0;
+      while (i < r.agents.length - 1 && (u -= r.agents[i].share) > 0) i++;
+      const a = r.agents[i];
+      let v = Math.random() * a.probs.reduce((x, y) => x + y, 0), k = 0;
+      while (k < 4 && (v -= a.probs[k]) > 0) k++;
+      FLOW.parts.push({ i, k, t: 0, sp: 0.5 + Math.random() * 0.25, off: (Math.random() - 0.5) * 16, color: a.color, win: k === r.win });
+    }
+    if (FLOW.acc > 1) FLOW.acc = 1;
+    const alive = [];
+    for (const q of FLOW.parts) {
+      const before = q.t;
+      q.t += dt * q.sp;
+      if (before < 1 && q.t >= 1 && q.win) FLOW.pulse = 1;
+      if (q.t >= 2 || q.i >= r.agents.length) continue;
+      const [x, y] = q.t < 1 ? seg1(q.i, q.k, q.t, q.off) : seg2(q.k, q.t - 1, q.off);
+      ctx.beginPath();
+      ctx.arc(x, y, q.t < 1 ? 2.6 : 2.2, 0, 7);
+      ctx.fillStyle = q.t < 1 ? q.color : q.win ? "#a371f7" : "#1d3fc4";
+      ctx.fill();
+      alive.push(q);
+    }
+    FLOW.parts = alive;
+    FLOW.pulse = Math.max(0, FLOW.pulse - dt * 1.6);
+  }
+
+  // Buckets.
+  ctx.textBaseline = "middle";
+  m.names.forEach((nm, k) => {
+    const y = g.by(k), win = k === r.win;
+    if (win && FLOW.pulse > 0) {
+      ctx.strokeStyle = `rgba(163,113,247,${FLOW.pulse.toFixed(3)})`; ctx.lineWidth = 3;
+      const e = 10 * (1 - FLOW.pulse);
+      ctx.strokeRect(g.bx - g.bw / 2 - e, y - g.bh / 2 - e, g.bw + 2 * e, g.bh + 2 * e);
+    }
+    ctx.fillStyle = win ? "#a371f7" : "#f2ecdf";
+    ctx.strokeStyle = "#1b1a17"; ctx.lineWidth = win ? 2 : 1;
+    ctx.beginPath(); ctx.roundRect(g.bx - g.bw / 2, y - g.bh / 2, g.bw, g.bh, 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = win ? "#ffffff" : "#1b1a17";
+    ctx.textAlign = "center";
+    ctx.font = `700 ${g.narrow ? 11 : 13}px ${FONT_MONO}`;
+    ctx.fillText(`#${k}`, g.bx, y - (g.narrow ? 7 : 8));
+    ctx.font = `${g.narrow ? 9.5 : 11}px ${FONT_MONO}`;
+    ctx.fillText(nm, g.bx, y + (g.narrow ? 7 : 9));
+    if (win && !g.narrow) {
+      ctx.textAlign = "left"; ctx.fillStyle = "#6b3fc4"; ctx.font = `700 11px ${FONT_MONO}`;
+      ctx.fillText(`← RV ${r.rv}`, br + 6, y - g.bh / 2 - 6);
+    }
+  });
+
+  // Agents.
+  r.agents.forEach((a, i) => {
+    const y = g.ay(i), rad = FLOW.radii[i];
+    ctx.beginPath(); ctx.arc(g.ax, y, rad, 0, 7);
+    ctx.fillStyle = a.color; ctx.fill();
+    ctx.strokeStyle = "#1b1a17"; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.textAlign = "right"; ctx.fillStyle = "#1b1a17";
+    ctx.font = `600 ${g.narrow ? 10.5 : 12.5}px ${FONT_MONO}`;
+    ctx.fillText(g.narrow ? a.name.slice(0, 9) : a.name, g.ax - rad - 7, y - 7);
+    ctx.font = `${g.narrow ? 9.5 : 11}px ${FONT_MONO}`;
+    ctx.fillStyle = a.cum >= 0 ? "#1d3fc4" : "#c4291c";
+    ctx.fillText(`${a.cum >= 0 ? "+" : ""}${a.cum.toFixed(2)}`, g.ax - rad - 7, y + 8);
+  });
+
+  // AMM fee node.
+  ctx.beginPath(); ctx.arc(g.fx, g.fy, g.fr, 0, 7);
+  ctx.fillStyle = "#1d3fc4"; ctx.fill(); ctx.strokeStyle = "#1b1a17"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = "#ffffff"; ctx.textAlign = "center"; ctx.font = `700 ${g.narrow ? 10 : 12}px ${FONT_MONO}`;
+  ctx.fillText("AMM", g.fx, g.fy);
+  ctx.fillStyle = "#1b1a17";
+  if (r.fee != null) {
+    ctx.font = `700 ${g.narrow ? 15 : 20}px ${FONT_SERIF}`;
+    ctx.fillText(`${r.fee.toFixed(2)} bps`, g.fx - (g.narrow ? 8 : 0), g.fy + g.fr + (g.narrow ? 14 : 18));
+    ctx.font = `${g.narrow ? 9.5 : 11}px ${FONT_MONO}`;
+    ctx.fillStyle = "#57524a";
+    ctx.fillText(`fair ${r.fair.toFixed(2)}`, g.fx - (g.narrow ? 8 : 0), g.fy + g.fr + (g.narrow ? 30 : 37));
+  }
+  ctx.fillStyle = "#57524a"; ctx.font = `${g.narrow ? 9.5 : 11}px ${FONT_MONO}`;
+  ctx.fillText("fee", g.fx, g.fy - g.fr - 10);
+
+  if (!calm) FLOW.raf = requestAnimationFrame(flowFrame);
+}
+
+function flowKick() {
+  if (!FLOW.raf && !document.hidden) FLOW.raf = requestAnimationFrame(flowFrame);
+}
+document.addEventListener("visibilitychange", () => { FLOW.last = 0; flowKick(); });
+roundListeners.push((tick) => {
+  if (tick) return;
+  const r = STATE.model?.rounds[STATE.round];
+  const el = document.getElementById("flow-round");
+  if (r && el) el.textContent = `#${r.h} ${r.label} UTC`;
+  const c = document.getElementById("flow");
+  if (r && c) c.setAttribute("aria-label", `Round ${r.h} at ${r.label} UTC: ${r.agents.map((a) => `${a.name} ${a.probs.map((p) => (p * 100).toFixed(0) + "%").join("/")}`).join("; ")}; outcome bucket #${r.win}${r.fee != null ? `; AMM fee ${r.fee.toFixed(2)} bps` : ""}`);
+  document.querySelectorAll('[data-rc="play"]').forEach((b) => { b.textContent = STATE.playing ? "❚❚" : "▶"; });
+  if (calm) flowKick();
+});
 load().then((x) => {
   const draw = x.data.schema === "vol-replay/v1" ? renderReplay : render;
   if (!calm) document.body.classList.add("intro");
