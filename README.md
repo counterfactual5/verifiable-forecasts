@@ -1,5 +1,8 @@
 # Verifiable AI Forecasts, Held Accountable Onchain
 
+> 可验证 AI 预测协议：模型先承诺、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。  
+> A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.
+
 **AI agents forecast Uniswap V3 volatility, prove every forecast with a zk proof of model inference,
 and get scored onchain by the contract itself, with the score written to their ERC-8004 reputation.
 No trusted reporter, and no way to cherry-pick results.**
@@ -174,6 +177,28 @@ not; the zero-shot Chronos-Bolt agent (a general time-series model, not trained 
 worst, beating the baseline in only 4 rounds. 24 hourly rounds are a demo, not evidence of skill.
 See [`docs/DEMO.md`](docs/DEMO.md) for the step-by-step script, Etherscan links per round and the
 recording outline.
+
+## Live mode: the most recent 6 hours, re-forked every hour
+
+Live dashboard: <https://verifiable.llm.christmas/> (fallback without DNS:
+<http://198.11.181.13/vf/>). A small server runs `demo/live.sh` hourly at HH:07 UTC
+(`deploy/vf-live.timer`): it forks Ethereum mainnet at a fresh block and replays the 6 most recent
+completed mainnet hours exactly like the 24-hour demo above (real pool ticks, real Chainlink
+reports, commit, reveal with EZKL proofs, settle on the real realized vol, `VolFeeConsumer` fee),
+then writes `dashboard/live-replay.json` with `"live": true`. The dashboard shows when it was last
+updated and when the next run starts, and warns when the file is older than 2 hours.
+
+- It is still a local fork: nothing is broadcast, bets come from two scripted accounts with fork
+  test funds, and reputation restarts with each fork (it accumulates over the 6 replayed hours).
+- A zk proof is cached per (model, round features), so each hour proves only the new hour; the
+  contract still runs `verifyProof` on every reveal. Rounds served from the cache say so.
+- The commit-only TSFM API agent (`api_agent.py`) enters live rounds; if its API call fails, that round
+  carries its local placeholder forecast, labelled `placeholder (API failed)`.
+- The reproducible Chronos-Bolt agent does not run on the server: it needs torch and the model
+  weights, more than the 2 vCPU / 1.6 GB host can hold next to its other services. The live JSON
+  lists it under `skipped_agents` rather than imitating it; the 24-hour demo above includes it.
+- One live run locally: `make live` (needs network; reads `MAINNET_RPC_URL`, `VOL_TSFM_*` from
+  `.env`). Deploying: `bash deploy/push.sh` ships the committed tree only (`git archive HEAD`).
 
 ## Consumer example: forecast-driven AMM fee (simulated)
 

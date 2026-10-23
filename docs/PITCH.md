@@ -2,6 +2,9 @@
 
 ETH Shenzhen 2026 · Verifiable AI + Agent Infra · 3-minute pitch and slide outline.
 
+> 可验证 AI 预测协议：模型先承诺、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。  
+> A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.
+
 Evidence grades follow `AGENTS.md`: **A** = primary source (regulator release, standard text,
 peer-reviewed paper, a protocol's own docs about its own product), **B** = reputable press with
 first-hand quotes, **C** = vendor blog or secondary write-up, **X** = measured by us (file or date
@@ -9,7 +12,7 @@ cited), **[待证据]** = not yet sourced and not used to justify any design dec
 
 ## 3-minute script (English)
 
-**0:00 Problem (25 s).** US regulators (SEC, CFTC, DOJ) have acted against firms that claimed
+**0:00 Problem (25 s).** A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation. US regulators (SEC, CFTC, DOJ) have acted against firms that claimed
 AI-driven forecasting or trading while using no such AI. From outside, nobody can check whether a
 published track record was made before the outcome, by the model claimed, on the inputs claimed.
 (Cases and sources: "Problem evidence" below.)
@@ -46,17 +49,17 @@ about skill. Next: live rounds with outside agents.
 
 ## 3 分钟讲稿（中文）
 
-**问题（25 秒）**：美国 SEC、CFTC 和司法部已多次处理“宣称用 AI 预测或交易、实际没有”的案件。一份 AI 预测战绩是不是事前做的、是不是它声称的模型、用的是不是声称的输入，外部今天无从核实。
+**问题（25 秒）**：可验证 AI 预测协议：模型先承诺、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。美国 SEC、CFTC 和司法部已多次处理“宣称用 AI、实际没有”的案件。一份 AI 预测战绩是否事前做的、是否出自声称的模型和输入，外部无从核实。
 
-**方案（35 秒）**：我们在以太坊上开一个公开考场：Uniswap V3 ETH/USDC 池子下一小时的波动率落在 5 个区间中的哪一个。模型输入由合约从池子自己的预言机算出；agent 先提交哈希承诺，窗口开始前公开。一小时后合约用同一个池子算实际波动率，用 Chainlink ETH/USD 交叉校验（偏差超过 2% 作废退款），再把对数分以市场合约身份写入 agent 的 ERC-8004 信誉，agent 无法自刷。
+**方案（35 秒）**：以太坊上的公开考场：Uniswap V3 ETH/USDC 池子下一小时波动率落在 5 个区间的哪一个。输入由合约从池子预言机算出；agent 先提交哈希承诺，窗口开始前公开。一小时后用同一池子算实际波动率，用 Chainlink ETH/USD 交叉校验（偏差超过 2% 作废退款），再把对数分以市场合约身份写入 agent 的 ERC-8004 信誉，agent 无法自刷。
 
 **agent 与 keeper（25 秒）**：`settle`、`createRound` 是 keeper 活，无许可，谁都能调。预测者才是 ERC-8004 意义上的 agent：在不确定性下做判断、要担责、需要信誉。agent 经济在消费方：消费方按信誉挑预测者；按次 x402 付费是路线图。
 
-**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的预测按 ERC-8004 信誉加权合成，按 LVR 设定池子的动态手续费。回放里我们对比各策略与公平 LVR 费率（均值 3.71 bps）的平均绝对误差。三种策略里，固定 5 bps 误差最低，为 1.84 bps。按预报定费是 2.31，好过上一小时实际波动定费的 2.81，但没赢过固定档。这是模拟，不真实收费。
+**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的预测按 ERC-8004 信誉加权合成，按 LVR 设定池子的动态手续费。回放里对比各策略与公平 LVR 费率（均值 3.71 bps）的平均绝对误差：固定 5 bps 误差最低，为 1.84 bps。预报定费 2.31，好过上一小时波动定费 2.81，没赢过固定档；模拟，不真实收费。
 
-**三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记的模型用合约算的输入得出这组输出。可复现（已实现）：开源权重的 Chronos-Bolt，`registerModel` 时登记 `modelHash`，任何人用 `python -m vol_agents.recompute` 从链上特征重算，24/24 轮一致。仅承诺：只证明时间，不证明出处。可复现证明的是出处不是准确：Chronos-Bolt 零样本总分 −46.2，低于均匀基线 −38.6。
+**三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记模型由合约输入得出这组输出。可复现（已实现）：开源权重的 Chronos-Bolt，`registerModel` 时登记 `modelHash`，任何人用 `python -m vol_agents.recompute` 从链上特征重算，24/24 轮一致。仅承诺：只证明时间，不证明出处。可复现证明的是出处不是准确：Chronos-Bolt 零样本总分 −46.2，低于均匀基线 −38.6。
 
-**演示与局限（25 秒）**：主网 fork、真实池子与 Chainlink 喂价，回放 24 个真实小时：24 轮全部结算、0 作废，特征与波动率都与主网重算一致。`linear_abs` −35.5、`mlp32_abs` −35.8 跑赢均匀基线 −38.6，`mlp16` −39.2 没有。一天回放说明不了能力；下一步开放外部 agent 跑真实轮次。
+**演示与局限（25 秒）**：主网 fork、真实池子与 Chainlink 喂价，回放 24 个真实小时：24 轮全部结算、0 作废，特征与波动率都与主网重算一致。`linear_abs` −35.5、`mlp32_abs` −35.8 跑赢均匀基线 −38.6，`mlp16` −39.2 没有。一天说明不了能力；下一步开放外部 agent 跑真实轮次。
 
 ## Slide outline (9 slides)
 
