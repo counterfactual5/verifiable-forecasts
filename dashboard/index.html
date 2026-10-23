@@ -317,6 +317,7 @@
   .hdot { display: block; line-height: 1; }
   .scroll-hint { display: none; color: var(--muted); font-size: 12px; text-align: right; margin-bottom: 4px; }
   .scroll-hint.on { display: block; }
+  .table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   th { color: var(--faint); font-weight: 600; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
   tr:nth-child(2n+3) > td { background: #f6f1e6; }
@@ -452,14 +453,26 @@ const txLink = (h, text) => `<a class="mono" href="${SCAN}/tx/${h}" target="_bla
 // Agent colours never reuse --win or the fee-card series colours.
 const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#f778ba", "#39c5bb", "#79c0ff"];
 const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-const SCROLL_HINT = `<div class="scroll-hint">scroll →</div>`;
+const SCROLL_HINT = `<div class="scroll-hint">横向滚动 scroll →</div>`;
 const scrollTable = (inner, minWidth = 0, cls = "") => SCROLL_HINT +
   `<div class="table-scroll"><table${cls ? ` class="${cls}"` : ""}${minWidth ? ` style="min-width:${minWidth}px"` : ""}>${inner}</table></div>`;
 // A table hidden by the current view measures 0 wide, so this reruns on every view switch as well as on resize.
 function markScrollHints() {
   document.querySelectorAll(".scroll-hint").forEach((h) => {
     const w = h.nextElementSibling;
-    h.classList.toggle("on", !!w && w.scrollWidth > w.clientWidth + 1);
+    const over = !!w && w.scrollWidth > w.clientWidth + 1;
+    h.classList.toggle("on", over);
+    if (!w) return;
+    if (over) {
+      const title = (w.closest(".card, section")?.querySelector("h2, h3")?.textContent ?? "").replace(/\s+/g, " ").trim();
+      w.setAttribute("tabindex", "0");
+      w.setAttribute("role", "region");
+      w.setAttribute("aria-label", `${title} · 可横向滚动`);
+    } else {
+      w.removeAttribute("tabindex");
+      w.removeAttribute("role");
+      w.removeAttribute("aria-label");
+    }
   });
 }
 
