@@ -94,7 +94,8 @@ to `out/<name>/timing.jsonl`.
 | `VOL_TSFM_API_KEY` | optional; sent as `Authorization: Bearer <key>` |
 | `VOL_TSFM_API_KEY_HEADER` | optional; send the key raw under this header instead (e.g. `X-API-Key`) |
 | `VOL_TSFM_API_SCHEMA` | `inference` (default) or `vol-forecast-request/v1` (the generic schema below) |
-| `VOL_TSFM_MODEL` | inference model id, default `remote-model`; `GET {url}/models` lists what the key may use |
+| `VOL_TSFM_MODEL` | inference model id of a single `ApiAgent` built from `ApiConfig.from_env()`, default `remote-model`; `GET {url}/models` lists what the key may use |
+| `VOL_TSFM_MODELS` | comma-separated models for `api_agent.tsfm_agents` (one independent agent each), default `timesfm-3.0,timestral-209m,chronos-2` |
 | `VOL_TSFM_TIMEOUT_S` | request timeout, default 30 |
 
 Error messages never contain the key or the response body. Tests use a local mock HTTP server only.
@@ -108,8 +109,33 @@ cleaning preset. The answer's per-step `y_hat` and `intervals` become quantiles 
 difference; the last `nSegments − 1` steps are the window's differences (rounds open one segment
 before their start). The agent draws 4000 independent samples per step (fixed seed; linear between
 quantiles, exponential tails), scales them by a per-model spread, sums the squares into realized
-vol, histograms the draws into the bounds (floor 1e-4) and mixes with uniform. Spread and mix per
-model (`TSFM_CALIBRATION`) were chosen on the validation period 2026-10-08 .. 10-15 only.
+vol, histograms the draws into the bounds (floor 1e-4) and mixes with uniform by the constant
+`UNIFORM_MIX = 0.3` (every bucket keeps at least 0.06). Request and post-processing live in
+`vol_agents/tsfm_forecast.py`; spreads were chosen on the validation period 2026-10-08 .. 10-15
+only (scores and reasons in `MODEL_CARD.md` 6.2).
+
+`tsfm_agents(config, keys)` builds one agent per model with its own name, key and address:
+
+| agent | inference model | public weights | tier |
+|---|---|---|---|
+| `agent-timesfm3` | `timesfm-3.0` | `google/timesfm-3.0-pytorch@43046b85ec22d584a13f8098c2ed39c889e129c2` (TimesFM non-commercial) | reproducible |
+| `agent-timestral` | `timestral-209m` | `mistralai/Timestral-209M@9874d252ab0aae16` (Mistral Modified MIT) | commit-only |
+| `agent-chronos` | `chronos-2` | `amazon/chronos-2@29ec3766d36d6f73f0696f85560a422f50e8498c` (Apache-2.0) | commit-only |
+
+A model is reproducible only when the CPU recompute from its public weights equals the API's
+revealed vector bit for bit (timesfm-3.0: 174/174 test rounds; chronos-2: 173/174; timestral-209m:
+not checked). `ApiAgent.tier` and `ApiAgent.model_hash` tell the caller how to register:
+reproducible → `registerModel(address(0), operator, model_hash)`, commit-only →
+`registerModel(address(0), operator)`. `ApiAgent.kind` stays `commit-only` for all of them.
+The hash is keccak256 of the canonical JSON in `tsfm_forecast.model_hash_preimage` (weights
+`repo@revision`, inference parameters, post-processing parameters, sha256 of
+`tsfm_forecast.py`). Recompute without the API, with `VOL_REPRO_PYTHON` naming a Python that has
+torch and timesfm 3.0.2 and the snapshot in the Hugging Face cache:
+
+```bash
+uv run python -m vol_agents.tsfm_recompute --model timesfm-3.0 --rpc-url <RPC> \
+  --market <MARKET> --round <ROUND> --model-id <MODEL_ID>
+```
 
 ### Generic format (`VOL_TSFM_API_SCHEMA=vol-forecast-request/v1`)
 
@@ -204,7 +230,10 @@ rather than being skipped.
 | `vol_agents/build.py` | idempotent per-model build and verifier install |
 | `vol_agents/chain.py` | anvil / forge / cast subprocess wrappers |
 | `vol_agents/agent.py` | `Forecaster` (commit / reveal); zk `Agent`: read features → witness → check public inputs → prove |
-| `vol_agents/api_agent.py` | commit-only `ApiAgent`: API request, quantile → bucket conversion, 1e18 quantization |
+| `vol_agents/api_agent.py` | `ApiAgent` (one per inference model via `tsfm_agents`): API request, quantile → bucket conversion, 1e18 quantization |
+| `vol_agents/tsfm_forecast.py` | inference request, sampled-path post-processing, per-model spec and tier, `model_hash` |
+| `vol_agents/tsfm_local.py` | public-weights CPU inference under `VOL_REPRO_PYTHON` (timesfm-3.0, chronos-2) |
+| `vol_agents/tsfm_recompute.py` | recompute a reproducible inference agent's reveal without the API |
 | `vol_agents/history.py` | long context for commit-only agents: 512 five-minute segment-mean differences from the analysis swap cache (`fetch_swaps.py --tail`), no reads at or after createRound, fallback to the 16 onchain features |
 | `vol_agents/repro_agent.py` | reproducible `ReproAgent`: runner call, basis-point quantization, model hash, agent card, registration |
 | `vol_agents/repro_runner.py` | pinned Chronos-Bolt inference, run by `VOL_REPRO_PYTHON` |

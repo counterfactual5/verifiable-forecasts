@@ -194,6 +194,47 @@ done
 cd ../agents && uv run python -m vol_agents.walkforward   # 写 models/walkforward.json 与本节表格
 ```
 
+### 6.2 inference API 上的三个时序大模型 agent（离线）
+
+三个独立 agent（`api_agent.tsfm_agents`，后处理在 `tsfm_forecast.py`）：`agent-timesfm3`
+（`timesfm-3.0`）、`agent-timestral`（`timestral-209m`）、`agent-chronos`（`chronos-2`）。输入和 zk 模型
+一样，只有链上 16 个特征（÷128 后是 tick 差分）。模型给出后 13 步每一步差分的分位数；agent 对窗口内
+11 步各自独立抽样 4000 次（固定种子），乘以按模型设定的 spread，平方求和得到实际方差，再落桶。
+**不做分位数相加**：相加会把水平低估约 42%，并得到 U 形分布。
+
+- **均匀混合** `UNIFORM_MIX = 0.3`（常量），每个桶至少 0.06，防止概率塌缩。验证期（10-08 至 10-15，165 个
+  整点轮次）上 0.05–0.1 的混合在 timesfm-3.0 和 timestral-209m 上都不如 uniform：从 16 个点抽出的路径
+  常常落空，所以这里没有用更小的比例。
+- **spread**（按模型，在验证期上选定，混合权重固定为 0.3）：timesfm-3.0 0.5、timestral-209m 0.5、
+  chronos-2 0.35。从 16 个点得到的逐步分位数太宽，不缩放的话所有模型都远差于 uniform（约 −2.6 到 −3.4）。
+
+测试期（10-15 至 10-22，174 个整点轮次，每轮单独请求一次 API，和实盘一致）平均对数得分；
+uniform = −1.6094，linear_abs = −1.3906（回放 24 轮：−1.4795），transition = −1.4350：
+
+| agent | 档位 | 测试期 174 轮 | 相对 uniform | 相对 linear_abs | 回放 24 轮（总分） |
+|---|---|---|---|---|---|
+| agent-timesfm3 | 可复现 | −1.5250 | +0.084 ± 0.058 | −0.135 ± 0.037 | −1.564（−37.54） |
+| agent-timestral | 仅承诺 | −1.5005 | +0.109 ± 0.045 | −0.110 ± 0.026 | −1.566（−37.59） |
+| agent-chronos | 仅承诺 | −1.4964 | +0.113 ± 0.044 | −0.106 ± 0.027 | −1.625（−39.00） |
+
+回放 24 轮 uniform 的总分是 −38.63，linear_abs 是 −35.51。三个模型都没赢过 linear_abs；timestral 和
+chronos 在测试期上相对 uniform 的优势约为 2.5 个标准误，timesfm 只有约 1.5 个。在回放的 24 轮上，
+三个模型和 uniform 之间的差别都落在噪声范围内。
+
+**档位判断**（要求三条都满足：权重公开、API 在固定参数下重复调用逐位一致、本地用公开权重重算出的
+揭示向量与 API 逐位一致）：
+
+- **timesfm-3.0 → 可复现**：权重公开（`google/timesfm-3.0-pytorch@43046b85…`，TimesFM 非商用许可）。
+  API 重复调用逐位一致；本地 CPU（timesfm 3.0.2，float32）重算的揭示向量在测试期 174/174 轮、回放
+  24/24 轮与 API 完全一致。登记方式：`registerModel(address(0), operator, modelHash)`，其中
+  `modelHash = keccak256(规范 JSON{公开权重 repo@revision, 推理参数, 后处理参数, sha256(tsfm_forecast.py)})`
+  （`tsfm_forecast.model_hash`）。任何人都可以用
+  `python -m vol_agents.tsfm_recompute --model timesfm-3.0 ...` 在本地重算并比对，过程完全不经过 API。
+- **chronos-2 → 仅承诺**：权重公开（Apache-2.0），API 重复调用也逐位一致，但本地 CPU 重算只有
+  173/174 轮一致（有一轮的概率差 1.75e-4），不能保证逐位相同。
+- **timestral-209m → 仅承诺**：权重公开（Mistral Modified MIT），API 重复调用逐位一致，但本机没有它的
+  运行时和权重，本地重算没有验证过。
+
 ## 7. 从训练到上链的流水线
 
 ```

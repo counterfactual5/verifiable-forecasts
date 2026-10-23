@@ -12,12 +12,15 @@ import pytest
 
 from vol_agents import api_agent as api
 from vol_agents import contract_math as cm
+from vol_agents import tsfm_forecast as sf
+from vol_agents import tsfm_recompute as sr
 from vol_agents.chain import DEV_KEYS, Anvil, address_of, as_int
 from vol_agents.round import WINDOW_TICKS, history_ticks
 
 BOUNDS = list(cm.BOUNDS)
 FEATURES = cm.features_from_segment_ticks(history_ticks())
 SECRET = "test-key-not-real"
+OTHER_KEYS = [f"0x{i:064x}" for i in (11, 12, 13)]  # offchain-only test signers
 INFO = {"market": "0x0", "id": 7, "start": 1792562400, "delta_s": cm.DELTA,
         "n_segments": cm.N_SEGMENTS}
 
@@ -30,7 +33,7 @@ def _tsfm_reply(centers, width=0.05):
         rows.append({"unique_id": "round-7", "ds": f"2026-10-21T06:{5 * k:02d}:00Z", "y_hat": c,
                      "intervals": {str(lv): {"lo": c - width * lv / 100,
                                              "hi": c + width * lv / 100}
-                                   for lv in api.TSFM_LEVELS}})
+                                   for lv in sf.LEVELS}})
     return {"model_used": "remote-model", "forecast": rows[::-1]}
 
 
@@ -147,7 +150,7 @@ def test_config_from_env():
 # ---------------------------------------------------------------- inference format
 
 def test_tsfm_request_puts_the_features_on_the_round_grid():
-    body = api.build_tsfm_request(FEATURES, INFO, "chronos-2")
+    body = sf.build_request(FEATURES, INFO, "chronos-2")
     assert body["model"] == "chronos-2" and body["freq"] == "5min"
     assert body["options"] == {"cleaning": {"preset": "raw"}}
     assert body["h"] == cm.N_SEGMENTS + 1
@@ -159,20 +162,20 @@ def test_tsfm_request_puts_the_features_on_the_round_grid():
 
 
 def test_tsfm_quantiles_parse_in_time_order():
-    levels, steps = api.tsfm_step_quantiles(_tsfm_reply([1.0, 2.0, 3.0]))
+    levels, steps = sf.step_quantiles(_tsfm_reply([1.0, 2.0, 3.0]))
     assert levels[0] == pytest.approx(0.01) and levels[-1] == pytest.approx(0.99)
     assert len(levels) == 21 and 0.5 in levels
     assert [s[levels.index(0.5)] for s in steps] == [1.0, 2.0, 3.0]
     with pytest.raises(ValueError):
-        api.tsfm_step_quantiles({"forecast": []})
+        sf.step_quantiles({"forecast": []})
     with pytest.raises(ValueError):
-        api.tsfm_step_quantiles({"forecast": [{"ds": "a", "y_hat": 1.0, "intervals": {}}]})
+        sf.step_quantiles({"forecast": [{"ds": "a", "y_hat": 1.0, "intervals": {}}]})
 
 
 def test_sampled_quantiles_follow_the_cdf_and_exponential_tails():
     levels, values = [0.1, 0.5, 0.9], [-10.0, 0.0, 10.0]
     u = np.array([0.1, 0.3, 0.5, 0.9, 0.99, 0.01])
-    x = api.sample_quantiles(levels, values, u)
+    x = sf.sample_quantiles(levels, values, u)
     assert x[:4] == pytest.approx([-10.0, -5.0, 0.0, 10.0])
     tail = 10 / math.log(0.5 / 0.1)
     assert x[4] == pytest.approx(10 + tail * math.log(0.1 / 0.01))
@@ -180,17 +183,17 @@ def test_sampled_quantiles_follow_the_cdf_and_exponential_tails():
 
 
 def test_step_samples_sum_into_the_right_bucket_and_skip_the_lead_steps():
-    levels, steps = api.tsfm_step_quantiles(_tsfm_reply([500.0, 500.0] + [8.0] * 11))
+    levels, steps = sf.step_quantiles(_tsfm_reply([500.0, 500.0] + [8.0] * 11))
     # RV ~ 11 * 8^2 = 704: bucket 2; the two huge lead steps must not count
-    p = api.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1)
+    p = sf.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1)
     assert sum(p) == pytest.approx(1.0) and p[2] > 0.99
-    assert min(p) >= api.MC_PROB_FLOOR * 0.99
-    assert p == api.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1)
+    assert min(p) >= sf.MC_PROB_FLOOR * 0.99
+    assert p == sf.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1)
     # spread 0.5 quarters RV (176: bucket 0); the uniform mix lifts every bucket to mix / 5
-    q = api.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1, 0.5, 0.5)
+    q = sf.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1, 0.5, 0.5)
     assert q[0] > 0.59 and min(q) >= 0.1 - 1e-12
     with pytest.raises(ValueError):
-        api.probs_from_step_quantiles(levels, steps[:5], BOUNDS, cm.N_SEGMENTS - 1)
+        sf.probs_from_step_quantiles(levels, steps[:5], BOUNDS, cm.N_SEGMENTS - 1)
 
 
 def test_tsfm_agent_over_http(server):
@@ -202,10 +205,67 @@ def test_tsfm_agent_over_http(server):
     req = server.requests[-1]
     assert req["path"] == "/v1/forecast"
     assert req["headers"]["Authorization"] == f"Bearer {SECRET}"
-    assert req["body"] == api.build_tsfm_request(FEATURES, INFO, "remote-model")
-    assert probs == api.tsfm_probs(server.replies["/v1/forecast"], BOUNDS, cm.N_SEGMENTS,
-                                      "remote-model")
+    assert req["body"] == sf.build_request(FEATURES, INFO, "remote-model")
+    levels, steps = sf.step_quantiles(server.replies["/v1/forecast"])
+    assert probs == sf.probs(levels, steps, BOUNDS, cm.N_SEGMENTS, "remote-model")
     assert max(range(5), key=lambda i: probs[i]) == 3
+    # the constant uniform mix keeps every bucket at mix / 5 or more
+    assert min(probs) >= sf.UNIFORM_MIX / cm.BUCKETS - 1e-12
+
+
+def test_three_model_agents_are_independent_with_honest_tiers(server):
+    cfg = api.ApiConfig(url=_url(server, "/v1"), key=SECRET)
+    keys = OTHER_KEYS
+    agents = api.tsfm_agents(cfg, keys)
+    assert [a.name for a in agents] == ["agent-timesfm3", "agent-timestral", "agent-chronos"]
+    assert [a.config.model for a in agents] == ["timesfm-3.0", "timestral-209m", "chronos-2"]
+    assert len({a.address for a in agents}) == 3
+    assert [a.address for a in agents] == [address_of(k) for k in keys]
+    assert [a.tier for a in agents] == [sf.REPRODUCIBLE, sf.COMMIT_ONLY, sf.COMMIT_ONLY]
+    assert all(a.kind == "commit-only" for a in agents)
+    h = agents[0].model_hash
+    assert h.startswith("0x") and len(h) == 66 and h == sf.model_hash("timesfm-3.0")
+    assert agents[1].model_hash is None and agents[2].model_hash is None
+    # one run, three forecasts, each request naming its own model
+    for a in agents:
+        a.api_probs(FEATURES, BOUNDS, INFO)
+        assert server.requests[-1]["body"]["model"] == a.config.model
+    assert api.models_from_env({}) == list(sf.DEFAULT_MODELS)
+    assert api.models_from_env({"VOL_TSFM_MODELS": " chronos-2 ,remote-model"}) == ["chronos-2",
+                                                                                "remote-model"]
+    with pytest.raises(ValueError):
+        api.models_from_env({"VOL_TSFM_MODELS": "chronos-2,chronos-2"})
+    with pytest.raises(ValueError):
+        api.tsfm_agents(cfg, keys[:2])
+
+
+def test_model_hash_binds_public_weights_parameters_and_code():
+    pre = sf.model_hash_preimage("timesfm-3.0")
+    assert pre["weights"] == "google/timesfm-3.0-pytorch@43046b85ec22d584a13f8098c2ed39c889e129c2"
+    assert pre["postprocess"]["uniform_mix"] == sf.UNIFORM_MIX
+    assert pre["postprocess"]["spread"] == sf.MODELS["timesfm-3.0"].spread
+    assert len(pre["code_sha256"]) == 64
+    for m in ("timestral-209m", "chronos-2", "remote-model", "unknown-model"):
+        with pytest.raises(ValueError):
+            sf.model_hash_preimage(m)
+
+
+def test_local_recompute_repeats_the_api_forecast(server, tmp_path, monkeypatch):
+    """A stand-in for the public-weights runner that answers the same quantiles as the API: the
+    recomputed vector must equal what the API agent reveals."""
+    reply = server.replies["/v1/forecast"]
+    levels, steps = sf.step_quantiles(reply)
+    runner = tmp_path / "python"
+    runner.write_text("#!/bin/sh\ncat > /dev/null\necho '"
+                      + json.dumps({"levels": levels, "steps": steps}) + "'\n")
+    runner.chmod(0o755)
+    agent = api.tsfm_agents(api.ApiConfig(url=_url(server, "/v1"), key=SECRET),
+                               OTHER_KEYS[:1], ["timesfm-3.0"])[0]
+    revealed = api.quantize(agent.api_probs(FEATURES, BOUNDS, INFO))
+    assert sr.recompute_outputs("timesfm-3.0", FEATURES, BOUNDS, python=str(runner)) == revealed
+    monkeypatch.delenv("VOL_REPRO_PYTHON", raising=False)
+    with pytest.raises(RuntimeError):
+        sr.local_step_quantiles("timesfm-3.0", FEATURES, cm.N_SEGMENTS)
 
 
 # ---------------------------------------------------------------- HTTP adapter
@@ -287,7 +347,7 @@ def test_commit_only_agent_round_and_predictor_share(server):
         forecast = agent.commit(c, market, 0)
         assert forecast["source"] == "inference:remote-model" and forecast["proof"] == "0x"
         sent = server.requests[-1]["body"]["series"]
-        assert sent[-1]["ds"] == api._iso(start - cm.DELTA)
+        assert sent[-1]["ds"] == sf.iso(start - cm.DELTA)
         assert [p["y"] * cm.MULT for p in sent] == FEATURES
         rec = c.call(market, PREDICTION_SIG, 0, agent.address)
         assert rec[0] in (False, "false")
