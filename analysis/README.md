@@ -51,6 +51,14 @@ The pool is dense (about 1 Swap per block), so a 10k-block segment can reach the
 cap and fail; pass `--segment-blocks 2000` (1..10000) to the fetcher for long ranges. Logs that carry
 `blockTimestamp` (the tenderly gateway does) need no per-block timestamp request.
 
+`fetch_swaps.py --tail [--days 3] --out data/swaps_tail.csv` keeps a rolling cache instead of a fixed
+range: it resumes after the covered block (first run: `--days` of blocks back), stops at the first
+failed segment so the file never has a hole, prunes rows older than `--days`, and writes
+`<out>.coverage.json` (`to_block`, `to_timestamp`). The endpoint comes from `--rpc`, else
+`$MAINNET_RPC_URL`, else the tenderly gateway. Measured on the tenderly gateway (2026-10-24): a 3-day
+backfill was 14k rows, 380 KB, 27 s and 42 MB peak RSS; an incremental re-run 5 s. The commit-only
+agents read this file (`agents/vol_agents/history.py`) for their long context.
+
 `vol_calibrate.py --export-grid data/tick_cumulative_grid.csv [--grid-step 60]` also writes
 `timestamp,tick_cumulative` at every multiple of the grid step inside the observed span. The cumulative
 starts at the first Swap, so it differs from the oracle's by a constant that cancels in every

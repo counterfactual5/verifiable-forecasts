@@ -205,6 +205,7 @@ rather than being skipped.
 | `vol_agents/chain.py` | anvil / forge / cast subprocess wrappers |
 | `vol_agents/agent.py` | `Forecaster` (commit / reveal); zk `Agent`: read features → witness → check public inputs → prove |
 | `vol_agents/api_agent.py` | commit-only `ApiAgent`: API request, quantile → bucket conversion, 1e18 quantization |
+| `vol_agents/history.py` | long context for commit-only agents: 512 five-minute segment-mean differences from the analysis swap cache (`fetch_swaps.py --tail`), no reads at or after createRound, fallback to the 16 onchain features |
 | `vol_agents/repro_agent.py` | reproducible `ReproAgent`: runner call, basis-point quantization, model hash, agent card, registration |
 | `vol_agents/repro_runner.py` | pinned Chronos-Bolt inference, run by `VOL_REPRO_PYTHON` |
 | `vol_agents/recompute.py` | recompute a reproducible reveal from onchain data |

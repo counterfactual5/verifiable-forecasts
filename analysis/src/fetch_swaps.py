@@ -51,6 +51,19 @@ CLI::
     python src/fetch_swaps.py --rpc https://mainnet.gateway.tenderly.co \
         --from 17000000 --to 17100000 --out data/swaps.csv
 
+Tail mode (``--tail``, no ``--from``/``--to``) keeps a rolling cache up to the
+chain head minus ``--confirmations`` blocks. It resumes after the highest block
+the cache covers; a first run, or a cache that ends more than ``--days`` behind
+the head, starts afresh ``--days`` worth of blocks back, so the file never holds
+a hole. Segments are fetched in order and the run stops at the first failed one,
+so whatever is written is contiguous and the next run retries the hole. Rows
+older than ``--days`` before the covered head are pruned. Coverage goes to the
+sidecar ``<out>.coverage.json`` (``pool``, ``to_block``, ``to_timestamp``):
+every Swap of the pool up to ``to_block`` is in the file, which a consumer needs
+to tell a quiet stretch from a stale cache::
+
+    python src/fetch_swaps.py --tail --days 3 --out data/swaps_tail.csv
+
 Exit codes: 0 when every segment succeeded (a nothing-to-do resume run is a
 success), 1 when at least one segment failed, 2 for a usage error.
 """
@@ -61,6 +74,7 @@ import argparse
 import csv
 import http.client
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -82,11 +96,20 @@ LOG_COUNT_WARN_THRESHOLD = 10_000
 # The tenderly gateway serves the deep history this fetcher needs; publicnode
 # only answers for the most recent blocks (spikes/facts/FACTS.md section 3).
 DEFAULT_RPC_URL = "https://mainnet.gateway.tenderly.co"
+RPC_ENV = "MAINNET_RPC_URL"
 DEFAULT_OUT_PATH = "data/swaps.csv"
 DEFAULT_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS = 0.5
 DEFAULT_TIMEOUT_SECONDS = 30.0
 FORMATS = ("csv", "jsonl")
+# Post-merge slots are 12 s; a missed slot only makes the backfill reach a little further back.
+BLOCKS_PER_DAY = 7_200
+SECONDS_PER_DAY = 86_400
+DEFAULT_TAIL_DAYS = 3.0
+# Blocks left below the head so a reorg cannot drop logs the cache already holds.
+DEFAULT_CONFIRMATIONS = 3
+# About 1 Swap per block: 2 000-block segments stay well below LOG_COUNT_WARN_THRESHOLD.
+TAIL_SEGMENT_BLOCKS = 2_000
 HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 WORD_HEX_LENGTH = 64
 TICK_WORD_INDEX = 4
@@ -158,11 +181,13 @@ class FetchSummary:
 
     The ``skipped`` count of the summary line is the number of rows already
     present in the output file, so ``main`` derives it from the existing rows
-    instead of a counter here.
+    instead of a counter here. ``last_block`` is the end of the last segment
+    that succeeded; it marks contiguous coverage only under ``stop_on_failure``.
     """
 
     fetched: int = 0
     failed: int = 0
+    last_block: int | None = None
 
 
 def to_hex_block(number: int) -> str:
@@ -586,11 +611,13 @@ def fetch_swaps(
     backoff: float = DEFAULT_BACKOFF_SECONDS,
     sleep: Callable[[float], None] = time.sleep,
     on_failure: Callable[[tuple[int, int], Exception], None] | None = None,
+    stop_on_failure: bool = False,
 ) -> tuple[list[SwapRecord], FetchSummary]:
     """Fetch every ``Swap`` log of ``[start, end]``, segment by segment.
 
     A segment that stays unreadable is counted as failed and left out of the
-    returned records; the other segments are still fetched.
+    returned records; the other segments are still fetched, unless
+    ``stop_on_failure`` ends the walk there.
     """
     validate_range(start, end)
     records: list[SwapRecord] = []
@@ -619,9 +646,12 @@ def fetch_swaps(
             summary.failed += 1
             if on_failure is not None:
                 on_failure((low, high), exc)
+            if stop_on_failure:
+                break
             continue
         records.extend(segment_records)
         summary.fetched += len(segment_records)
+        summary.last_block = high
     return records, summary
 
 
@@ -759,6 +789,142 @@ def resume_start(existing: Sequence[SwapRecord], start: int) -> int:
     return max(start, max(record.block for record in existing) + 1)
 
 
+def coverage_path(out: Path) -> Path:
+    """Sidecar holding the block and timestamp up to which ``out`` is complete."""
+    return out.with_name(out.name + ".coverage.json")
+
+
+def read_coverage(out: Path, pool: str) -> int | None:
+    """The covered block of an earlier tail run for the same pool, or None."""
+    path = coverage_path(out)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if str(payload["pool"]).lower() != pool.lower():
+            return None
+        return parse_jsonl_int(payload["to_block"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def write_coverage(out: Path, pool: str, to_block: int, to_timestamp: int) -> None:
+    path = coverage_path(out)
+    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path.write_text(
+        json.dumps({"pool": pool, "to_block": to_block, "to_timestamp": to_timestamp}) + "\n",
+        encoding="utf-8",
+    )
+    tmp_path.replace(path)
+
+
+def tail_start(covered: int | None, head: int, backfill_blocks: int) -> tuple[int, bool]:
+    """First block a tail run fetches, and whether the cached rows are kept.
+
+    Rows are kept only when the fetch continues right after them; a cache that
+    ends before the backfill window is dropped instead of leaving a hole.
+    """
+    floor = max(0, head - backfill_blocks + 1)
+    if covered is not None and covered + 1 >= floor:
+        return covered + 1, True
+    return floor, False
+
+
+def prune_before(records: Sequence[SwapRecord], cutoff: int) -> list[SwapRecord]:
+    return [record for record in records if record.timestamp >= cutoff]
+
+
+def call_with_retry(
+    call: Callable[[], Any],
+    *,
+    attempts: int = DEFAULT_ATTEMPTS,
+    backoff: float = DEFAULT_BACKOFF_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Any:
+    delay = backoff
+    for attempt in range(1, attempts + 1):
+        try:
+            return call()
+        except RpcError:
+            if attempt == attempts:
+                raise
+            sleep(delay)
+            delay *= 2
+    raise AssertionError("unreachable")
+
+
+def run_tail(
+    client: RpcClient,
+    path: Path,
+    *,
+    pool: str,
+    days: float,
+    confirmations: int,
+    segment_blocks: int,
+    output_format: str,
+    sleep: Callable[[float], None],
+    out: Any,
+) -> int:
+    """One tail run; see the module docstring for the rules."""
+    try:
+        existing = read_swaps(path, output_format)
+    except CsvFormatError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        head = parse_hex_quantity(
+            call_with_retry(lambda: client.call("eth_blockNumber"), sleep=sleep),
+            field_name="eth_blockNumber",
+        )
+    except FetchError as exc:
+        print(f"error: chain head: {exc}", file=sys.stderr)
+        return 1
+    head = max(0, head - confirmations)
+    covered = read_coverage(path, pool)
+    if existing:
+        last_row = max(record.block for record in existing)
+        covered = last_row if covered is None else max(covered, last_row)
+    start, keep = tail_start(covered, head, int(days * BLOCKS_PER_DAY + 0.5))
+    base = list(existing) if keep else []
+    if start > head:
+        print(f"fetched=0 skipped={len(base)} failed=0 to_block={covered}", file=out)
+        return 0
+
+    def report_failure(segment: tuple[int, int], error: Exception) -> None:
+        print(f"segment {segment[0]}-{segment[1]} failed: {error}", file=sys.stderr)
+
+    timestamps: dict[int, int] = {}
+    records, summary = fetch_swaps(
+        client,
+        start,
+        head,
+        pool,
+        cache=timestamps,
+        segment_blocks=segment_blocks,
+        sleep=sleep,
+        on_failure=report_failure,
+        stop_on_failure=True,
+    )
+    to_block = summary.last_block
+    if to_block is not None:
+        try:
+            to_timestamp = timestamps.get(to_block)
+            if to_timestamp is None:
+                to_timestamp = fetch_block_timestamp_with_retry(client, to_block, sleep=sleep)
+        except FetchError as exc:
+            print(f"error: block {to_block} timestamp: {exc}", file=sys.stderr)
+            return 1
+        kept = prune_before(base + records, to_timestamp - int(days * SECONDS_PER_DAY))
+        write_swaps(path, kept, output_format)
+        write_coverage(path, pool, to_block, to_timestamp)
+    print(
+        f"fetched={summary.fetched} skipped={len(base)} failed={summary.failed} "
+        f"to_block={to_block if to_block is not None else covered}",
+        file=out,
+    )
+    return 1 if summary.failed > 0 else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the command line parser."""
     parser = argparse.ArgumentParser(
@@ -766,8 +932,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--rpc",
-        default=DEFAULT_RPC_URL,
-        help=f"JSON-RPC endpoint (default: {DEFAULT_RPC_URL})",
+        help=f"JSON-RPC endpoint (default: ${RPC_ENV} if set, else {DEFAULT_RPC_URL}); "
+        f"prefer ${RPC_ENV} for keyed URLs, which a command line exposes",
     )
     parser.add_argument(
         "--pool",
@@ -778,15 +944,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--from",
         dest="from_block",
         type=int,
-        required=True,
-        help="first block of the range, inclusive",
+        help="first block of the range, inclusive (required without --tail)",
     )
     parser.add_argument(
         "--to",
         dest="to_block",
         type=int,
-        required=True,
-        help="last block of the range, inclusive",
+        help="last block of the range, inclusive (required without --tail)",
+    )
+    parser.add_argument(
+        "--tail",
+        action="store_true",
+        help="keep a rolling cache up to the chain head instead of a fixed range",
+    )
+    parser.add_argument(
+        "--days",
+        type=float,
+        default=DEFAULT_TAIL_DAYS,
+        help=f"--tail: backfill and retention window in days (default: {DEFAULT_TAIL_DAYS})",
+    )
+    parser.add_argument(
+        "--confirmations",
+        type=int,
+        default=DEFAULT_CONFIRMATIONS,
+        help=f"--tail: blocks left below the head (default: {DEFAULT_CONFIRMATIONS})",
     )
     parser.add_argument(
         "--out",
@@ -803,8 +984,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--segment-blocks",
         type=int,
-        default=SEGMENT_BLOCKS,
-        help=f"blocks per eth_getLogs request, 1..{SEGMENT_BLOCKS} (default: {SEGMENT_BLOCKS})",
+        help=f"blocks per eth_getLogs request, 1..{SEGMENT_BLOCKS} "
+        f"(default: {SEGMENT_BLOCKS}, {TAIL_SEGMENT_BLOCKS} with --tail)",
     )
     return parser
 
@@ -823,8 +1004,23 @@ def main(
     """
     args = build_parser().parse_args(argv)
     out = stdout if stdout is not None else sys.stdout
+    args.rpc = args.rpc or os.environ.get(RPC_ENV) or DEFAULT_RPC_URL
+    if args.segment_blocks is None:
+        args.segment_blocks = TAIL_SEGMENT_BLOCKS if args.tail else SEGMENT_BLOCKS
     try:
-        validate_range(args.from_block, args.to_block)
+        if args.tail:
+            if args.from_block is not None or args.to_block is not None:
+                raise InvalidRangeError("--tail takes no --from/--to")
+            if not args.days > 0:
+                raise InvalidRangeError(f"--days must be positive: {args.days}")
+            if args.confirmations < 0:
+                raise InvalidRangeError(
+                    f"--confirmations must not be negative: {args.confirmations}"
+                )
+        else:
+            if args.from_block is None or args.to_block is None:
+                raise InvalidRangeError("--from and --to are required without --tail")
+            validate_range(args.from_block, args.to_block)
         validate_pool(args.pool)
         if not 1 <= args.segment_blocks <= SEGMENT_BLOCKS:
             raise InvalidRangeError(
@@ -835,6 +1031,18 @@ def main(
         return 2
 
     path = Path(args.out)
+    if args.tail:
+        return run_tail(
+            client if client is not None else RpcClient(args.rpc),
+            path,
+            pool=args.pool,
+            days=args.days,
+            confirmations=args.confirmations,
+            segment_blocks=args.segment_blocks,
+            output_format=args.output_format,
+            sleep=sleep,
+            out=out,
+        )
     try:
         existing = read_swaps(path, args.output_format)
     except CsvFormatError as exc:
