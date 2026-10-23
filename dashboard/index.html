@@ -49,6 +49,17 @@
   svg text { fill: var(--muted); font-size: 11px; }
   footer { color: var(--muted); padding: 0 32px 24px; font-size: 12px; }
   #error { color: var(--bad); padding: 32px; }
+  .fee-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+  .fee-tile { background: #21262d; border: 1px solid transparent; border-radius: 8px; padding: 8px 12px; }
+  .fee-tile .sub { margin-top: 0; }
+  .fee-tile.best { border-color: var(--ok); }
+  .fee-mae { font-size: 20px; font-weight: 650; }
+  @media (max-width: 600px) {
+    header { padding: 16px 16px 4px; }
+    main { padding: 12px 12px 24px; gap: 12px; }
+    footer { padding: 0 16px 20px; }
+    .card { padding: 12px; }
+  }
 </style>
 </head>
 <body>
@@ -244,7 +255,7 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
     return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
   }).join("");
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-dasharray="5 4"/>` : "";
-  const legend = series.map((s) => `<span style="color:${s.color}">━</span> ${s.name}`).join(" &nbsp; ");
+  const legend = series.map((s) => `<span style="color:${s.color}">${s.dash ? "┅" : "━"}</span> ${s.name}`).join(" &nbsp; ");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%">${grid}${zl}${lines}${xl}</svg><div class="sub">${legend}</div>`;
 }
 
@@ -254,7 +265,8 @@ function renderReplay({ data: d, src }) {
   const agents = d.agents.map((a, i) => ({ ...a, color: PALETTE[i % PALETTE.length], sum: s.agents[a.agent],
     forecast_source: a.forecast_source ?? rounds[0]?.agents[a.agent]?.forecast_source }));
   const uniform = p.baseline_log_score_float;
-  const card = (title, html, cls = "") => `<section class="card ${cls}"><h2>${title}</h2>${html}</section>`;
+  const card = (title, html, cls = "", id = "") =>
+    `<section${id ? ` id="${id}"` : ""} class="card ${cls}"><h2>${title}</h2>${html}</section>`;
   const isZk = (a) => a.model_type === "zk";
   const typeBadge = (a) => isZk(a)
     ? `<span class="badge zk" title="each reveal carries an EZKL proof the contract verified">zk proof</span>`
@@ -305,6 +317,37 @@ function renderReplay({ data: d, src }) {
   const rvCard = card("Realized volatility per round",
     lineChart(rvSeries, labels, { min: 0, tip: (v) => v.toFixed(0) }) +
     `<div class="sub">Bucket bounds ${p.bounds.join(" / ")} tick². RV from the contract's settle, equal to the mainnet recompute.</div>`, "wide");
+
+  const fs = s.fee_strategies;
+  let feeCard = "";
+  if (fs && rounds.some((r) => r.fee)) {
+    const fee = (k) => rounds.map((r) => r.fee?.[k] ?? null);
+    const feeSeries = [
+      { name: "fair LVR fee", color: "#e6edf3", width: 2.5, values: fee("fair_bps") },
+      { name: "fixed 5 bps", color: "#8b949e", dash: "6 4", values: fee("fixed_bps") },
+      { name: "prev-hour RV", color: "#ffa657", values: fee("prev_hour_bps") },
+      { name: "forecast (on-chain)", color: "#56d4dd", values: fee("forecast_bps") },
+    ];
+    const strategies = [["fixed", "fixed 5 bps", "fixed"], ["prev_hour", "prev-hour RV", "prev_hour"],
+                        ["forecast", "forecast (on-chain)", "forecast"]];
+    const best = Math.min(...strategies.map(([k]) => fs.mae_bps[k]));
+    const tiles = strategies.map(([k, name, meanKey], i) => {
+      const mae = fs.mae_bps[k], win = mae === best;
+      return `<div class="fee-tile${win ? " best" : ""}"><div class="sub"><span style="color:${feeSeries[i + 1].color}">${feeSeries[i + 1].dash ? "┅" : "━"}</span>
+        ${name}</div><div><span class="fee-mae" data-mae="${k}">${mae.toFixed(2)}</span> <span class="sub">bps MAE</span>
+        ${win ? `<span class="badge ok">lowest</span>` : ""}</div><div class="sub">mean ${fs.mean_bps[meanKey].toFixed(2)} bps</div></div>`;
+    }).join("");
+    const fallback = fs.equal_weight_fallback_rounds ? ` ${fs.equal_weight_fallback_rounds} of ${fs.rounds} rounds used the equal-weight fallback.` : "";
+    feeCard = card("Consumer example · forecast-driven AMM fee vs fair LVR fee (bps)",
+      lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2) }) +
+      `<div class="fee-tiles"><div class="fee-tile"><div class="sub"><span style="color:#e6edf3">━</span> fair LVR fee</div>
+        <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div>
+        <div class="sub">reference</div></div>${tiles}</div>
+      <div class="sub" style="margin-top:8px">Fair = LVR break-even fee σ²/8 × 2L√P ÷ the hour's real mainnet volume.
+      The forecast fee is computed and recorded on-chain by VolFeeConsumer each round before startTime from the revealed,
+      ERC-8004 reputation-weighted forecasts.${fallback} MAE against the fair fee over ${fs.rounds} rounds. Simulated: no real pool fee changes.</div>`,
+      "wide", "fee-card");
+  }
 
   const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: isZk(a) ? null : "6 4",
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
@@ -374,7 +417,7 @@ function renderReplay({ data: d, src }) {
   const app = document.getElementById("app");
   app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
   app.innerHTML = overview + bucketCard + contractsCard + excessCard + rollCard +
-    agentsCard + rewardCard + rvCard + roundsCard + clCard;
+    agentsCard + rewardCard + rvCard + feeCard + roundsCard + clCard;
   document.getElementById("source").textContent =
     `Data: ${src} · generated ${d.generated_at ? new Date(d.generated_at * 1000).toISOString() : "?"} · read-only view, no wallet, no writes.`;
 }

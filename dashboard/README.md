@@ -7,7 +7,9 @@ wallet, no writes. It renders either JSON the demo writes:
   rolling log score of every agent against the uniform baseline, winning-bucket distribution,
   realized vol per round, cumulative forecaster fee share, per-agent totals with ERC-8004
   `getSummary`, and a per-round table with Etherscan links to the window's real mainnet blocks, its
-  last pool swap and every replayed Chainlink report.
+  last pool swap and every replayed Chainlink report. When the JSON carries fee data
+  (`summary.fee_strategies`, per-round `fee`), a fee card plots the fair LVR fee against fixed 5 bps,
+  previous-hour and the `VolFeeConsumer` forecast fee, with each strategy's MAE (simulated).
 - **Single round** (older `fork_round.json` format): round status, each agent's bucket
   probabilities, realized vol, log scores, ERC-8004 reputation, the Chainlink cross-check and the zk
   verification status.

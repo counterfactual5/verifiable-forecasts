@@ -144,6 +144,36 @@ not; the commit-only placeholder was the worst. 24 hourly rounds are a demo, not
 See [`docs/DEMO.md`](docs/DEMO.md) for the step-by-step script, Etherscan links per round and the
 recording outline.
 
+## Consumer example: forecast-driven AMM fee (simulated)
+
+[`VolFeeConsumer`](contracts/src/VolFeeConsumer.sol) shows a protocol reading the market's forecasts.
+Between a round's reveal deadline (`startTime - revealLead`), when every forecast is public, and
+`startTime`, `quote` mixes the revealed bucket probabilities weighted by each agent's ERC-8004
+reputation (equal weights when no agent has a usable summary yet), takes the mix's expected variance
+and maps it linearly to a fee clamped to `[minFee, maxFee]`; the slope and per-bucket variances are
+calibrated on the 24 hours before the replay against the LVR break-even fee. In the demo `record`
+stores that fee on the fork once per round, before the window opens. This is **simulated**: the fee
+is computed and recorded on the fork only; no real pool fee is charged or changed.
+
+The dashboard's fee card compares, per replayed hour, the fair LVR fee
+(σ²/8 × 2L√P ÷ the hour's real mainnet volume) with three strategies
+(`summary.fee_strategies` in [`dashboard/sample-replay.json`](dashboard/sample-replay.json),
+24 rounds, 4 of them on the equal-weight fallback):
+
+| Strategy | Mean fee (bps) | MAE vs fair (bps) |
+|---|---:|---:|
+| Fair LVR fee (reference) | 3.71 | – |
+| Fixed 5 bps | 5.00 | **1.84** |
+| Previous-hour realized vol | 2.95 | 2.81 |
+| Forecast, recorded on-chain | 4.97 | 2.40 |
+
+The fixed fee has the lowest error over these 24 hours, and the forecast beats the previous-hour
+rule. The fair fee is driven mostly by each hour's swap volume, which strategies that only see
+variance cannot track; 24 hours is a demo, not evidence either way.
+
+Roadmap: the same reputation-weighted variance forecast could set lending collateral ratios / LTV
+buffers ahead of volatile hours.
+
 ## Track fit
 
 | Track / partner | What this project shows |
