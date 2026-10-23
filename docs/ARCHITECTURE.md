@@ -4,7 +4,7 @@
 
 ## 1. 一句话
 
-合约从 Uniswap V3 池子的 `observe()` 自己算出考题输入和结算答案；AI agent 先提交预测的哈希承诺、窗口开始前再公开；zk 模型的预测只有附带 EZKL 推理证明、且证明的公开输入与合约自算的特征一致时才被接受，仅承诺模型（`verifier = 0`）只需与承诺一致；结算时合约先用 Chainlink ETH/USD 交叉校验池子价格，再按对数评分给每个已公开的预测打分，把分数以市场合约的身份写入该 agent 的 ERC-8004 信誉，并把一部分手续费分给得分高于均匀基线的预测者。
+合约从 Uniswap V3 池子的 `observe()` 自己算出考题输入和结算答案；AI agent 先提交预测的哈希承诺、窗口开始前再公开；zk 模型的预测只有附带 EZKL 推理证明、且证明的公开输入与合约自算的特征一致时才被接受，可复现与仅承诺模型（`verifier = 0`）只需与承诺一致；结算时合约先用 Chainlink ETH/USD 交叉校验池子价格，再按对数评分给每个已公开的预测打分，把分数以市场合约的身份写入该 agent 的 ERC-8004 信誉，并把一部分手续费分给得分高于均匀基线的预测者。
 
 ## 2. 数据流
 
@@ -52,15 +52,17 @@ agents/round.py → out/compare_round.json；demo/fork_round.py → demo/out/for
 
 | 接口 | 谁调用 | 作用 |
 |---|---|---|
-| `registerModel(verifier, operator)` | owner | 登记一个模型，返回 modelId；`verifier` 为 EZKL 验证合约，零地址表示仅承诺模型；只有 `operator` 能用该模型承诺 |
+| `registerModel(verifier, operator, modelHash)` | owner | 登记一个模型，返回 modelId；`verifier` 为 EZKL 验证合约，零地址表示不验证证明；`modelHash` 为模型权重、配置与运行代码的哈希，`bytes32(0)` 表示没有；非零时记录并发 `ModelHashSet`；没有验证合约时，`modelHash` 非零为可复现等级、为零为仅承诺（有验证合约一律为 zk）；只有 `operator` 能用该模型承诺。两参数重载 `registerModel(verifier, operator)` 等同 `modelHash = 0` |
 | `isZkModel(modelId)` | 只读 | 模型是否带 zk 验证合约；未知 modelId revert |
+| `modelHash(modelId)` | 只读 | 登记时的 `modelHash`，未登记哈希为 0；未知 modelId revert |
+| `verificationTier(modelId)` | 只读 | 有验证合约返回 2 = zk（`TIER_ZK`），否则 `modelHash` 非零返回 1 = 可复现（`TIER_REPRODUCIBLE`），否则返回 0 = 仅承诺（`TIER_COMMIT_ONLY`）；未知 modelId revert |
 | `setReputation(identity, reputation)` | owner | 配置 ERC-8004 两个注册表；两者同为零地址即关闭，只有一侧为零会被拒绝 |
 | `linkAgent(modelId, agentId)` | 模型 operator | 把自己拥有的 ERC-8004 agentId 绑定到模型；`agentId == 0` 表示不归属任何 agent |
 | `setPriceFeed(feed)` | owner | 配置 Chainlink 喂价，零地址关闭 |
 | `createRound(startTime, bounds)` | 任何人 | `bounds` 为 4 个严格递增的 tick² 边界（5 个桶）；`startTime` 须晚于当前时间 + `commitLead`；从 `observe()` 快照 16 个特征 |
 | `bet(id, bucket, amount)` | 任何人 | `startTime` 前下注（ERC20 `transferFrom`） |
 | `commitPrediction(id, modelId, commitment)` | 模型 operator | `startTime − commitLead` 前、每个地址每轮一次、每轮最多 32 个预测者 |
-| `revealPrediction(id, proof, outputs[5], salt)` | 已承诺者 | `[startTime − commitLead, startTime − revealLead)` 内；须与承诺一致，zk 模型还须证明通过；仅承诺模型 `proof` 可为空 |
+| `revealPrediction(id, proof, outputs[5], salt)` | 已承诺者 | `[startTime − commitLead, startTime − revealLead)` 内；须与承诺一致，zk 模型还须证明通过；可复现与仅承诺模型 `proof` 可为空 |
 | `sample(id, k)` | 任何人 | `t_k` 之后存一个检查点，每个 k 一次 |
 | `settle(id)` | 任何人 | `t_N` 之后结算一次：算 RV、喂价校验、定桶、评分、写信誉，或作废 |
 | `claim(id)` | 下注者 | 赢家领取 `MarketMath.payout`，最后一个领取的赢家拿 `total − fee − 已付`；作废 / 无人押中时全额退款 |
@@ -68,7 +70,7 @@ agents/round.py → out/compare_round.json；demo/fork_round.py → demo/out/for
 | `claimPredictorReward(id)` | 预测者 | 得分严格高于基线时领取 `pool × excess / totalExcess`，最后一位领取者拿 `pool − 已付`；每人一次 |
 | `getRound` / `getFeatures` / `getCheckpoint` / `getStake` / `getPrediction` / `getCommitment` / `predictorPool` / `predictorCount` / `modelCount` / `priceForTick` | 只读 | 供 agents、演示与看板读取 |
 
-事件：`ModelRegistered`、`RoundCreated`（含 bounds 与 features）、`BetPlaced`、`PredictionCommitted`、`PredictionRevealed`、`PredictorRewardClaimed`、`CheckpointSampled`、`RoundSettled`、`RoundVoided`、`PredictionScored`、`Claimed`、`FeeCollected`、`ReputationSet`、`AgentLinked`、`ReputationWriteFailed`、`PriceFeedSet`、`PriceCheckFailed`。
+事件：`ModelRegistered`、`ModelHashSet`（仅在 `modelHash` 非零时）、`RoundCreated`（含 bounds 与 features）、`BetPlaced`、`PredictionCommitted`、`PredictionRevealed`、`PredictorRewardClaimed`、`CheckpointSampled`、`RoundSettled`、`RoundVoided`、`PredictionScored`、`Claimed`、`FeeCollected`、`ReputationSet`、`AgentLinked`、`ReputationWriteFailed`、`PriceFeedSet`、`PriceCheckFailed`。
 
 ### `lib/MarketMath.sol`、`lib/TickPriceMath.sol`
 
@@ -96,7 +98,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 
 - agent 调 Identity 的 `register(agentURI)` 得到 agentId（ERC-721），模型 operator 调 `linkAgent(modelId, agentId)` 绑定；调用者必须是该模型的 operator 且拥有该 agentId。
 - `settle` 对每个已绑定且 agentId 非零的预测者，取已存的 `logScore`（不重算），以 try/catch 调用
-  `giveFeedback(agentId, int128(logScore), 18, "logScore", tag2, "", "", bytes32(0))`。`tag2` 由构造参数派生为 `vol-<delta>s-<nSegments>`（如 `vol-300s-12`），仅承诺模型附加 `-commit`（如 `vol-300s-12-commit`）；未公开的预测不写。注册表调用失败发 `ReputationWriteFailed`，不回滚结算与赔付。
+  `giveFeedback(agentId, int128(logScore), 18, "logScore", tag2, "", "", bytes32(0))`。`tag2` 由构造参数派生为 `vol-<delta>s-<nSegments>`（如 `vol-300s-12`），没有验证合约的模型（可复现与仅承诺）附加 `-commit`（如 `vol-300s-12-commit`）；未公开的预测不写。注册表调用失败发 `ReputationWriteFailed`，不回滚结算与赔付。
 - 低 gas 防护：每次调用最多转发 `EXTERNAL_CALL_GAS = 500_000` gas（主网实测 `giveFeedback` 约 19.7 万，含 21000 基础费）。按 EIP-150，被调方最多拿到剩余 gas 的 63/64。调用失败时，如果调用前剩余的 gas 不到 `500_000 × (1 + 1/32)`（被调方可能没拿到完整上限），`settle` 以 `InsufficientGas` revert。不能改用“调用后剩余 ≤ 1/64”来判断：已部署的注册表是代理，内部还会调用 Identity，内层调用缺 gas 时外层会带着自己那 1/64 正常 revert，主网 fork 演示中这种情况确实出现过。因此没人能靠压低 gas 上限让写入被跳过；在拿满 50 万的情况下仍然 revert 的注册表只触发事件。gas 足够时写入成功，所以估算出的 gas 上限不会因为这条防护而变高。
 - 读取方以市场合约为唯一 client 过滤：`getSummary(agentId, [market], "logScore", tag2)`；第三方写的反馈不会混入。已部署的 Reputation 禁止 agent 的 owner/operator 自评，市场合约作为提交者不受影响。
 - 主网 fork 演示中四个 agent 在已部署的 Identity 上注册（agentId 仅存在于 fork 上），24 轮回放结束后每个 agent 的 `getSummary` 计数为 24，均值等于各轮链上 logScore 的平均。
@@ -119,7 +121,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 
 ## 8. 演示与看板
 
-- 演示比离线回合多一个仅承诺 agent（`api_agent.py`，配置 `VOL_TSFM_API_URL` 时调用外部时序模型 API，否则用确定性占位预测并标为 `placeholder`），手续费 1% 中 50% 分给高于基线的预测者；承诺提前 90 s、公开提前 30 s 截止。
+- 演示比离线回合多一个可复现 agent（`repro_agent.py`，`agent-chronos-bolt`）：在 `VOL_REPRO_PYTHON` 指定的解释器中运行公开、固定版本的 Chronos-Bolt 权重（`amazon/chronos-bolt-tiny`），以 `registerModel(address(0), operator, modelHash)` 登记；每轮公开后回放脚本对 fork 运行 `python -m vol_agents.recompute` 从链上特征重算并与公开值比对（JSON 中的 `reproduced`）；解释器或权重缺失、本地哈希与链上 `modelHash` 不符时在第一轮前退出，没有兜底预测。仅承诺的 `api_agent.py`（外部时序模型 API 适配器）是可选组件，不参与回放。手续费 1% 中 50% 分给高于基线的预测者；承诺提前 90 s、公开提前 30 s 截止。
 - `demo/run.sh`（薄入口）→ `demo/fork_round.py`：读 `MAINNET_RPC_URL`（缺省为公共 tenderly gateway），用独立的 Foundry 输出目录编译，以 `PYTHONPATH=agents` 复用 `vol_agents` 的 `Agent`、`build`、`Anvil`、`contract_math`。
 - 连续回放 `HOURS`（默认 24）个真实小时，起点 `REPLAY_START`（默认 2026-10-21 06:00 UTC，位于模型测试期内）；一次 fork、一次部署，ERC-8004 信誉跨轮累计。fork 区块在回放网格开始前 10 分钟。
 - fork 上的准备：清掉 anvil 公共测试账户在主网上的 EIP-7702 委托代码（否则无法接收 ERC-721 身份），给交易账户发 ETH 并包成 WETH，USDC 直接写入其余额存储槽（只存在于 fork 上）。
@@ -135,27 +137,30 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - 密封下注（commit-reveal / FHE）、LMSR、真实网络部署。
 - TEE 等级、提交质押与罚没（见下）。
 
-### 分级验证（zk 与仅承诺已实现，其余为路线图）
+### 分级验证（zk、可复现与仅承诺已实现，TEE 为路线图）
 
-问责可以拆成四层，只有最后一层依赖 zk：
+问责可以拆成四层，只有最后一层可能依赖 zk：
 
 | 层 | 机制 | 依赖 zk |
 |---|---|---|
 | 事前承诺 | `startTime − commitLead` 前提交哈希承诺，`startTime − revealLead` 前公开 | 否 |
 | 客观结算 | 合约读 `observe()`，Chainlink 交叉校验 | 否 |
 | 成绩可携带 | 市场合约写入 ERC-8004 | 否 |
-| 出处：确实是该模型算的 | 推理的 zk 证明 | 是 |
+| 出处：确实是该模型算的 | 推理的 zk 证明；或登记 `modelHash` 的公开权重，任何人链下重算 | zk 等级是，可复现等级否 |
 
 因此“出处”可以分级提供，由读取方选择信任哪一级：
 
 - **zk**（已实现，仅小模型）：即本文第 2–4 节的 EZKL 路径。
-- **仅承诺**（已实现）：`verifier = 0` 登记，任意模型，只证明预测在事前定下，不保证是哪个模型算的。`agents/vol_agents/api_agent.py` 用可配置的时序模型 API 作为这类 agent，未配置时用确定性占位预测。
-- **TEE 远程证明**（未实现）：适用于大模型 / LLM，需要信任硬件厂商及其证明服务。
+- **可复现**（已实现）：`registerModel(address(0), operator, modelHash)` 登记，适用于权重公开的模型，大小不受电路限制。`modelHash = keccak256(sha256(model.safetensors) ‖ sha256(config.json) ‖ sha256(repro_runner.py))` 固定权重、配置与运行代码；公开时不验证证明，任何人可用 `python -m vol_agents.recompute` 从链上特征重算并与公开值逐桶比对，哈希不符、缺公开或任一桶不同即非零退出。演示中的 `agent-chronos-bolt`（`amazon/chronos-bolt-tiny`）在 24 轮回放中 24/24 轮重算一致。它证明的是出处（确实是这组权重对这些输入算的），不证明预测准确；逐位一致只在同一机器与软件栈上成立。
+- **仅承诺**（已实现）：`verifier = 0` 且不带 `modelHash` 登记，任意模型，只证明预测在事前定下，不保证是哪个模型算的。`agents/vol_agents/api_agent.py` 是这类 agent 的外部时序模型 API 适配器，不参与回放。
+- **TEE 远程证明**（未实现）：适用于权重不公开的闭源大模型 / LLM，需要信任硬件厂商及其证明服务。
 - opML（乐观验证 + 欺诈证明）是大模型的另一种选项，未评估，留在路线图。
 
 所有等级都走 commit-reveal：承诺 `keccak256(abi.encode(roundId, modelId, outputs, salt, msg.sender))` 绑定发送者，抄来的承诺别人无法公开；公开阶段在窗口开始前结束，所以预测在承诺截止前不可见。zk 模型在公开时验证证明；证明本身不绑定发送者，只有模型 operator 能为该模型承诺（第 3 节 `registerModel`）。
 
-写入 ERC-8004 时 tag1 = `logScore`，zk 模型 tag2 = `vol-<delta>s-<nSegments>`，仅承诺模型附加 `-commit`，读取方用 `getSummary` 按自己接受的等级过滤。这与 ERC-8004 原文一致：“Trust models are pluggable and tiered”，列出的信任模型为客户反馈信誉、质押保障的重新执行、zkML 证明和 TEE 预言机（A，<https://eips.ethereum.org/EIPS/eip-8004>）。是否改用 Validation 注册表待定。
+链上等级由 `verificationTier(modelId)` 读出，取值与合约常量一致：0 = 仅承诺（`TIER_COMMIT_ONLY`），1 = 可复现（`TIER_REPRODUCIBLE`），2 = zk（`TIER_ZK`）。有验证合约即为 zk；否则 `modelHash` 非零为可复现，为零为仅承诺。
+
+写入 ERC-8004 时 tag1 = `logScore`，zk 模型 tag2 = `vol-<delta>s-<nSegments>`；没有验证合约的模型（可复现与仅承诺）都附加 `-commit`，如 `vol-300s-12-commit`，读取方用链上 `modelHash`（或 `verificationTier`）区分两者，再用 `getSummary` 按自己接受的等级过滤。这与 ERC-8004 原文一致：“Trust models are pluggable and tiered”，列出的信任模型为客户反馈信誉、质押保障的重新执行、zkML 证明和 TEE 预言机（A，<https://eips.ethereum.org/EIPS/eip-8004>）。是否改用 Validation 注册表待定。
 
 ## 10. 信任边界与已知问题
 
@@ -163,6 +168,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 |---|---|
 | 特征（模型输入）由合约从池子 `observe()` 算出，agent 无法自选输入 | 池子价格本身可被操纵；Chainlink 交叉校验只比较最近一个 Δ 的 TWAP 与一个喂价点 |
 | 预测在承诺截止前以绑定发送者的哈希定下；zk 模型公开时附带对已登记模型、对这些输入的有效推理证明 | 已登记的模型是否「好」、训练数据是否真实（仓库可复现训练，但链上不证明）；仅承诺模型的预测由谁、用什么模型算出 |
+| 可复现模型登记的 `modelHash` 不可更改，其承诺与公开值上链 | 合约不重算可复现模型的预测，也不检查公开值与 `modelHash` 对应的权重是否一致；任何人可链下用 `vol_agents.recompute` 重算，逐位一致只在同一机器与软件栈上成立 |
 | 只有模型 operator 能用该模型承诺，复制证明或承诺无效 | owner 决定登记哪些模型（`registerModel` 仅 owner） |
 | 结算 RV、获胜桶、对数评分、赔付全部在合约内整数计算 | 区间边界由开轮方传入（演示用训练期校准值） |
 | 观测缺失或喂价不符时作废并全额退款 | 验证合约的可信度依赖 EZKL 与 KZG SRS（构建时校验固定摘要） |
@@ -170,7 +176,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 
 另外：特征在 `createRound` 时快照，而承诺截止在 `startTime − commitLead`，两者之间的价格变化不在模型输入里；下注是公开的，预测在公开阶段后公开；不公开只损失分数与分成，没有罚没。
 
-出处保证只覆盖能放进 EZKL 电路的小模型。上表左列中的事前承诺、合约内结算与作废、市场合约写信誉这几项不依赖 zk，已通过仅承诺等级复用给任意模型；大模型的出处需要第 9 节的 TEE 等级，目前未实现。
+链上验证的出处保证只覆盖能放进 EZKL 电路的小模型。上表左列中的事前承诺、合约内结算与作废、市场合约写信誉这几项不依赖 zk，已通过仅承诺等级复用给任意模型；权重公开的大模型由可复现等级提供出处（登记 `modelHash`，链下重算）；只有权重不公开的闭源模型需要第 9 节的 TEE 等级，目前未实现。
 
 ## 11. 依赖方向
 
