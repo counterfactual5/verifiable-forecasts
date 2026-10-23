@@ -48,7 +48,7 @@
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
   td.num, th.num { text-align: right; }
   .probs { display: flex; gap: 3px; align-items: flex-end; height: 40px; }
-  .probs div { width: 20px; background: #2d333b; border-radius: 3px 3px 0 0; position: relative; }
+  .probs div { width: 20px; background: #6e7681; border-radius: 3px 3px 0 0; position: relative; }
   .probs div.win { background: var(--win); }
   .buckets { display: flex; gap: 4px; margin-top: 8px; }
   .buckets div { flex: 1; padding: 8px 4px; text-align: center; border-radius: 6px; background: #21262d;
@@ -97,6 +97,7 @@ const SCAN = "https://etherscan.io";
 const blockLink = (n) => `<a class="mono" href="${SCAN}/block/${n}" target="_blank" rel="noopener">${n.toLocaleString()}</a>`;
 const txLink = (h, text) => `<a class="mono" href="${SCAN}/tx/${h}" target="_blank" rel="noopener">${text ?? short(h)}</a>`;
 const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#a371f7", "#f778ba", "#79c0ff"];
+const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 // The hint is shown only up to 1000 px, where a card's content box is under 900 px, so these tables always overflow.
 const scrollTable = (inner, minWidth = 0) => `<div class="table-scroll"><table${minWidth ? ` style="min-width:${minWidth}px"` : ""}>${inner}</table></div>` +
   (minWidth >= 900 ? `<div class="scroll-hint">scroll →</div>` : "");
@@ -114,7 +115,7 @@ async function load() {
   throw new Error("No round data found. Run `bash demo/run.sh`, or serve the repo root over HTTP.");
 }
 
-function segmentChart(fork, real) {
+function segmentChart(fork, real, label) {
   const all = fork.concat(real || []);
   const lo = Math.min(...all) - 2, hi = Math.max(...all) + 2;
   const W = Math.min(1200, chartWidth), H = 220, P = W < 600 ? 52 : 64;
@@ -123,7 +124,7 @@ function segmentChart(fork, real) {
   const path = (s) => s.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
   const dots = (s, c) => s.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${c}"/>`).join("");
   const labels = fork.map((_, i) => `<text x="${x(i)}" y="${H - 4}" text-anchor="middle">${i + 1}</text>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%">
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">
     <text x="0" y="${y(hi - 2) + 4}">${hi - 2}</text><text x="0" y="${y(lo + 2) + 4}">${lo + 2}</text>
     ${real ? `<path d="${path(real)}" fill="none" stroke="#8b949e" stroke-dasharray="4 4"/>` : ""}
     <path d="${path(fork)}" fill="none" stroke="#58a6ff" stroke-width="2"/>${dots(fork, "#58a6ff")}
@@ -212,8 +213,10 @@ function render({ data: d, src }) {
     ${r.commit_deadline ? fmtTime(r.commit_deadline) : "the commit deadline"} and revealed before the window opened.
     ${fs ? `Forecasters above the uniform baseline (${fs.baseline_log_score_float.toFixed(3)}) split ${fs.predictor_share_bps / 100}% of the fee pro rata to their excess score.` : ""}</div>`, "wide");
 
-  const chartCard = card("Window · 12 segments of 5 minutes",
-    segmentChart(d.offchain_recompute.segment_mean_ticks, d.window.real_segment_ticks), "wide");
+  const seg = d.offchain_recompute.segment_mean_ticks, realSeg = d.window.real_segment_ticks;
+  const chartTitle = "Window · 12 segments of 5 minutes";
+  const chartCard = card(chartTitle, segmentChart(seg, realSeg,
+    `${chartTitle}: segment mean tick on the fork${realSeg ? " vs real mainnet 5-min TWAP tick" : ""}, ${seg.length} segments`), "wide");
 
   const betRows = d.bets.map((b) => `<tr><td class="mono nowrap">${short(b.bettor)}</td><td>#${b.bucket}</td>
     <td class="num">${eth(b.amount_wei)}</td><td class="num">${eth(b.payout_wei)}</td></tr>`).join("");
@@ -250,7 +253,7 @@ function measureChartWidth() {
 }
 
 // min / max bound the axis, never the data, and only when every value already respects them.
-function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 240, min = null, max = null } = {}) {
+function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 240, min = null, max = null, label = "" } = {}) {
   const vals = series.flatMap((s) => s.values).filter((v) => v != null).concat(zero ?? []);
   const dmin = Math.min(...vals), dmax = Math.max(...vals);
   let lo = dmin, hi = dmax;
@@ -283,7 +286,7 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
   }).join("");
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-dasharray="5 4"/>` : "";
   const legend = series.map((s) => `<span style="color:${s.color}">${!s.dash ? "━" : s.dash === "2 4" ? "┈" : "┅"}</span> ${s.name}`).join(" &nbsp; ");
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%">${grid}${zl}${lines}${xl}</svg><div class="sub">${legend}</div>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}${lines}${xl}</svg><div class="sub">${legend}</div>`;
 }
 
 function renderReplay({ data: d, src }) {
@@ -332,7 +335,10 @@ function renderReplay({ data: d, src }) {
     <dt>Wall time</dt><dd>${d.elapsed_s != null ? `${Math.round(d.elapsed_s)} s` : "?"}</dd></dl>`);
 
   const counts = s.bucket_counts, maxC = Math.max(1, ...counts);
-  const bucketCard = card("Winning buckets", `<div style="display:flex;gap:6px;align-items:flex-end;height:120px">
+  const bucketLabel = `Winning buckets over ${rounds.length} rounds: ` +
+    counts.map((c, i) => `bucket #${i} (${names[i]}) ×${c}`).join(", ");
+  const bucketCard = card("Winning buckets", `<div style="display:flex;gap:6px;align-items:flex-end;height:120px"
+    role="img" aria-label="${attr(bucketLabel)}">
     ${counts.map((c, i) => `<div style="flex:1;text-align:center"><div class="sub">${c}</div>
       <div style="height:${c / maxC * 90}px;background:var(--win);opacity:.75;border-radius:4px 4px 0 0"></div></div>`).join("")}</div>
     <div class="buckets">${names.map((n, i) => `<div>#${i}<br>${n}</div>`).join("")}</div>
@@ -342,8 +348,10 @@ function renderReplay({ data: d, src }) {
   const scoreOf = (r, a) => r.outcome.voided ? null : r.agents[a.agent]?.log_score_float ?? null;
   const excess = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => { const v = scoreOf(r, a); return v == null ? null : v - uniform; })) }));
-  const excessCard = card("Cumulative log score minus uniform baseline (nats)",
-    lineChart(excess, labels, { zero: 0 }) +
+  const chartLabel = (title, series) => `${title}: ${series.map((x) => x.name).join(", ")}, ${rounds.length} rounds`;
+  const excessTitle = "Cumulative log score minus uniform baseline (nats)";
+  const excessCard = card(excessTitle,
+    lineChart(excess, labels, { zero: 0, label: chartLabel(excessTitle, excess) }) +
     `<div class="sub">Above the dashed zero line = the agent has, in total, put more probability on the outcome than a
     uniform 1/5 forecast (${uniform.toFixed(3)} per round). Voided rounds are not scored.
     Agent lines: solid = zk proof, dotted = reproducible, dashed = commit-only.</div>`, "wide");
@@ -355,12 +363,14 @@ function renderReplay({ data: d, src }) {
   });
   const roll = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: rolling(rounds.map((r) => scoreOf(r, a))) }));
-  const rollCard = card(`Rolling ${W}-round mean log score`, lineChart(roll, labels, { zero: uniform, max: 0 }) +
+  const rollTitle = `Rolling ${W}-round mean log score`;
+  const rollCard = card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, label: chartLabel(rollTitle, roll) }) +
     `<div class="sub">Dashed line: uniform baseline ln(1/5).</div>`, "wide");
 
   const rvSeries = [{ name: "realized vol (tick²)", color: "#a371f7", values: rounds.map((r) => r.outcome.realized_vol ?? r.real_realized_vol) }];
-  const rvCard = card("Realized volatility per round",
-    lineChart(rvSeries, labels, { min: 0, tip: (v) => v.toFixed(0) }) +
+  const rvTitle = "Realized volatility per round";
+  const rvCard = card(rvTitle,
+    lineChart(rvSeries, labels, { min: 0, tip: (v) => v.toFixed(0), label: chartLabel(rvTitle, rvSeries) }) +
     `<div class="sub">Bucket bounds ${p.bounds.join(" / ")} tick². RV from the contract's settle, equal to the mainnet recompute.</div>`, "wide");
 
   const fs = s.fee_strategies;
@@ -383,8 +393,9 @@ function renderReplay({ data: d, src }) {
         ${win ? `<span class="badge ok">lowest</span>` : ""}</div><div class="sub">mean ${fs.mean_bps[meanKey].toFixed(2)} bps</div></div>`;
     }).join("");
     const fallback = fs.equal_weight_fallback_rounds ? ` ${fs.equal_weight_fallback_rounds} of ${fs.rounds} rounds used the equal-weight fallback.` : "";
-    feeCard = card("Consumer example · forecast-driven AMM fee vs fair LVR fee (bps)",
-      lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2) }) +
+    const feeTitle = "Consumer example · forecast-driven AMM fee vs fair LVR fee (bps)";
+    feeCard = card(feeTitle,
+      lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), label: chartLabel(feeTitle, feeSeries) }) +
       `<div class="fee-tiles"><div class="fee-tile"><div class="sub"><span style="color:#e6edf3">━</span> fair LVR fee</div>
         <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div>
         <div class="sub">reference</div></div>${tiles}</div>
@@ -396,7 +407,8 @@ function renderReplay({ data: d, src }) {
 
   const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
-  const rewardCard = card("Cumulative predictor fee share (WETH)", lineChart(rewards, labels, { min: 0 }) +
+  const rewardTitle = "Cumulative predictor fee share (WETH)";
+  const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, label: chartLabel(rewardTitle, rewards) }) +
     `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters above the uniform
     baseline, pro rata to their excess log score.</div>`, "wide");
 
@@ -431,7 +443,7 @@ function renderReplay({ data: d, src }) {
       const v = scoreOf(r, a);
       const miss = r.agents[a.agent]?.reproduced === false
         ? ` <span class="badge bad" title="this reveal did not reproduce from the onchain features">✗</span>` : "";
-      return `<td class="num" style="color:${v == null ? "var(--muted)" : v > uniform ? "var(--ok)" : "var(--bad)"}">${v == null ? "–" : v.toFixed(2)}${miss}</td>`;
+      return `<td class="num nowrap" style="color:${v == null ? "var(--muted)" : v > uniform ? "var(--ok)" : "var(--bad)"}">${v == null ? "–" : `${v > uniform ? "▲" : "▼"} ${v.toFixed(2)}`}${miss}</td>`;
     }).join("");
     return `<tr><td>#${r.id}</td><td class="mono nowrap">${r.window_utc[0].slice(5, 16)}</td>
       <td class="nowrap">${blockLink(m.block_from)}–${blockLink(m.block_to)}</td>
@@ -446,7 +458,7 @@ function renderReplay({ data: d, src }) {
     ${agents.map((a) => `<th class="num" style="color:${a.color}">${a.agent.replace("agent-", "")}</th>`).join("")}<th class="num">Settle gas</th></tr>
     ${roundRows}`, 1000)}
     <div class="sub" style="margin-top:8px">Block and transaction links point at Ethereum mainnet: the window's real blocks and its
-    last pool swap. The market itself lives only on the local fork. Green score = above the uniform baseline.</div>`, "wide");
+    last pool swap. The market itself lives only on the local fork. Scores: ▲ above / ▼ at or below the uniform baseline.</div>`, "wide");
 
   const c = d.contracts;
   const clRows = rp.chainlink_reports.map((x) => `<tr><td>${txLink(x.mainnet_tx)}</td><td>${blockLink(x.mainnet_block)}</td>
