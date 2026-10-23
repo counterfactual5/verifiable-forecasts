@@ -45,7 +45,8 @@
       radial-gradient(farthest-side at 0 50%, rgba(163,172,182,.4), rgba(163,172,182,0)) left / 14px 100% no-repeat scroll,
       radial-gradient(farthest-side at 100% 50%, rgba(163,172,182,.4), rgba(163,172,182,0)) right / 14px 100% no-repeat scroll; }
   .nowrap { white-space: nowrap; }
-  .scroll-hint { display: none; color: var(--muted); font-size: 12px; text-align: right; margin-top: 4px; }
+  .hdot { display: block; line-height: 1; }
+  .scroll-hint { display: none; color: var(--muted); font-size: 12px; text-align: right; margin-bottom: 4px; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
   td.num, th.num { text-align: right; }
@@ -79,7 +80,11 @@
     .badge .en { display: block; white-space: nowrap; }
     .badge .sep { display: none; }
   }
-  @media (max-width: 1000px) { .scroll-hint { display: block; } }
+  @media (max-width: 1000px) {
+    .scroll-hint { display: block; }
+    .pin-first tr > :first-child { position: sticky; left: 0; z-index: 1; background: var(--panel);
+      box-shadow: 1px 0 0 var(--line), 6px 0 6px -4px rgba(0,0,0,.5); }
+  }
 </style>
 </head>
 <body>
@@ -105,8 +110,8 @@ const txLink = (h, text) => `<a class="mono" href="${SCAN}/tx/${h}" target="_bla
 const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#f778ba", "#39c5bb", "#79c0ff"];
 const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 // The hint is shown only up to 1000 px, where a card's content box is under 900 px, so these tables always overflow.
-const scrollTable = (inner, minWidth = 0) => `<div class="table-scroll"><table${minWidth ? ` style="min-width:${minWidth}px"` : ""}>${inner}</table></div>` +
-  (minWidth >= 900 ? `<div class="scroll-hint">scroll →</div>` : "");
+const scrollTable = (inner, minWidth = 0, cls = "") => (minWidth >= 900 ? `<div class="scroll-hint">scroll →</div>` : "") +
+  `<div class="table-scroll"><table${cls ? ` class="${cls}"` : ""}${minWidth ? ` style="min-width:${minWidth}px"` : ""}>${inner}</table></div>`;
 
 async function load() {
   const param = new URLSearchParams(location.search).get("data");
@@ -481,8 +486,8 @@ function renderReplay({ data: d, src }) {
   }).join("");
   const roundsCard = card("Rounds · mainnet blocks, swaps and scores", `${scrollTable(`<tr><th>Round</th><th>Window (UTC)</th>
     <th>Mainnet blocks</th><th class="num">Swaps</th><th class="num">RV vs mainnet</th><th>Outcome</th><th class="num">Feed age / dev</th>
-    ${agents.map((a) => `<th class="num" style="color:${a.color}">${a.agent.replace("agent-", "")}</th>`).join("")}<th class="num">Settle gas</th></tr>
-    ${roundRows}`, 1000)}
+    ${agents.map((a) => `<th class="num"><span class="hdot" style="color:${a.color}">●</span>${a.agent.replace("agent-", "")}</th>`).join("")}<th class="num">Settle gas</th></tr>
+    ${roundRows}`, 1000, "pin-first")}
     <div class="sub" style="margin-top:8px">Block and transaction links point at Ethereum mainnet: the window's real blocks and its
     last pool swap. The market itself lives only on the local fork. Scores: ▲ above / ▼ at or below the uniform baseline.</div>`, "wide");
 
