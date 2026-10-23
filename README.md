@@ -205,6 +205,19 @@ variance cannot track; 24 hours is a demo, not evidence either way.
 Roadmap: the same reputation-weighted variance forecast could set lending collateral ratios / LTV
 buffers ahead of volatile hours.
 
+## Related work / 相关工作
+
+Volatility-aware fees already exist; what this project adds is upstream of them: a market where
+forecasts are committed before the hour, proven (zk) or reproducible, scored onchain against the real
+outcome and accumulated as ERC-8004 reputation. The dynamic fee above is only one consumer of that
+signal. Evidence grade A = the project's own docs or the organiser's official page, checked 2026-10-23.
+
+| Work | What it does | How this project differs | Evidence |
+|---|---|---|---|
+| [Uniswap v4 dynamic fees](https://developers.uniswap.org/docs/protocols/v4/concepts/dynamic-fees) | A hook may set the LP fee per swap (`beforeSwap` override) or periodically (`updateDynamicLPFee`); the fee logic is left to the hook author. | v4 provides the fee *mechanism*; we provide a scored, reputation-weighted *input* any such hook could read. | A |
+| [Algebra Integral dynamic (adaptive) fee](https://docs.algebra.finance/algebra-integral-documentation/algebra-integral-technical-reference/plugins/dynamic-fee) | Plugin computes the fee from the pool oracle's last-24 h volatility through tunable sigmoids. | Algebra's fee follows *past* volatility with a fixed formula; ours mixes competing *forward* forecasts whose weight is earned by onchain log scores. | A |
+| [Synth (Bittensor Subnet 50)](https://docs.synthdata.co/) | Miners submit simulated price paths, validators score them with CRPS, and a paid API sells the aggregated probabilistic and volatility forecasts. | Synth scores and serves forecasts off-chain through an API key; here commitment, proof checking, scoring and reputation all happen in contracts a protocol can read directly. | A |
+
 ## Track fit
 
 | Track / partner | What this project shows |
