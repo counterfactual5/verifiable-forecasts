@@ -7,6 +7,7 @@ import math
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import numpy as np
 import pytest
 
 from vol_agents import api_agent as api
@@ -17,6 +18,20 @@ from vol_agents.round import WINDOW_TICKS, history_ticks
 BOUNDS = list(cm.BOUNDS)
 FEATURES = cm.features_from_segment_ticks(history_ticks())
 SECRET = "test-key-not-real"
+INFO = {"market": "0x0", "id": 7, "start": 1792562400, "delta_s": cm.DELTA,
+        "n_segments": cm.N_SEGMENTS}
+
+
+def _tsfm_reply(centers, width=0.05):
+    """A inference /forecast answer whose step k has every quantile within width of centers[k],
+    rows deliberately out of time order."""
+    rows = []
+    for k, c in enumerate(centers):
+        rows.append({"unique_id": "round-7", "ds": f"2026-10-21T06:{5 * k:02d}:00Z", "y_hat": c,
+                     "intervals": {str(lv): {"lo": c - width * lv / 100,
+                                             "hi": c + width * lv / 100}
+                                   for lv in api.TSFM_LEVELS}})
+    return {"model_used": "remote-model", "forecast": rows[::-1]}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -49,6 +64,8 @@ def server():
         "/quantiles": {"quantiles": [{"level": 0.1, "value": 600.0},
                                      {"level": 0.5, "value": 1200.0},
                                      {"level": 0.9, "value": 2000.0}]},
+        # 11 window differences of 20 ticks at remote-model's spread 0.5: RV ~ 11 * 10^2 = 1100
+        "/v1/forecast": _tsfm_reply([500.0, 500.0] + [20.0] * 11),
     }
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv
@@ -119,6 +136,76 @@ def test_config_from_env():
     cfg = api.ApiConfig.from_env({"VOL_TSFM_API_URL": "http://x/y", "VOL_TSFM_API_KEY": "k",
                                   "VOL_TSFM_TIMEOUT_S": "5"})
     assert cfg == api.ApiConfig(url="http://x/y", key="k", timeout_s=5.0)
+    assert cfg.schema == api.INFERENCE and cfg.model == "remote-model"
+    cfg = api.ApiConfig.from_env({"VOL_TSFM_API_URL": "http://x/v1", "VOL_TSFM_MODEL": "chronos-2",
+                                  "VOL_TSFM_API_SCHEMA": api.REQUEST_SCHEMA})
+    assert cfg.model == "chronos-2" and cfg.schema == api.REQUEST_SCHEMA
+    with pytest.raises(ValueError):
+        api.ApiConfig.from_env({"VOL_TSFM_API_URL": "http://x", "VOL_TSFM_API_SCHEMA": "nope"})
+
+
+# ---------------------------------------------------------------- inference format
+
+def test_tsfm_request_puts_the_features_on_the_round_grid():
+    body = api.build_tsfm_request(FEATURES, INFO, "chronos-2")
+    assert body["model"] == "chronos-2" and body["freq"] == "5min"
+    assert body["options"] == {"cleaning": {"preset": "raw"}}
+    assert body["h"] == cm.N_SEGMENTS + 1
+    pts = body["series"]
+    assert [p["y"] * cm.MULT for p in pts] == FEATURES
+    assert {p["unique_id"] for p in pts} == {"round-7"}
+    # the last difference ends at createRound, one segment before the window starts
+    assert pts[-1]["ds"] == "2026-10-21T05:55:00Z" and pts[0]["ds"] == "2026-10-21T04:40:00Z"
+
+
+def test_tsfm_quantiles_parse_in_time_order():
+    levels, steps = api.tsfm_step_quantiles(_tsfm_reply([1.0, 2.0, 3.0]))
+    assert levels[0] == pytest.approx(0.01) and levels[-1] == pytest.approx(0.99)
+    assert len(levels) == 21 and 0.5 in levels
+    assert [s[levels.index(0.5)] for s in steps] == [1.0, 2.0, 3.0]
+    with pytest.raises(ValueError):
+        api.tsfm_step_quantiles({"forecast": []})
+    with pytest.raises(ValueError):
+        api.tsfm_step_quantiles({"forecast": [{"ds": "a", "y_hat": 1.0, "intervals": {}}]})
+
+
+def test_sampled_quantiles_follow_the_cdf_and_exponential_tails():
+    levels, values = [0.1, 0.5, 0.9], [-10.0, 0.0, 10.0]
+    u = np.array([0.1, 0.3, 0.5, 0.9, 0.99, 0.01])
+    x = api.sample_quantiles(levels, values, u)
+    assert x[:4] == pytest.approx([-10.0, -5.0, 0.0, 10.0])
+    tail = 10 / math.log(0.5 / 0.1)
+    assert x[4] == pytest.approx(10 + tail * math.log(0.1 / 0.01))
+    assert x[5] == pytest.approx(-10 - tail * math.log(0.1 / 0.01))
+
+
+def test_step_samples_sum_into_the_right_bucket_and_skip_the_lead_steps():
+    levels, steps = api.tsfm_step_quantiles(_tsfm_reply([500.0, 500.0] + [8.0] * 11))
+    # RV ~ 11 * 8^2 = 704: bucket 2; the two huge lead steps must not count
+    p = api.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1)
+    assert sum(p) == pytest.approx(1.0) and p[2] > 0.99
+    assert min(p) >= api.MC_PROB_FLOOR * 0.99
+    assert p == api.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1)
+    # spread 0.5 quarters RV (176: bucket 0); the uniform mix lifts every bucket to mix / 5
+    q = api.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1, 0.5, 0.5)
+    assert q[0] > 0.59 and min(q) >= 0.1 - 1e-12
+    with pytest.raises(ValueError):
+        api.probs_from_step_quantiles(levels, steps[:5], BOUNDS, cm.N_SEGMENTS - 1)
+
+
+def test_tsfm_agent_over_http(server):
+    cfg = api.ApiConfig(url=_url(server, "/v1/"), key=SECRET, model="remote-model")
+    agent = api.ApiAgent(name="agent-tsfm", key=DEV_KEYS[1], address=address_of(DEV_KEYS[1]),
+                         config=cfg)
+    assert agent.source == "inference:remote-model"
+    probs = agent.api_probs(FEATURES, BOUNDS, INFO)
+    req = server.requests[-1]
+    assert req["path"] == "/v1/forecast"
+    assert req["headers"]["Authorization"] == f"Bearer {SECRET}"
+    assert req["body"] == api.build_tsfm_request(FEATURES, INFO, "remote-model")
+    assert probs == api.tsfm_probs(server.replies["/v1/forecast"], BOUNDS, cm.N_SEGMENTS,
+                                      "remote-model")
+    assert max(range(5), key=lambda i: probs[i]) == 3
 
 
 # ---------------------------------------------------------------- HTTP adapter
@@ -175,7 +262,7 @@ def test_commit_only_agent_round_and_predictor_share(server):
                           cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
         key = DEV_KEYS[1]
         agent = api.ApiAgent(name="agent-tsfm", key=key, address=address_of(key),
-                             config=api.ApiConfig(url=_url(server, "/quantiles"), key=SECRET))
+                             config=api.ApiConfig(url=_url(server, "/v1"), key=SECRET))
         c.send(owner, market, "registerModel(address,address)",
                "0x0000000000000000000000000000000000000000", agent.address)
         agent.model_id = 0
@@ -198,8 +285,10 @@ def test_commit_only_agent_round_and_predictor_share(server):
             c.send(k, market, "bet(uint256,uint256,uint256)", 0, bucket, amount)
 
         forecast = agent.commit(c, market, 0)
-        assert forecast["source"] == "tsfm-api" and forecast["proof"] == "0x"
-        assert server.requests[-1]["body"]["round"]["start"] == start
+        assert forecast["source"] == "inference:remote-model" and forecast["proof"] == "0x"
+        sent = server.requests[-1]["body"]["series"]
+        assert sent[-1]["ds"] == api._iso(start - cm.DELTA)
+        assert [p["y"] * cm.MULT for p in sent] == FEATURES
         rec = c.call(market, PREDICTION_SIG, 0, agent.address)
         assert rec[0] in (False, "false")
 

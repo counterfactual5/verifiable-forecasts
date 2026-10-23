@@ -1,26 +1,36 @@
 """Commit-only agent backed by a third-party time-series forecasting (TSFM) HTTP API.
 
-The API gets the same onchain inputs the zk agents use (the round's 16 contract features, i.e.
-differences of 5-minute mean ticks, plus the relative mean-tick path they imply) and the round's
-bucket bounds, and answers with either 5 bucket probabilities or quantiles of the hour's realized
-volatility in tick^2. Quantiles are turned into bucket probabilities by interpolating their CDF at
-the bounds. The agent commits and reveals like the zk agents but without a proof: the market
-registers its model with verifier address(0), so its score only shows the forecast was made in
-time, not which model made it.
+The API gets the same onchain inputs the zk agents use: the round's 16 contract features, i.e.
+differences of 5-minute mean ticks. The agent commits and reveals like the zk agents but without a
+proof: the market registers its model with verifier address(0), so its score only shows the
+forecast was made in time, not which model made it.
 
-Configuration (environment): VOL_TSFM_API_URL (unset: a deterministic local placeholder forecast),
-VOL_TSFM_API_KEY (sent as "Authorization: Bearer <key>", or raw under VOL_TSFM_API_KEY_HEADER),
-VOL_TSFM_TIMEOUT_S (default 30). Request and response formats: agents/README.md.
+Two wire formats (VOL_TSFM_API_SCHEMA):
+- "inference" (default): inference `POST {url}/forecast` with the 16 differences as one long-table
+  series. The model returns per-step quantiles of the next differences; the agent samples each
+  window difference independently from them, sums the squares into realized vol and histograms the
+  draws into the round's buckets (summing per-step quantiles instead underestimates the level and
+  gives a U-shaped distribution). A fixed seed keeps it deterministic for a given API answer.
+- "vol-forecast-request/v1": the generic schema in agents/README.md, answered with 5 bucket
+  probabilities or quantiles of realized vol in tick^2.
+
+Configuration (environment): VOL_TSFM_API_URL (unset: a deterministic local placeholder forecast;
+for inference the base URL, e.g. <inference-endpoint>), VOL_TSFM_API_KEY (sent as
+"Authorization: Bearer <key>", or raw under VOL_TSFM_API_KEY_HEADER), VOL_TSFM_MODEL (inference model
+id, default remote-model), VOL_TSFM_TIMEOUT_S (default 30). Formats: agents/README.md.
 """
 
 import itertools
 import json
 import math
 import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from fractions import Fraction
+
+import numpy as np
 
 from . import contract_math as cm
 from .agent import Forecaster
@@ -36,6 +46,26 @@ PLACEHOLDER_LEVELS = (0.1, 0.5, 0.9)
 PLACEHOLDER_SCALE = (0.24, 0.94, 4.63)
 ROUND_SIG = "getRound(uint256)(uint64,bool,bool,uint256,uint256,uint256,uint256[5],uint256[])"
 
+INFERENCE = "inference"
+TSFM_DEFAULT_MODEL = "remote-model"
+# Interval levels asked from inference: with the median they cover its 21 native quantiles
+# (0.01, 0.05, 0.1 .. 0.9 step 0.05, 0.95, 0.99); models with fewer levels answer the nearest.
+TSFM_LEVELS = (98, 90, 80, 70, 60, 50, 40, 30, 20, 10)
+MC_DRAWS = 4000
+MC_SEED = 0
+MC_PROB_FLOOR = 1e-4
+# (spread scale on the sampled differences, uniform mix weight) per model, chosen on the validation
+# period 2026-10-08 .. 10-15 (165 hourly rounds) with the 16-feature context only; per-step
+# quantiles from 16 points are far too wide, so realized vol is scaled by spread^2.
+TSFM_CALIBRATION = {
+    "remote-model": (0.5, 0.5),
+    "chronos-2": (0.4, 0.3),
+    "remote-model-b": (0.4, 0.5),
+    "timesfm-3.0": (0.5, 0.5),
+    "timestral-209m": (0.5, 0.5),
+}
+TSFM_DEFAULT_CALIBRATION = (0.5, 0.5)
+
 
 @dataclass(frozen=True)
 class ApiConfig:
@@ -43,6 +73,8 @@ class ApiConfig:
     key: str | None = None
     key_header: str | None = None
     timeout_s: float = 30.0
+    schema: str = INFERENCE
+    model: str = TSFM_DEFAULT_MODEL
 
     @classmethod
     def from_env(cls, env=None):
@@ -50,9 +82,13 @@ class ApiConfig:
         url = (env.get("VOL_TSFM_API_URL") or "").strip()
         if not url:
             return None
+        schema = (env.get("VOL_TSFM_API_SCHEMA") or INFERENCE).strip()
+        if schema not in (INFERENCE, REQUEST_SCHEMA):
+            raise ValueError(f"VOL_TSFM_API_SCHEMA must be {INFERENCE} or {REQUEST_SCHEMA}")
         return cls(url=url, key=env.get("VOL_TSFM_API_KEY") or None,
                    key_header=env.get("VOL_TSFM_API_KEY_HEADER") or None,
-                   timeout_s=float(env.get("VOL_TSFM_TIMEOUT_S") or 30))
+                   timeout_s=float(env.get("VOL_TSFM_TIMEOUT_S") or 30), schema=schema,
+                   model=(env.get("VOL_TSFM_MODEL") or TSFM_DEFAULT_MODEL).strip())
 
 
 def build_request(features, bounds, round_info):
@@ -76,14 +112,100 @@ def build_request(features, bounds, round_info):
     }
 
 
-def call_api(cfg: ApiConfig, body: dict) -> dict:
+def _iso(t: int) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+
+def tsfm_horizon(n_segments: int) -> int:
+    """Rounds open one segment before their start (demo/fork_round.py), so after the last feature
+    one difference is skipped and the window's n_segments - 1 differences follow it."""
+    return n_segments + 1
+
+
+def build_tsfm_request(features, round_info, model: str) -> dict:
+    """inference /forecast body: the 16 feature differences in ticks as one series whose last point
+    is the createRound segment ending at start - delta, forecast up to the window's last
+    difference."""
+    delta = round_info["delta_s"]
+    diffs = [x // cm.MULT for x in features]
+    last = round_info["start"] - delta
+    freq = f"{delta // 60}min" if delta % 60 == 0 else f"{delta}s"
+    uid = f"round-{round_info['id']}"
+    return {
+        "model": model,
+        "series": [{"unique_id": uid, "ds": _iso(last - delta * (len(diffs) - 1 - i)),
+                    "y": float(d)} for i, d in enumerate(diffs)],
+        "h": tsfm_horizon(round_info["n_segments"]),
+        "freq": freq,
+        "level": list(TSFM_LEVELS),
+        # raw: the differences are already on a regular grid; cleaning would damp real jumps
+        "options": {"cleaning": {"preset": "raw"}},
+    }
+
+
+def tsfm_step_quantiles(resp: dict) -> tuple[list[float], list[list[float]]]:
+    """(levels, per-step values) from a /forecast answer, steps in time order."""
+    rows = sorted(resp["forecast"], key=lambda p: p["ds"])
+    if not rows:
+        raise ValueError("inference answer has no forecast rows")
+    per_step = []
+    for p in rows:
+        q = {0.5: float(p["y_hat"])}
+        for k, iv in p.get("intervals", {}).items():
+            half = float(k) / 200
+            q[round(0.5 - half, 6)] = float(iv["lo"])
+            q[round(0.5 + half, 6)] = float(iv["hi"])
+        per_step.append(q)
+    levels = sorted(per_step[0])
+    if len(levels) < 3 or any(sorted(q) != levels for q in per_step):
+        raise ValueError("inference answer needs the same intervals on every step")
+    return levels, [[q[lv] for lv in levels] for q in per_step]
+
+
+def sample_quantiles(levels, values, u):
+    """Inverse CDF through the quantiles at u in (0, 1): linear between them, exponential tails
+    through the two outermost quantiles on each side. Crossing quantiles are sorted first."""
+    q = np.asarray(levels, float)
+    v = np.sort(np.asarray(values, float))
+    x = np.interp(u, q, v)
+    lo, hi = u < q[0], u > q[-1]
+    t_lo = max((v[1] - v[0]) / math.log(q[1] / q[0]), 1e-9)
+    t_hi = max((v[-1] - v[-2]) / math.log((1 - q[-2]) / (1 - q[-1])), 1e-9)
+    x[lo] = v[0] - t_lo * np.log(q[0] / u[lo])
+    x[hi] = v[-1] + t_hi * np.log((1 - q[-1]) / (1 - u[hi]))
+    return x
+
+
+def probs_from_step_quantiles(levels, steps, bounds, n_diffs, spread=1.0, mix=0.0,
+                              draws=MC_DRAWS, seed=MC_SEED) -> list[float]:
+    """Bucket probabilities of RV = sum of the last n_diffs steps squared, each drawn independently
+    from its quantiles and scaled by spread, then mixed with uniform by weight mix."""
+    if len(steps) < n_diffs:
+        raise ValueError(f"need {n_diffs} forecast steps, got {len(steps)}")
+    u = np.random.default_rng(seed).random((n_diffs, draws))
+    rv = np.zeros(draws)
+    for k, s in enumerate(steps[-n_diffs:]):
+        rv += (spread * sample_quantiles(levels, s, u[k])) ** 2
+    b = np.searchsorted(np.asarray(bounds, float), rv, side="right")
+    p = np.maximum(np.bincount(b, minlength=cm.BUCKETS) / draws, MC_PROB_FLOOR)
+    p = p / p.sum()
+    return [float((1 - mix) * v + mix / cm.BUCKETS) for v in p]
+
+
+def tsfm_probs(resp: dict, bounds, n_segments: int, model: str) -> list[float]:
+    spread, mix = TSFM_CALIBRATION.get(model, TSFM_DEFAULT_CALIBRATION)
+    levels, steps = tsfm_step_quantiles(resp)
+    return probs_from_step_quantiles(levels, steps, bounds, n_segments - 1, spread, mix)
+
+
+def call_api(cfg: ApiConfig, body: dict, url: str | None = None) -> dict:
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if cfg.key:
         if cfg.key_header:
             headers[cfg.key_header] = cfg.key
         else:
             headers["Authorization"] = f"Bearer {cfg.key}"
-    req = urllib.request.Request(cfg.url, data=json.dumps(body).encode(), headers=headers,
+    req = urllib.request.Request(url or cfg.url, data=json.dumps(body).encode(), headers=headers,
                                  method="POST")
     try:
         with urllib.request.urlopen(req, timeout=cfg.timeout_s) as resp:
@@ -185,7 +307,17 @@ class ApiAgent(Forecaster):
 
     @property
     def source(self):
-        return "tsfm-api" if self.config else "placeholder"
+        if not self.config:
+            return "placeholder"
+        return f"inference:{self.config.model}" if self.config.schema == INFERENCE else "tsfm-api"
+
+    def api_probs(self, feats, bounds, info) -> list[float]:
+        cfg = self.config
+        if cfg.schema == INFERENCE:
+            resp = call_api(cfg, build_tsfm_request(feats, info, cfg.model),
+                            url=cfg.url.rstrip("/") + "/forecast")
+            return tsfm_probs(resp, bounds, info["n_segments"], cfg.model)
+        return probs_from_response(call_api(cfg, build_request(feats, bounds, info)), bounds)
 
     def prepare(self, chain: Anvil, market: str, round_id: int) -> dict:
         feats = [as_int(v) for v in
@@ -197,8 +329,7 @@ class ApiAgent(Forecaster):
         info = {"market": market, "id": round_id, "start": as_int(r[0]), "delta_s": delta,
                 "n_segments": n}
         if self.config:
-            probs = probs_from_response(call_api(self.config, build_request(feats, bounds, info)),
-                                        bounds)
+            probs = self.api_probs(feats, bounds, info)
         else:
             probs = probs_from_quantiles(*placeholder_quantiles(feats), bounds)
         return {"features": feats, "outputs": quantize(probs), "proof": "0x",

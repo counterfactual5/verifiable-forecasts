@@ -90,12 +90,28 @@ to `out/<name>/timing.jsonl`.
 
 | variable | meaning |
 |---|---|
-| `VOL_TSFM_API_URL` | POST endpoint. Unset: the agent uses a deterministic placeholder forecast (quantiles at 0.24×, 0.94×, 4.63× the trailing realized vol for levels 0.1/0.5/0.9, the training period's ratios of next-hour to trailing RV) and reports `forecast_source = "placeholder"` |
+| `VOL_TSFM_API_URL` | inference: base URL (`<inference-endpoint>`, the agent POSTs `/forecast`); generic schema: the POST endpoint. Unset: the agent uses a deterministic placeholder forecast (quantiles at 0.24×, 0.94×, 4.63× the trailing realized vol for levels 0.1/0.5/0.9, the training period's ratios of next-hour to trailing RV) and reports `forecast_source = "placeholder"` |
 | `VOL_TSFM_API_KEY` | optional; sent as `Authorization: Bearer <key>` |
 | `VOL_TSFM_API_KEY_HEADER` | optional; send the key raw under this header instead (e.g. `X-API-Key`) |
+| `VOL_TSFM_API_SCHEMA` | `inference` (default) or `vol-forecast-request/v1` (the generic schema below) |
+| `VOL_TSFM_MODEL` | inference model id, default `remote-model`; `GET {url}/models` lists what the key may use |
 | `VOL_TSFM_TIMEOUT_S` | request timeout, default 30 |
 
 Error messages never contain the key or the response body. Tests use a local mock HTTP server only.
+
+### inference format (default)
+
+The 16 feature differences (features / 128, ticks) go out as one long-table series
+(`unique_id` `round-<id>`, `ds` every Δ seconds ending at `start − Δ`, `y`), with `h = nSegments + 1`,
+`freq` `5min`, `level` `[98, 90, …, 10]` (the 21 native quantiles with the median) and the `raw`
+cleaning preset. The answer's per-step `y_hat` and `intervals` become quantiles of each future
+difference; the last `nSegments − 1` steps are the window's differences (rounds open one segment
+before their start). The agent draws 4000 independent samples per step (fixed seed; linear between
+quantiles, exponential tails), scales them by a per-model spread, sums the squares into realized
+vol, histograms the draws into the bounds (floor 1e-4) and mixes with uniform. Spread and mix per
+model (`TSFM_CALIBRATION`) were chosen on the validation period 2026-10-08 .. 10-15 only.
+
+### Generic format (`VOL_TSFM_API_SCHEMA=vol-forecast-request/v1`)
 
 **Request** (`Content-Type: application/json`), built from the contract's own features:
 
