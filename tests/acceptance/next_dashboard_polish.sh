@@ -43,8 +43,8 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
       for (const c of cards) { const t = Math.round(c.getBoundingClientRect().top); (rows[t] = rows[t] || []).push(c); }
       const appW = app.getBoundingClientRect().width;
       const holes = Object.values(rows).filter((cs) => cs.reduce((w, c) => w + c.getBoundingClientRect().width, 0) < appW * 0.9).map((cs) => cs.map((c) => c.querySelector("h2")?.textContent.trim()).join("+"));
-      const glyph = /^[━┈┅┄╌]$/;
-      const legendBreaks = [...document.querySelectorAll("#app .card .sub span")].filter((sp) => glyph.test(sp.textContent.trim())).map((sp) => {
+      const swatchOnly = (sp) => sp.children.length === 1 && sp.firstElementChild.matches("svg.swatch") && !sp.textContent.trim();
+      const legendBreaks = [...document.querySelectorAll("#app .card .sub span")].filter(swatchOnly).map((sp) => {
         let node = sp.nextSibling;
         while (node && node.nodeType !== 3 && !node.textContent.trim()) node = node.nextSibling;
         if (!node) return null;
@@ -57,7 +57,7 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
         const tops = new Set([...rg.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top)));
         return tops.size > 1 ? name : null;
       }).filter(Boolean);
-      const legendCount = [...document.querySelectorAll("#app .card .sub span")].filter((sp) => glyph.test(sp.textContent.trim())).length;
+      const legendCount = [...document.querySelectorAll("#app .card .sub span")].filter(swatchOnly).length;
       const winVar = getComputedStyle(document.documentElement).getPropertyValue("--win").trim().toLowerCase();
       return { winVar, legendCount, win, clash: lineColours.filter((c) => c === win).length, lines: lineColours.length, holes, legendBreaks,
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };

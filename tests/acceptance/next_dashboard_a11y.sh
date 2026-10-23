@@ -28,7 +28,10 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
     await page.goto(`${base}/dashboard/?data=${data}`);
     await page.waitForSelector("#app svg", { timeout: 15000 });
     const r = await page.evaluate(() => {
-      const svgs = [...document.querySelectorAll("#app svg")];
+      const svgs = [...document.querySelectorAll("#app svg:not(.swatch)")];
+      const swatches = [...document.querySelectorAll("#app svg.swatch")];
+      const loudSwatches = swatches.filter((s) => s.getAttribute("aria-hidden") !== "true" || s.getAttribute("role")
+        || s.children.length !== 1 || s.firstElementChild.tagName.toLowerCase() !== "line").length;
       const labels = svgs.map((s) => (s.getAttribute("aria-label") || "").trim());
       const unnamed = svgs.filter((s, i) => s.getAttribute("role") !== "img" || labels[i].length < 10).length;
       const offTopic = svgs.filter((s, i) => {
@@ -40,8 +43,10 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
       }).length;
       const distinct = new Set(labels).size === labels.length;
       const imgs = document.querySelectorAll('#app [role="img"]').length;
-      return { n: svgs.length, unnamed, offTopic, distinct, imgs, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      return { n: svgs.length, unnamed, offTopic, distinct, imgs, swatches: swatches.length, loudSwatches,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
+    check(r.loudSwatches === 0, `${data} @${width}: every legend swatch svg is aria-hidden="true", has no role and holds a single <line> (${r.loudSwatches}/${r.swatches} exposed)`);
     check(r.n > 0 && r.unnamed === 0, `${data} @${width}: every chart svg has role=img and a descriptive aria-label (${r.unnamed}/${r.n} missing)`);
     check(r.n > 0 && r.distinct && r.offTopic === 0, `${data} @${width}: chart labels are distinct and name their card title or a series (${r.offTopic} off-topic)`);
     if (data === "sample-replay.json") check(r.imgs > r.n, `${data} @${width}: the div-drawn winning-buckets chart is exposed as role=img too (${r.imgs} role=img vs ${r.n} svg)`);

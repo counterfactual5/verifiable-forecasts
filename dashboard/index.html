@@ -314,6 +314,7 @@
       radial-gradient(farthest-side at 0 50%, rgba(60,45,20,.25), rgba(60,45,20,0)) left / 14px 100% no-repeat scroll,
       radial-gradient(farthest-side at 100% 50%, rgba(60,45,20,.25), rgba(60,45,20,0)) right / 14px 100% no-repeat scroll; }
   .nowrap { white-space: nowrap; }
+  .swatch { display: inline-block; vertical-align: middle; margin-top: -2px; }
   .hdot { display: block; line-height: 1; }
   .scroll-hint { display: none; color: var(--muted); font-size: 12px; text-align: right; margin-bottom: 4px; }
   .scroll-hint.on { display: block; }
@@ -358,6 +359,7 @@
   .fee-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
   .fee-tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
   .fee-tile .sub { margin-top: 0; }
+  .fee-tile .swatch { width: 16px; }
   .fee-tile.best { border-color: var(--ok); box-shadow: 3px 3px 0 var(--ok); }
   .fee-mae { font: 600 22px/1.3 var(--mono); }
   @media (max-width: 600px) {
@@ -447,6 +449,8 @@ const BUCKET_NAMES = (b) => [`< ${b[0]}`, `${b[0]}–${b[1]}`, `${b[1]}–${b[2]
 const ETHERSCAN = "https://etherscan.io/address/";
 const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
 const link = (a) => `<a class="mono" href="${ETHERSCAN}${a}" target="_blank" rel="noopener">${short(a)}</a>`;
+const swatch = (color, dash) => `<span class="sw"><svg class="swatch" aria-hidden="true" width="22" height="8" viewBox="0 0 22 8">` +
+  `<line x1="1" x2="21" y1="4" y2="4" stroke="${color}" stroke-width="2.5"${dash ? ` stroke-dasharray="${dash}"` : ""}/></svg></span>`;
 const badge = (ok, yes, no) => `<span class="badge ${ok ? "ok" : "bad"}">${ok ? yes : no}</span>`;
 const fmtTime = (t) => new Date(t * 1000).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 const eth = (wei) => (Number(BigInt(wei) / 10n ** 12n) / 1e6).toFixed(4);
@@ -507,8 +511,8 @@ function segmentChart(fork, real, label) {
     ${real ? `<path d="${path(real)}" fill="none" stroke="#8b949e" stroke-dasharray="4 4"/>` : ""}
     <path d="${path(fork)}" fill="none" stroke="#58a6ff" stroke-width="2"/>${dots(fork, "#58a6ff")}
     ${labels}</svg>
-    <div class="sub"><span style="color:#58a6ff">━</span> segment mean tick on the fork (from VolMarket checkpoints)
-    ${real ? ` &nbsp; <span>┅</span> real mainnet 5-min TWAP tick (replay target)` : ""}</div>`;
+    <div class="sub">${swatch("#58a6ff")} segment mean tick on the fork (from VolMarket checkpoints)
+    ${real ? ` &nbsp; ${swatch("#8b949e", "4 4")} real mainnet 5-min TWAP tick (replay target)` : ""}</div>`;
 }
 
 function render({ data: d, src }) {
@@ -673,7 +677,7 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
     return `${area}<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}" stroke-linejoin="round" stroke-linecap="round"${op} ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
   }).join("");
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-opacity=".7" stroke-dasharray="5 4"/>` : "";
-  const legend = series.map((s) => `<span class="nowrap"><span style="color:${s.color}">${!s.dash ? "━" : s.dash === "2 4" ? "┈" : "┅"}</span> ${s.name}</span>`).join(" &nbsp; ");
+  const legend = series.map((s) => `<span class="nowrap">${swatch(s.color, s.dash)} ${s.name}</span>`).join(" &nbsp; ");
   CHARTS.push({ W, n, L, R, x, labels, series: series.map((s) => ({ name: s.name, color: s.color, values: s.values })), tipFmt });
   return `<div class="chart" data-chart="${id}"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}<g class="series">${lines}</g>${xl}
     <line class="guide" x1="0" x2="0" y1="${T}" y2="${H - B}"/></svg><div class="tip" aria-hidden="true"></div></div><div class="sub">${legend}</div>`;
@@ -1049,7 +1053,7 @@ function renderReplay({ data: d, src }) {
     const best = lowestFee(fs).mae;
     const tiles = strategies.map(([k, name, meanKey], i) => {
       const mae = fs.mae_bps[k], win = mae === best;
-      return `<div class="fee-tile${win ? " best" : ""}"><div class="sub"><span class="nowrap"><span style="color:${feeSeries[i + 1].color}">${feeSeries[i + 1].dash ? "┅" : "━"}</span>
+      return `<div class="fee-tile${win ? " best" : ""}"><div class="sub"><span class="nowrap">${swatch(feeSeries[i + 1].color, feeSeries[i + 1].dash)}
         ${name}</span></div><div><span class="fee-mae" data-mae="${k}">${mae.toFixed(2)}</span> <span class="sub">bps MAE</span>
         ${win ? `<span class="badge ok">lowest</span>` : ""}</div><div class="sub">mean ${fs.mean_bps[meanKey].toFixed(2)} bps</div></div>`;
     }).join("");
@@ -1061,7 +1065,7 @@ function renderReplay({ data: d, src }) {
       <b>${fs.mae_bps.fixed.toFixed(2)}</b> bps：${low.key === "forecast" ? "预测驱动费率误差最小。"
         : `暂未赢过${low.key === "fixed" ? "固定费率" : low.key.replace("_", " ")}（如实展示）。`}</p>` +
       lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), label: chartLabel(feeTitle, feeSeries) }) +
-      `<div class="fee-tiles"><div class="fee-tile"><div class="sub"><span class="nowrap"><span style="color:#1b1a17">━</span> fair LVR fee</span></div>
+      `<div class="fee-tiles"><div class="fee-tile"><div class="sub"><span class="nowrap">${swatch(feeSeries[0].color)} fair LVR fee</span></div>
         <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div>
         <div class="sub">reference</div></div>${tiles}</div>
       <div class="sub" style="margin-top:8px">LVR（loss-versus-rebalancing）是套利者从 LP 身上拿走的损失；公平费率 = 刚好补偿这部分损失的费率，
@@ -1309,12 +1313,12 @@ function playerBody(d) {
   const use = f?.forecast_bps == null ? `<p>这份回放没有记录消费方（动态手续费）数据。</p>` : (() => {
     const e = Math.abs(f.forecast_bps - f.fair_bps), ef = Math.abs(f.fixed_bps - f.fair_bps);
     const shares = f.mirror?.weights?.length !== d.agents.length ? "" : (STATE.model?.rounds[STATE.round]?.agents ?? [])
-      .filter((a) => a.weight > 0).map((a) => `${a.name} ${(a.share * 100).toFixed(1)}%`).join(" · ");
+      .filter((a) => a.weight > 0).map((a) => `<span class="nowrap">${a.name} ${(a.share * 100).toFixed(1)}%</span>`).join(" · ");
     return `<div class="pl-big">${f.forecast_bps.toFixed(2)} <span>bps 手续费</span></div>
       <p>事后公允费率 ${f.fair_bps.toFixed(2)} bps · 误差 <b>${e.toFixed(2)}</b> vs 固定 ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
         ${e <= ef ? ok("本轮优于固定") : mute("本轮固定更近")}</p>
       <p class="pl-src dim">${f.mirror?.equal_weight_fallback ? "声誉权重尚未形成 → 等权混合" : `声誉权重 ${shares || "—"}`}
-        · setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>`;
+        <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>`;
   })();
   const stage = (k, n, zh, en, body) => `<li class="pl-stage" data-stage="${k}"><div class="pl-h"><span class="n">${n}</span>${zh}<span class="en">${en}</span></div><div class="pl-b">${body}</div></li>`;
   return `<ol class="pl-stages">
