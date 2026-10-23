@@ -524,7 +524,7 @@ def commit_api(c, agent, market, rid):
     so one failed request never stops the live replay."""
     try:
         return agent.commit(c, market, rid)
-    except (RuntimeError, ValueError, KeyError, TypeError) as e:
+    except (RuntimeError, ValueError, KeyError, TypeError, OSError) as e:
         log(f"round {rid}: {agent.name} API failed ({str(e)[:200]}); committing the placeholder")
         stand_in = ApiAgent(name=agent.name, key=agent.key, address=agent.address)
         forecast = stand_in.prepare(c, market, rid)
