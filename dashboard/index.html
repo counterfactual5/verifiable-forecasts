@@ -318,6 +318,9 @@
   .scroll-hint { display: none; color: var(--muted); font-size: 12px; text-align: right; margin-bottom: 4px; }
   .scroll-hint.on { display: block; }
   .table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .vdetails summary { cursor: pointer; width: fit-content; margin-top: 2px; color: var(--accent); font-size: 12px; }
+  .vdetails summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .vdetails:not([open]) > :not(summary) { display: none; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   th { color: var(--faint); font-weight: 600; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
   tr:nth-child(2n+3) > td { background: #f6f1e6; }
@@ -1087,12 +1090,20 @@ function renderReplay({ data: d, src }) {
   };
   const tsfmInfo = (a) => {
     const repo = a.weights ? a.weights.split("@")[0] : null;
-    const lic = /^TimesFM/i.test(a.license ?? "") ? `<b>TimesFM license: non-commercial</b>` : `license ${attr(a.license ?? "?")}`;
+    const timesfm = /^TimesFM/i.test(a.license ?? "");
+    const lic = timesfm ? `<b>TimesFM license: non-commercial</b>` : `license ${attr(a.license ?? "?")}`;
     const out = a.sum.rounds_sat_out ? `<div class="sub">未参赛 ${a.sum.rounds_sat_out} 轮（推理失败，可复现档不提交替身）</div>` : "";
-    return `<div class="sub">${PROVIDER_ZH[a.provider] ?? attr(a.provider)} · <span class="mono">${attr(a.model)}</span> · ${repo ? `公开权重 <span class="mono">${attr(repo)}</span>` : "闭源"} · ${lic}</div>` +
-      (a.recompute_command ? `<div class="sub">可复现：公开权重 ${attr(repo)}，每桶误差 ≤ ${tolText(a)}（容差复核；承诺先于结果）${(({ checked, failed }) => checked
-          ? `；本回放已重算 ${checked - failed}/${checked} 轮在容差内` : "")(repro(a))}。复核：<span class="mono">${attr(a.recompute_command)}</span></div>`
-        : `<div class="sub">no proof; reveal checked against commit only</div>`) + ctxSummary(a) + out;
+    const { checked, failed } = repro(a);
+    const verdict = a.recompute_command
+      ? `可复现 · ${checked ? `${checked - failed}/${checked} 轮重算在容差内` : "离线可复核"}`
+      : "no proof; reveal checked against commit only";
+    const head = `<div class="sub">${verdict} · <span class="mono">${attr(a.model)}</span>` +
+      `${timesfm ? " · <b>非商用 license</b>" : ""}${a.sum.rounds_sat_out ? ` · 未参赛 ${a.sum.rounds_sat_out} 轮` : ""}</div>`;
+    return head + `<details class="vdetails"><summary>详情 / 复核命令</summary>` +
+      `<div class="sub">${PROVIDER_ZH[a.provider] ?? attr(a.provider)} · <span class="mono">${attr(a.model)}</span> · ${repo ? `公开权重 <span class="mono">${attr(repo)}</span>` : "闭源"} · ${lic}</div>` +
+      (a.recompute_command ? `<div class="sub">可复现：公开权重 ${attr(repo)}，每桶误差 ≤ ${tolText(a)}（容差复核；承诺先于结果）${checked
+          ? `；本回放已重算 ${checked - failed}/${checked} 轮在容差内` : ""}。复核：<span class="mono">${attr(a.recompute_command)}</span></div>` : "") +
+      ctxSummary(a) + out + `</details>`;
   };
   const agentRows = agents.map((a) => {
     const m = a.sum, rep = m.erc8004, t = tamper[a.agent];
