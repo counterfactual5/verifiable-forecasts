@@ -9,6 +9,8 @@ After=network-online.target
 Type=oneshot
 WorkingDirectory=/opt/verifiable-forecasts
 Environment=PATH=/root/.foundry/bin:/usr/local/bin:/usr/bin:/bin
+# EZKL setup/prove panic without HOME, which systemd does not set for system services.
+Environment=HOME=/root
 # EZKL panics when HOME is unset, which it is under systemd.
 Environment=HOME=/root
 ExecStart=/bin/bash /opt/verifiable-forecasts/demo/live.sh
