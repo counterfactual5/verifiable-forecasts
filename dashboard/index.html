@@ -7,7 +7,7 @@
 <style>
   :root {
     --bg: #f3eee3; --panel: #fbf8f1; --panel-2: #f2ecdf; --line: #dcd2bf; --line-2: #b8aa90;
-    --text: #1b1a17; --muted: #57524a; --faint: #7d7568; --ink: #1b1a17;
+    --text: #1b1a17; --muted: #57524a; --faint: #6e6659; --ink: #1b1a17;
     --accent: #1d3fc4; --vermil: #d8431b; --ok: #1a7f37; --bad: #c4291c; --warn: #9a5a00; --win: #a371f7; --cyan: #0f7c86;
     --lift: 0 1px 0 rgba(255,255,255,.8) inset, 0 1px 2px rgba(60,45,20,.06), 0 14px 30px -22px rgba(60,45,20,.35);
     --display: "Iowan Old Style", "Charter", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif;
@@ -356,6 +356,8 @@
   .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
   footer { color: var(--faint); padding: 0 40px 28px; font-size: 12px; }
   #error { color: var(--bad); padding: 32px; }
+  .load-failed > .sub, .load-failed > a { display: block; padding: 0 32px; }
+  .load-failed > a { text-decoration: underline; }
   .fee-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
   .fee-tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
   .fee-tile .sub { margin-top: 0; }
@@ -1758,10 +1760,23 @@ load().then((x) => {
   });
 }).catch((e) => {
   document.getElementById("subtitle").textContent = "";
+  const box = document.createElement("div");
+  box.className = "load-failed";
+  box.setAttribute("role", "alert");
+  const lead = document.createElement("div");
+  lead.className = "sub";
+  lead.textContent = "数据加载失败";
   const err = document.createElement("div");
   err.id = "error";
   err.textContent = e.message;
-  document.getElementById("app").replaceChildren(err);
+  box.append(lead, err);
+  if (new URLSearchParams(location.search).get("data")) {
+    const back = document.createElement("a");
+    back.href = location.pathname + location.hash;
+    back.textContent = "打开默认数据";
+    box.append(back);
+  }
+  document.getElementById("app").replaceChildren(box);
 });
 </script>
 </body>
