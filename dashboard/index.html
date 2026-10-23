@@ -373,6 +373,8 @@
     .badge:has(.en) { border-radius: 8px; flex-wrap: wrap; row-gap: 0; }
     .badge .en { display: block; flex-basis: 100%; padding-left: 12px; white-space: nowrap; }
     .badge .sep { display: none; }
+    #live-badge { display: block; width: fit-content; max-width: 100%; white-space: normal; word-break: keep-all; }
+    #live-badge::before { display: inline-block; margin-right: 6px; vertical-align: 1px; }
     #kpis { padding: 8px 12px 0; }
     #summary { grid-template-columns: 1fr 1fr; }
     .kpi { padding: 10px 12px; }
@@ -765,7 +767,7 @@ function liveBadge(d) {
   const age = Date.now() / 1000 - d.generated_at;
   if (!(age <= LIVE_STALE_S)) {
     const when = new Date(d.generated_at * 1000).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-    return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新 ${when}（${Math.floor(age / 3600)} 小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
+    return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新 ${when}（${Math.floor(age / 3600)}&nbsp;小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
   }
   const next = d.next_run_at ? ` · 下一轮约 ${hm(d.next_run_at)}` : "";
   return `<span class="badge live" id="live-badge">LIVE · 最近更新 ${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
