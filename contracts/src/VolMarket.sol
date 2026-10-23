@@ -56,6 +56,7 @@ contract VolMarket {
 
     // ---------------------------------------------------------------- events
     event ModelRegistered(uint256 indexed modelId, address verifier, address operator);
+    event ModelHashSet(uint256 indexed modelId, bytes32 modelHash);
     event RoundCreated(uint256 indexed roundId, uint64 startTime, uint256[] bounds, int256[16] features);
     event BetPlaced(uint256 indexed roundId, address indexed bettor, uint256 bucket, uint256 amount);
     event PredictionCommitted(
@@ -139,8 +140,18 @@ contract VolMarket {
     uint32 public immutable commitLead;
     uint32 public immutable revealLead;
 
-    address[] public models; // modelId -> EZKL verifier; address(0) marks a commit-only model
+    /// @dev Verification tiers, from weakest to strongest. COMMIT_ONLY: neither verifier nor hash,
+    ///      the commitment proves timing only. REPRODUCIBLE: no verifier but a published model hash,
+    ///      so a third party can re-run the model off-chain; reveals still carry no proof.
+    ///      ZK: reveals must carry an EZKL proof, whether or not a hash is set.
+    uint8 public constant TIER_COMMIT_ONLY = 0;
+    uint8 public constant TIER_REPRODUCIBLE = 1;
+    uint8 public constant TIER_ZK = 2;
+
+    address[] public models; // modelId -> EZKL verifier; address(0) marks a model whose reveals carry no proof
     mapping(uint256 => address) public modelOperator; // the only account that may commit with modelId
+    /// @dev modelId -> hash of the model artifact set at registration; never changes afterwards.
+    mapping(uint256 => bytes32) private modelHashes;
     uint256 public roundCount;
     mapping(uint256 => Round) private rounds;
 
@@ -225,27 +236,53 @@ contract VolMarket {
 
     // ---------------------------------------------------------------- models
     /// @notice Register a model; predictions cite it by the returned id.
-    /// @param verifier the model's EZKL verifier, or address(0) for a commit-only model whose
-    ///        reveals carry no proof
+    /// @param verifier the model's EZKL verifier, or address(0) for a model whose reveals carry no
+    ///        proof (commit-only, or reproducible when registered with a model hash)
     /// @param operator the only account allowed to commit with this model: a proof does not bind its
     ///        sender, so without this anyone could resubmit a copied proof as their own forecast
     function registerModel(address verifier, address operator) external returns (uint256 modelId) {
+        return _registerModel(verifier, operator, bytes32(0));
+    }
+
+    /// @notice Register a model together with an immutable hash of its artifacts.
+    /// @param modelHash_ hash of the model's weights, code and inputs; bytes32(0) is the same as
+    ///        the two-argument overload
+    function registerModel(address verifier, address operator, bytes32 modelHash_) external returns (uint256 modelId) {
+        return _registerModel(verifier, operator, modelHash_);
+    }
+
+    function _registerModel(address verifier, address operator, bytes32 modelHash_) internal returns (uint256 modelId) {
         if (msg.sender != owner) revert NotOwner();
         if (operator == address(0)) revert ZeroAddress();
         modelId = models.length;
         models.push(verifier);
         modelOperator[modelId] = operator;
         emit ModelRegistered(modelId, verifier, operator);
+        if (modelHash_ != bytes32(0)) {
+            modelHashes[modelId] = modelHash_;
+            emit ModelHashSet(modelId, modelHash_);
+        }
     }
 
     function modelCount() external view returns (uint256) {
         return models.length;
     }
 
-    /// @notice True for a model whose reveals must carry an EZKL proof, false for commit-only.
+    /// @notice True for a model whose reveals must carry an EZKL proof, false otherwise.
     function isZkModel(uint256 modelId) external view returns (bool) {
         if (modelId >= models.length) revert UnknownModel();
         return models[modelId] != address(0);
+    }
+
+    function modelHash(uint256 modelId) external view returns (bytes32) {
+        if (modelId >= models.length) revert UnknownModel();
+        return modelHashes[modelId];
+    }
+
+    function verificationTier(uint256 modelId) external view returns (uint8) {
+        if (modelId >= models.length) revert UnknownModel();
+        if (models[modelId] != address(0)) return TIER_ZK;
+        return modelHashes[modelId] != bytes32(0) ? TIER_REPRODUCIBLE : TIER_COMMIT_ONLY;
     }
 
     /// @notice Configure optional ETH/USD cross-check; zero address disables it.
@@ -609,7 +646,8 @@ contract VolMarket {
 
     /// @dev tag2 identifies the window the score belongs to: "vol-<delta>s-<nSegments>", derived
     ///      from the constructor parameters so that markets with different windows do not mix.
-    ///      Commit-only models append "-commit", so readers can filter by verification tier.
+    ///      Models without a verifier (commit-only and reproducible) append "-commit", so readers
+    ///      can tell zk-proven scores apart.
     function _reputationTag() internal view returns (string memory) {
         return string.concat("vol-", _toString(uint256(delta)), "s-", _toString(uint256(nSegments)));
     }

@@ -11,6 +11,8 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockPool} from "./mocks/MockPool.sol";
 import {MockAggregator} from "./mocks/MockAggregator.sol";
 import {AggregatorV3Interface} from "../src/interfaces/AggregatorV3Interface.sol";
+import {IdentityRegistryLite} from "../src/erc8004/IdentityRegistryLite.sol";
+import {ReputationRegistryLite} from "../src/erc8004/ReputationRegistryLite.sol";
 
 /// @dev Price feed whose latestRoundData costs `burn` gas before answering. The gas is burnt in a
 ///      sub-call, as a Chainlink proxy reads its aggregator: a starved sub-call fails while the feed
@@ -1019,6 +1021,148 @@ contract VolMarketTest is Test {
         _settleAfterWindow(id);
         (,,, int256 score) = market.getPrediction(id, bob);
         assertEq(score, MarketMath.log1e18(probs[0]));
+    }
+
+    // -------- model hash and verification tier ------------------------------
+
+    bytes32 constant MODEL_HASH = keccak256("weights+code+data");
+
+    function test_RegisterModelWithHashStoresAndEmits() public {
+        _deploy(0);
+        vm.expectEmit(true, false, false, true, address(market));
+        emit VolMarket.ModelRegistered(0, address(0), alice);
+        vm.expectEmit(true, false, false, true, address(market));
+        emit VolMarket.ModelHashSet(0, MODEL_HASH);
+        uint256 modelId = market.registerModel(address(0), alice, MODEL_HASH);
+        assertEq(modelId, 0);
+        assertEq(market.modelHash(modelId), MODEL_HASH);
+        assertEq(market.modelOperator(modelId), alice);
+        assertEq(market.modelCount(), 1);
+    }
+
+    function test_TierReproducibleWhenNoVerifierAndHash() public {
+        _deploy(0);
+        uint256 modelId = market.registerModel(address(0), alice, MODEL_HASH);
+        assertEq(market.verificationTier(modelId), market.TIER_REPRODUCIBLE());
+        assertFalse(market.isZkModel(modelId));
+    }
+
+    function test_TierZkWhenVerifierRegardlessOfHash() public {
+        _deploy(0);
+        uint256 hashed = market.registerModel(address(1), alice, MODEL_HASH);
+        uint256 plain = market.registerModel(address(2), bob, bytes32(0));
+        uint256 twoArg = market.registerModel(address(3), carol);
+        assertEq(market.verificationTier(hashed), market.TIER_ZK());
+        assertEq(market.verificationTier(plain), market.TIER_ZK());
+        assertEq(market.verificationTier(twoArg), market.TIER_ZK());
+        assertEq(market.modelHash(hashed), MODEL_HASH);
+        assertTrue(market.isZkModel(hashed));
+    }
+
+    function test_TierCommitOnlyWhenNeither() public {
+        _deploy(0);
+        vm.recordLogs();
+        uint256 twoArg = market.registerModel(address(0), alice);
+        uint256 zeroHash = market.registerModel(address(0), bob, bytes32(0));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; ++i) {
+            assertTrue(logs[i].topics[0] != VolMarket.ModelHashSet.selector, "no hash event for a zero hash");
+        }
+        assertEq(market.modelHash(twoArg), bytes32(0));
+        assertEq(market.modelHash(zeroHash), bytes32(0));
+        assertEq(market.verificationTier(twoArg), market.TIER_COMMIT_ONLY());
+        assertEq(market.verificationTier(zeroHash), market.TIER_COMMIT_ONLY());
+        assertTrue(market.TIER_COMMIT_ONLY() != market.TIER_REPRODUCIBLE());
+        assertTrue(market.TIER_REPRODUCIBLE() != market.TIER_ZK());
+        assertTrue(market.TIER_COMMIT_ONLY() != market.TIER_ZK());
+    }
+
+    function test_ModelHashUnknownModelReverts() public {
+        _deploy(0);
+        vm.expectRevert(VolMarket.UnknownModel.selector);
+        market.modelHash(0);
+        market.registerModel(address(0), alice, MODEL_HASH);
+        vm.expectRevert(VolMarket.UnknownModel.selector);
+        market.modelHash(1);
+    }
+
+    function test_VerificationTierUnknownModelReverts() public {
+        _deploy(0);
+        vm.expectRevert(VolMarket.UnknownModel.selector);
+        market.verificationTier(0);
+        market.registerModel(address(0), alice, MODEL_HASH);
+        vm.expectRevert(VolMarket.UnknownModel.selector);
+        market.verificationTier(1);
+    }
+
+    function test_RegisterModelWithHashZeroOperatorReverts() public {
+        _deploy(0);
+        vm.expectRevert(VolMarket.ZeroAddress.selector);
+        market.registerModel(address(0), address(0), MODEL_HASH);
+        assertEq(market.modelCount(), 0);
+    }
+
+    function test_RegisterModelWithHashNotOwnerReverts() public {
+        _deploy(0);
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.NotOwner.selector);
+        market.registerModel(address(0), alice, MODEL_HASH);
+        assertEq(market.modelCount(), 0);
+    }
+
+    function test_ReproducibleModelRevealSkipsProofAndTagsCommit() public {
+        _deploy(0);
+        _segments(_mixed());
+        IdentityRegistryLite identity = new IdentityRegistryLite();
+        ReputationRegistryLite reputation = new ReputationRegistryLite();
+        market.setReputation(address(identity), address(reputation));
+        vm.prank(bob);
+        uint256 agentId = identity.register("ipfs://reproducible-agent");
+        uint256 modelId = market.registerModel(address(0), bob, MODEL_HASH);
+        vm.prank(bob);
+        market.linkAgent(modelId, agentId);
+        assertFalse(market.isZkModel(modelId));
+
+        uint256 id = _create();
+        uint256[5] memory out = _probs(3, 0.6e18);
+        _commit(id, modelId, bob, out);
+        vm.warp(COMMIT_END);
+        _reveal(id, bob, "", out);
+        (bool recorded,,,) = market.getPrediction(id, bob);
+        assertTrue(recorded);
+
+        _settleAfterWindow(id);
+        (,,, int256 score) = market.getPrediction(id, bob);
+        (int128[] memory values,,, string[] memory tags) = reputation.readFeedback(agentId, address(market));
+        assertEq(tags.length, 1);
+        assertEq(tags[0], "vol-300s-12-commit");
+        assertEq(int256(values[0]), score);
+    }
+
+    function test_ZkModelWithHashStillRequiresProof() public {
+        _deployProofPool(_segTicks());
+        uint256 modelId = market.registerModel(address(new SpikeModelVerifier()), bob, MODEL_HASH);
+        assertEq(market.verificationTier(modelId), market.TIER_ZK());
+        uint256 id = _create();
+        uint256[5] memory out = _outputs();
+        _commit(id, modelId, bob, out);
+        vm.warp(COMMIT_END);
+
+        vm.prank(bob);
+        vm.expectRevert(VolMarket.InvalidProof.selector);
+        market.revealPrediction(id, "", out, _salt(bob));
+
+        bytes memory proof = _proof();
+        proof[1000] = bytes1(uint8(proof[1000]) ^ 0x01);
+        vm.prank(bob);
+        vm.expectRevert(VolMarket.InvalidProof.selector);
+        market.revealPrediction(id, proof, out, _salt(bob));
+
+        (bool recorded,,,) = market.getPrediction(id, bob);
+        assertFalse(recorded);
+        _reveal(id, bob, _proof(), out);
+        (recorded,,,) = market.getPrediction(id, bob);
+        assertTrue(recorded);
     }
 
     /// @dev _mixed() settles in bucket 3; a revealed forecast with zero weight there must not block
