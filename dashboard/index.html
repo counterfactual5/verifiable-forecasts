@@ -475,8 +475,16 @@ function renderReplay({ data: d, src }) {
 load().then((x) => {
   const draw = x.data.schema === "vol-replay/v1" ? renderReplay : render;
   draw(x);
-  const w = Math.min(1200, measureChartWidth());
-  if (w !== chartWidth) { chartWidth = w; draw(x); }
+  const fit = () => {
+    const w = Math.min(1200, measureChartWidth());
+    if (w !== chartWidth) { chartWidth = w; draw(x); }
+  };
+  fit();
+  // Redrawing rebuilds #app, so height-only changes (mobile URL bar) must not trigger it.
+  let pending = 0;
+  addEventListener("resize", () => {
+    if (!pending) pending = requestAnimationFrame(() => { pending = 0; fit(); });
+  });
 }).catch((e) => {
   document.getElementById("subtitle").textContent = "";
   document.getElementById("app").innerHTML = `<div id="error">${e.message}</div>`;
