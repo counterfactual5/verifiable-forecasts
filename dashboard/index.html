@@ -735,6 +735,8 @@ function liveBadge(d) {
   return `<span class="badge live" id="live-badge">LIVE · 最近更新 ${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
 }
 
+// recompute_tolerance is on the 1e18 probability scale.
+const tolText = (a) => a.recompute_tolerance ? String(Number(a.recompute_tolerance) / 1e18) : "0.001";
 const PROVIDER_ZH = { "self-built zk": "自建 zk", "self-hosted inference": "自部署推理服务" };
 const TIER_ZH = { zk: "zk 证明", reproducible: "可复现", "commit-only": "仅承诺" };
 const QS = [0.05, 0.25, 0.5, 0.75, 0.95];
@@ -940,12 +942,13 @@ function renderReplay({ data: d, src }) {
   const typeBadge = (a) => {
     const tier = tierOf(a);
     if (tier === "zk") return `<span class="badge zk" title="each reveal carries an EZKL proof the contract verified">zk proof</span>`;
-    if (tier === "reproducible" && a.recompute)
-      return tierBadge("commit", `modelHash ${a.model_hash ? short(a.model_hash) : "?"} registered onchain; public weights recompute each reveal bit for bit ${a.recompute}; not re-run by this replay`, "可复现", "reproducible · offline check");
     if (tier === "reproducible") {
       const { checked, failed } = repro(a), hash = a.model_hash ? short(a.model_hash) : "?";
-      const how = `modelHash ${hash} registered onchain; every reveal re-run from the onchain features with the public weights at a pinned revision (python -m vol_agents.recompute) and matched bucket by bucket`;
+      const how = a.recompute_command
+        ? `modelHash ${hash} registered onchain; anyone can recompute each reveal from chain data with the public weights at a pinned revision (${a.recompute_command}): every bucket within ${tolText(a)} (tolerance check; the reveal is committed before the outcome)`
+        : `modelHash ${hash} registered onchain; every reveal re-run from the onchain features with the public weights at a pinned revision (python -m vol_agents.recompute) and matched bucket by bucket`;
       if (checked && !failed) return tierBadge("ok", `${how} · ${checked}/${checked} rounds reproduced`, "可复现-已核验", "reproducible·verified");
+      if (!checked && a.recompute_command) return tierBadge("commit", `${how}; not re-run by this replay`, "可复现", "reproducible · offline check");
       return tierBadge("commit", how, "可复现", "reproducible") +
         (failed ? ` <span class="badge bad" title="${failed} of ${checked} rounds did not reproduce from the onchain features">reproduce failed</span>` : "");
     }
@@ -1074,7 +1077,8 @@ function renderReplay({ data: d, src }) {
     const lic = /^TimesFM/i.test(a.license ?? "") ? `<b>TimesFM license: non-commercial</b>` : `license ${attr(a.license ?? "?")}`;
     const out = a.sum.rounds_sat_out ? `<div class="sub">未参赛 ${a.sum.rounds_sat_out} 轮（推理失败，可复现档不提交替身）</div>` : "";
     return `<div class="sub">${PROVIDER_ZH[a.provider] ?? attr(a.provider)} · <span class="mono">${attr(a.model)}</span> · ${repo ? `公开权重 <span class="mono">${attr(repo)}</span>` : "闭源"} · ${lic}</div>` +
-      (a.recompute ? `<div class="sub">可复现（公开权重 ${attr(repo)}，可离线逐位复核，方法见 agents/README.md）</div>`
+      (a.recompute_command ? `<div class="sub">可复现：公开权重 ${attr(repo)}，每桶误差 ≤ ${tolText(a)}（容差复核；承诺先于结果）${(({ checked, failed }) => checked
+          ? `；本回放已重算 ${checked - failed}/${checked} 轮在容差内` : "")(repro(a))}。复核：<span class="mono">${attr(a.recompute_command)}</span></div>`
         : `<div class="sub">no proof; reveal checked against commit only</div>`) + ctxSummary(a) + out;
   };
   const agentRows = agents.map((a) => {
@@ -1262,9 +1266,8 @@ function playerBody(d) {
       (t && t.tampered_output_verifies === false ? ` ${bad("篡改 ✗ revert")}` : "") +
       (ra.prove_seconds != null ? ` <span class="mono dim">证明 ${ra.prove_seconds}s</span>` : "");
     else if (ra.entered === false) b = mute(`本轮未参赛 · ${ra.skip_reason ?? "—"}`);
-    else if (k === "reproducible" && a.recompute) b = mute("可复现 · 公开权重可离线复核");
-    else if (k === "reproducible") b = ra.reproduced === true ? ok("可复现 ✓ 链下重算一致")
-      : ra.reproduced === false ? bad("可复现 ✗ 重算不一致") : mute("可复现 · 本轮未核验");
+    else if (k === "reproducible") b = ra.reproduced === true ? ok(a.recompute_command ? "可复现 ✓ 重算在容差内" : "可复现 ✓ 链下重算一致")
+      : ra.reproduced === false ? bad("可复现 ✗ 重算不一致") : mute(a.recompute_command ? "可复现 · 公开权重可离线复核" : "可复现 · 本轮未核验");
     else b = mute("无证明 · 仅承诺");
     return `<li>${who(a, i)}<span>${b}</span></li>`;
   }).join("");
@@ -1684,7 +1687,7 @@ function howCard(d, agents, tierOf) {
     </ol>
     <div class="tiers">
       ${tier("zk", "zk 证明", n("zk"), "证明“这个输出来自注册的这个模型 + 链上这组输入”。小模型，链上验证。")}
-      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上特征离线逐位重算。")}
+      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每桶误差 ≤ 0.001（容差复核；承诺先于结果）。")}
       ${tier("commit", "仅承诺", n("commit-only"), "只证明“事前提交、没改过”，不证明是哪个模型。闭源模型也能参赛。")}
       ${tier("commit", "TEE", 0, "可信硬件远程证明，未实现。")}
     </div>

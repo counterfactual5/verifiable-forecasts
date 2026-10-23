@@ -5,10 +5,14 @@ registries and cross-checks the pool price against the Chainlink ETH/USD feed. E
 round: the three EZKL agents from agents/ prove on the round's onchain features, and, when
 VOL_TSFM_API_URL is set, one agent per time-series model (timesfm-3.0, timestral-209m, chronos-2;
 VOL_TSFM_MODELS) forecasts through a self-hosted inference service, named agent-<model id>. A model
-whose public weights recompute its reveal bit for bit registers as reproducible with its modelHash
-(the tier and hash are read from the agent); anyone can re-check a reveal offline (torch; see
-agents/README.md; not run here). The others register commit-only. Every agent commits a hash first and reveals once commits close; the zk agents'
-reveals carry the proof.
+whose public weights recompute its reveal within 0.001 per bucket (tolerance check; the reveal is
+committed before the outcome) registers as reproducible with its modelHash, else commit-only; the
+tier and hash are read from the agent. Every agent commits a hash first and reveals once commits
+close; the zk agents' reveals carry the proof.
+With VOL_REPRO_PYTHON set (and not LIVE), every reproducible reveal is then recomputed with
+`python -m vol_agents.tsfm_recompute` against the fork, after the last round so the recompute's
+wall time never shifts the fork's clock; VOL_REPRO_PYTHON_<MODEL> (model id upper-cased, "-" and
+"." as "_") overrides the interpreter per model. The result is each round's "reproduced".
 Forecasts above the uniform baseline share half of each round's fee.
 
 One fork, one deployment, so ERC-8004 reputation and the market accumulate across the hours:
@@ -102,6 +106,8 @@ TSFM_KEYS = [
     "0x" + "5f" * 32,
 ]
 PROVIDER_ZK, PROVIDER_TSFM = "self-built zk", "self-hosted inference"
+RECOMPUTE = ("python -m vol_agents.tsfm_recompute --model {model} --rpc-url <RPC> "
+             "--market <MARKET> --round <ROUND> --model-id <MODEL_ID>")
 # anvil dev accounts 7 and 8 (unlocked on the fork): the pool trader and the checkpoint sampler
 TRADER_INDEX, SAMPLER_INDEX = 7, 8
 FEE_BPS = 100
@@ -528,8 +534,33 @@ def tsfm_info(agent):
     m = sf.spec(agent.config.model)
     out = {"provider": PROVIDER_TSFM, "weights": m.weights or None, "license": m.license}
     if agent.tier == "reproducible":
-        out["recompute"] = "offline from the public weights; see agents/README.md"
+        out["recompute_command"] = RECOMPUTE.format(model=m.model)
+        out["recompute_tolerance"] = sf.RECOMPUTE_TOLERANCE
     return out
+
+
+def repro_python_env(model):
+    return "VOL_REPRO_PYTHON_" + model.upper().replace("-", "_").replace(".", "_")
+
+
+def recompute_reveal(c, market, rid, agent, logs_rpc):
+    """tsfm_recompute against the fork for one revealed forecast; Swap logs come from mainnet."""
+    env = dict(os.environ)
+    if os.environ.get(repro_python_env(agent.config.model)):
+        env["VOL_REPRO_PYTHON"] = os.environ[repro_python_env(agent.config.model)]
+    r = subprocess.run([sys.executable, "-m", "vol_agents.tsfm_recompute", "--model",
+                        agent.config.model, "--rpc-url", c.rpc, "--logs-rpc-url", logs_rpc,
+                        "--market", market, "--round", str(rid), "--model-id",
+                        str(agent.model_id)], capture_output=True, text=True, timeout=1800,
+                       env=env)
+    lines = r.stdout.strip().splitlines()
+    out = json.loads(lines[-1]) if r.returncode in (0, 1) and lines else {}
+    if r.returncode not in (0, 1) or not out:
+        log(f"round {rid}: {agent.name} recompute error: {(r.stderr or r.stdout)[-600:]}")
+        return {"reproduced": None, "recompute_error": (r.stderr or r.stdout)[-300:]}
+    return {"reproduced": r.returncode == 0, "recompute_verdict": out.get("verdict"),
+            "recompute_max_abs_diff": out.get("maxAbsDiff"),
+            "recompute_context": out.get("contextSource")}
 
 
 def forecast_source(agent, sub):
@@ -950,6 +981,9 @@ def summarize(rounds, agents, final_rep):
             "mean_log_score": round(sum(s) / len(s), 4) if s else None,
             "beat_baseline_rounds": sum(r["agents"][a.name]["beat_baseline"] for r in settled),
             "rounds_sat_out": sum(r["agents"][a.name]["entered"] is False for r in rounds),
+            "reproduced_rounds": (sum(r["agents"][a.name].get("reproduced") is True for r in rounds)
+                                  if any("reproduced" in r["agents"][a.name] for r in rounds)
+                                  else None),
             "predictor_reward_wei": str(sum(int(r["agents"][a.name]["predictor_reward_wei"])
                                             for r in rounds)),
             "erc8004": final_rep[a.name],
@@ -1068,6 +1102,18 @@ def main():
         final_rep = {a.name: reputation_of(c, market, agent_ids[a.name], tiers[a.name])
                      for a in agents}
         market_left = balance(c, WETH, market)
+        if not live and os.environ.get("VOL_REPRO_PYTHON"):
+            for h in sorted(rp.rounds):
+                if h == hours:
+                    continue
+                for a in agents:
+                    row = rp.rounds[h]["agents"][a.name]
+                    if a.tier != "reproducible" or not isinstance(a, ApiAgent) or not row["entered"]:
+                        continue
+                    t0 = time.time()
+                    row.update(recompute_reveal(c, market, rp.rounds[h]["id"], a, rpc_url))
+                    log(f"round {rp.rounds[h]['id']}: {a.name} recompute "
+                        f"{row.get('recompute_verdict', 'error')} ({time.time() - t0:.0f} s)")
 
     pending = rp.rounds.pop(hours, None)
     if pending:
@@ -1146,6 +1192,9 @@ def print_summary(r, out):
               f"{a['beat_baseline_rounds']:>7}{int(a['predictor_reward_wei']) / 1e18:>13.6f}"
               f"  {a['erc8004']['count']} ({a['erc8004']['tag2']})")
     for name, a in s["agents"].items():
+        if a["reproduced_rounds"] is not None:
+            print(f"{name}: recompute within tolerance in {a['reproduced_rounds']}/{s['rounds']} "
+                  f"rounds")
         if a["rounds_sat_out"]:
             print(f"{name}: sat out {a['rounds_sat_out']}/{s['rounds']} rounds (API failed)")
     for t in r["tamper_checks"]:

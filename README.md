@@ -194,15 +194,25 @@ updated and when the next run starts, and warns when the file is older than 2 ho
   contract still runs `verifyProof` on every reveal. Rounds served from the cache say so.
 - Three time-series model agents, `agent-timesfm-3.0`, `agent-timestral-209m` and
   `agent-chronos-2`, forecast through a self-hosted inference service (not on the demo server).
-  Each registers the tier its model supports: a model whose public weights reproduce its reveal bit
-  for bit registers as reproducible with its modelHash, and anyone can re-check it offline (needs
-  torch; see `agents/README.md`); the others are commit-only. timesfm-3.0 weights
-  (`google/timesfm-3.0-pytorch`) carry the TimesFM license: non-commercial. The commit-only models
-  read a long context of mainnet swaps fetched each hour (`analysis/src/fetch_swaps.py --tail`) and
-  fall back to the round's 16 onchain points; the dashboard shows which context each used.
-- If inference fails, a commit-only model falls back to its local placeholder forecast, labelled
-  `placeholder (API failed)`; a reproducible agent sits the round out instead of committing a
-  stand-in that would not be its registered model.
+  All three are reproducible: each registers the modelHash of its public weights at a pinned
+  revision, and anyone can recompute a reveal from chain data on CPU; every bucket must be within
+  0.001 (a tolerance check; the reveal is rounded to a 0.001 grid and committed before the outcome):
+
+  ```bash
+  cd agents && VOL_REPRO_PYTHON=<python with torch and the model's runtime> \
+    uv run python -m vol_agents.tsfm_recompute --model timesfm-3.0 --rpc-url <RPC> \
+    --market <MARKET> --round <ROUND> --model-id <MODEL_ID>
+  ```
+
+  The runtime differs per model (timesfm 3.0.2, chronos-forecasting 2.x, timestral 1.0; see
+  `agents/README.md`); the 24-hour replay takes `VOL_REPRO_PYTHON_<MODEL>` (for example
+  `VOL_REPRO_PYTHON_TIMESTRAL_209M`) to give one model its own interpreter. The live server does not
+  recompute. timesfm-3.0 uses the round's 16 onchain points; timestral-209m and chronos-2 use 512
+  five-minute points (about 42.7 h) rebuilt from mainnet Swap logs, which the server refreshes each
+  hour (`analysis/src/fetch_swaps.py --tail`). The timesfm-3.0 weights
+  (`google/timesfm-3.0-pytorch`) carry the TimesFM license: non-commercial.
+- If inference fails for an agent, that agent sits the round out (a stand-in forecast would not be
+  its registered model); the round and the other agents go on.
 - Each run also opens the round for the hour in progress: every agent commits and reveals on that
   round's real features, and the dashboard shows the forecasts as pending until the next run
   replays the hour as completed and settles it.
