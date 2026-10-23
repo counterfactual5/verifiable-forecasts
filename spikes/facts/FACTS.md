@@ -58,7 +58,10 @@
 | 网络 | Identity | Reputation | Validation |
 |---|---|---|---|
 | 主网 / Base | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` | `0x8004Cc8439f36fd5F9F049D9fF86523Df6dAAB58`（仅主网确认） |
+| Optimism 主网 | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` | 未核实 |
 | Sepolia / Base Sepolia | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | `0x8004Cb1BF31DAf7788923b405b754f57acEB4272`（地址来自 scripts/addresses.ts） |
+
+Optimism 主网一行的核实（2026-10-24，区块约 158,588,016）：公开 RPC `https://mainnet.optimism.io` 与 `https://optimism-rpc.publicnode.com`（`eth_chainId` = `0xa`）上 `eth_getCode` 两个地址均返回 130 字节的代理合约代码，`cast call <addr> "getVersion()(string)"` 均返回 `"2.0.0"`。
 
 ## 5. Chainlink ETH/USD（主网）
 
