@@ -67,6 +67,9 @@
   .fee-tile .sub { margin-top: 0; }
   .fee-tile.best { border-color: var(--ok); }
   .fee-mae { font-size: 20px; font-weight: 650; }
+  #summary { grid-column: 1 / -1; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+             padding: 10px 18px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  #summary b { color: var(--text); font-weight: 600; }
   @media (max-width: 600px) {
     header { padding: 16px 16px 4px; }
     main { padding: 12px 12px 24px; gap: 12px; }
@@ -143,7 +146,7 @@ function render({ data: d, src }) {
   document.getElementById("subtitle").innerHTML =
     `${d.network} · fork block ${d.fork_block.toLocaleString()} · round #${r.id} ${status}`;
   const priceOk = cl.deviation_bps <= cl.max_deviation_bps && cl.feed_age_s <= cl.max_age_s;
-  const tamper = Object.fromEntries(d.tamper_checks.map((t) => [t.agent, t]));
+  const tamper = Object.fromEntries((d.tamper_checks ?? []).map((t) => [t.agent, t]));
   const card = (title, html, cls = "") => `<section class="card ${cls}"><h2>${title}</h2>${html}</section>`;
 
   const roundCard = card("Round", `<dl class="kv">
@@ -293,6 +296,25 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}${lines}${xl}</svg><div class="sub">${legend}</div>`;
 }
 
+const lowestFee = (fs) => Object.entries(fs.mae_bps).map(([key, mae]) => ({ key, mae })).reduce((a, b) => (b.mae < a.mae ? b : a));
+
+function summaryLine(d) {
+  const s = d.summary, u = s.uniform_total_log_score, ag = Object.entries(s.agents);
+  const beat = ag.filter(([, v]) => v.total_log_score > u).length;
+  const [bestName, bestSum] = ag.reduce((a, b) => (b[1].total_log_score > a[1].total_log_score ? b : a));
+  const parts = [`<b>${s.settled}/${s.rounds}</b> rounds settled`,
+    `<b>${beat}/${ag.length}</b> agents beat uniform on total Σ ln p`,
+    `best <b>${bestName.replace("agent-", "")}</b> <b>${bestSum.total_log_score.toFixed(1)}</b> vs uniform <b>${u.toFixed(1)}</b>`];
+  const tc = d.tamper_checks ?? [];
+  if (tc.length) parts.push(`tampered zk proofs rejected <b>${tc.filter((t) => t.tampered_output_verifies === false).length}/${tc.length}</b>`);
+  const fs = s.fee_strategies;
+  if (fs) {
+    const low = lowestFee(fs);
+    parts.push(`lowest fee MAE: <b>${low.key.replace("_", " ")} ${low.mae.toFixed(2)}</b> bps (forecast-driven <b>${fs.mae_bps.forecast.toFixed(2)}</b>)`);
+  }
+  return `<div id="summary">${parts.join(" · ")}</div>`;
+}
+
 function renderReplay({ data: d, src }) {
   const p = d.params, names = BUCKET_NAMES(p.bounds), s = d.summary, rp = d.replay;
   const rounds = d.rounds, labels = rounds.map((r) => r.window_utc[0].slice(11, 16));
@@ -389,7 +411,7 @@ function renderReplay({ data: d, src }) {
     ];
     const strategies = [["fixed", "fixed 5 bps", "fixed"], ["prev_hour", "prev-hour RV", "prev_hour"],
                         ["forecast", "forecast (on-chain)", "forecast"]];
-    const best = Math.min(...strategies.map(([k]) => fs.mae_bps[k]));
+    const best = lowestFee(fs).mae;
     const tiles = strategies.map(([k, name, meanKey], i) => {
       const mae = fs.mae_bps[k], win = mae === best;
       return `<div class="fee-tile${win ? " best" : ""}"><div class="sub"><span class="nowrap"><span style="color:${feeSeries[i + 1].color}">${feeSeries[i + 1].dash ? "┅" : "━"}</span>
@@ -416,7 +438,7 @@ function renderReplay({ data: d, src }) {
     `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters above the uniform
     baseline, pro rata to their excess log score.</div>`, "wide");
 
-  const tamper = Object.fromEntries(d.tamper_checks.map((t) => [t.agent, t]));
+  const tamper = Object.fromEntries((d.tamper_checks ?? []).map((t) => [t.agent, t]));
   const agentRows = agents.map((a) => {
     const m = a.sum, rep = m.erc8004, t = tamper[a.agent];
     const proves = rounds.map((r) => r.agents[a.agent]?.prove_seconds).filter((v) => v != null);
@@ -482,7 +504,7 @@ function renderReplay({ data: d, src }) {
 
   const app = document.getElementById("app");
   app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
-  app.innerHTML = overview + bucketCard + contractsCard + excessCard + rollCard +
+  app.innerHTML = summaryLine(d) + overview + bucketCard + contractsCard + excessCard + rollCard +
     agentsCard + rewardCard + rvCard + feeCard + roundsCard + clCard;
   document.getElementById("source").textContent =
     `Data: ${src} · generated ${d.generated_at ? new Date(d.generated_at * 1000).toISOString() : "?"} · read-only view, no wallet, no writes.`;
