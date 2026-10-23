@@ -154,7 +154,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - **可复现**（已实现）：`registerModel(address(0), operator, modelHash)` 登记，适用于权重公开的模型，大小不受电路限制。`modelHash = keccak256(sha256(model.safetensors) ‖ sha256(config.json) ‖ sha256(repro_runner.py))` 固定权重、配置与运行代码；公开时不验证证明，任何人可用 `python -m vol_agents.recompute` 从链上特征重算并与公开值逐桶比对，哈希不符、缺公开或任一桶不同即非零退出。演示中的 `agent-chronos-bolt`（`amazon/chronos-bolt-tiny`）在 24 轮回放中 24/24 轮重算一致。它证明的是出处（确实是这组权重对这些输入算的），不证明预测准确；逐位一致只在同一机器与软件栈上成立。
 - **仅承诺**（已实现）：`verifier = 0` 且不带 `modelHash` 登记，任意模型，只证明预测在事前定下，不保证是哪个模型算的。`agents/vol_agents/api_agent.py` 是这类 agent 的外部时序模型 API 适配器，不参与回放。
 - **TEE 远程证明**（未实现）：适用于权重不公开的闭源大模型 / LLM，需要信任硬件厂商及其证明服务。
-- opML（乐观验证 + 欺诈证明）是大模型的另一种选项，未评估，留在路线图。
+- **opML**（乐观验证 + 欺诈证明，不做）：它需要挑战窗口和链上单步 VM，长于一小时一轮，且依赖 1-of-N 诚实假设（至少一个诚实验证者在盯并愿意发起挑战）。
 
 所有等级都走 commit-reveal：承诺 `keccak256(abi.encode(roundId, modelId, outputs, salt, msg.sender))` 绑定发送者，抄来的承诺别人无法公开；公开阶段在窗口开始前结束，所以预测在承诺截止前不可见。zk 模型在公开时验证证明；证明本身不绑定发送者，只有模型 operator 能为该模型承诺（第 3 节 `registerModel`）。
 

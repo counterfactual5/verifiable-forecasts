@@ -245,8 +245,8 @@ contract VolMarket {
     }
 
     /// @notice Register a model together with an immutable hash of its artifacts.
-    /// @param modelHash_ hash of the model's weights, code and inputs; bytes32(0) is the same as
-    ///        the two-argument overload
+    /// @param modelHash_ hash of the model's weights, config and runner; the per-round features are read
+    ///        onchain from the pool rather than hashed; bytes32(0) is the same as the two-argument overload
     function registerModel(address verifier, address operator, bytes32 modelHash_) external returns (uint256 modelId) {
         return _registerModel(verifier, operator, modelHash_);
     }
