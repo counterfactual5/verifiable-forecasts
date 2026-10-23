@@ -728,10 +728,11 @@ function summaryLine(d) {
   const s = d.summary, u = s.uniform_total_log_score, ag = Object.entries(s.agents);
   const beat = ag.filter(([, v]) => v.total_log_score > u).length;
   const [bestName, bestSum] = ag.reduce((a, b) => (b[1].total_log_score > a[1].total_log_score ? b : a));
+  const margin = bestSum.total_log_score - u;
   const kpi = (v, label, cls = "") => `<div class="kpi"><span class="v ${cls}">${v}</span>${label}</div>`;
   const tiles = [kpi(`${s.settled}/${s.rounds}`, "rounds settled · 轮已结算", s.settled === s.rounds ? "ok" : "warn"),
     kpi(`${beat}/${ag.length}`, "agents beat uniform on total Σ ln p · 跑赢瞎猜"),
-    kpi(bestSum.total_log_score.toFixed(1), `best <b>${bestName.replace("agent-", "")}</b> Σ ln p vs uniform <b>${u.toFixed(1)}</b>`, "ok")];
+    kpi(bestSum.total_log_score.toFixed(1), `best of all <b>${bestName.replace("agent-", "")}</b> <b>${margin >= 0 ? "+" : "-"}${Math.abs(margin).toFixed(2)}</b> nats vs uniform <b>${u.toFixed(1)}</b> · 全部 agent 最佳`, "ok")];
   const tc = d.tamper_checks ?? [];
   if (tc.length) {
     const rej = tc.filter((t) => t.tampered_output_verifies === false).length;
