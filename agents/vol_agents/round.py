@@ -36,6 +36,10 @@ COMMIT_LEAD = 300
 REVEAL_LEAD = 60
 # ERC-8004 agent metadata URI: deterministic and never resolved, so a round stays reproducible.
 AGENT_URI = "https://example.invalid/agents/{name}"
+# keccak256("Registered(uint256,string,address)")
+REGISTERED_TOPIC = "0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a"
+# keccak256("Transfer(address,address,uint256)")
+TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 
 def history_ticks():
@@ -59,16 +63,25 @@ class Deployment:
 
 
 def _registered_agent_id(receipt: dict) -> int:
-    """The agentId minted by `register`, read from the Registered event of its receipt.
+    """The agentId minted by `register`, read from the events of its receipt.
 
-    The Lite identity registry emits exactly one event per registration and the agentId is
-    its first indexed topic.
+    The Lite identity registry emits only Registered(agentId indexed, ...); an ERC-721 ERC-8004
+    registry also emits a mint Transfer(0, owner, tokenId) that may come first. Registered is
+    preferred, the mint Transfer is the fallback, and a receipt with neither raises instead of
+    returning a default id.
     """
-    for log in receipt.get("logs") or []:
-        topics = log.get("topics") or []
-        if len(topics) >= 2:
+    logs = [
+        [t.lower() for t in (log.get("topics") or [])] for log in receipt.get("logs") or []
+    ]
+    for topics in logs:
+        if len(topics) >= 2 and topics[0] == REGISTERED_TOPIC:
             return int(topics[1], 16)
-    raise RuntimeError(f"identity registration receipt has no Registered event: {receipt}")
+    for topics in logs:
+        if len(topics) >= 4 and topics[0] == TRANSFER_TOPIC and int(topics[1], 16) == 0:
+            return int(topics[3], 16)
+    raise RuntimeError(
+        f"identity registration receipt has no Registered or mint Transfer event: {receipt}"
+    )
 
 
 def register_identity(chain: Anvil, identity: str, key: str, uri: str) -> int:

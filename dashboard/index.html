@@ -282,7 +282,7 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
     return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
   }).join("");
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-dasharray="5 4"/>` : "";
-  const legend = series.map((s) => `<span style="color:${s.color}">${s.dash ? "┅" : "━"}</span> ${s.name}`).join(" &nbsp; ");
+  const legend = series.map((s) => `<span style="color:${s.color}">${!s.dash ? "━" : s.dash === "2 4" ? "┈" : "┅"}</span> ${s.name}`).join(" &nbsp; ");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%">${grid}${zl}${lines}${xl}</svg><div class="sub">${legend}</div>`;
 }
 
@@ -296,7 +296,7 @@ function renderReplay({ data: d, src }) {
     `<section${id ? ` id="${id}"` : ""} class="card ${cls}"><h2>${title}</h2>${html}</section>`;
   const tierOf = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
   const isZk = (a) => tierOf(a) === "zk";
-  const dashOf = (a) => ({ zk: null, reproducible: "2 4" })[tierOf(a)] ?? "6 4";
+  const dashOf = (a) => isZk(a) ? null : tierOf(a) === "reproducible" ? "2 4" : "6 4";
   const repro = (a) => {
     const flags = rounds.map((r) => r.agents[a.agent]?.reproduced).filter((v) => v != null);
     return { checked: flags.length, failed: flags.filter((v) => v === false).length };
