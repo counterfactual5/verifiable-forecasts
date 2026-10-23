@@ -36,7 +36,8 @@ completed mainnet hours on a fresh fork and writes dashboard/live-replay.json wi
 It also enters the commit-only TSFM API agent (agents/vol_agents/api_agent.py, VOL_TSFM_* env);
 if its API call fails the round gets the agent's local placeholder forecast, labelled as such. The
 reproducible agent runs only when VOL_REPRO_PYTHON is set; otherwise it is listed under
-"skipped_agents" instead of being imitated.
+"skipped_agents" instead of being imitated. zk proofs are cached by (model, round features) in
+agents/out/proof-cache, so each hourly run proves only the hour it has not seen.
 """
 
 import json
@@ -440,7 +441,7 @@ def minted_agent_id(receipt):
     raise RuntimeError(f"identity registration minted no token: {receipt}")
 
 
-def deploy(c, owner, with_repro=True, api_agent=None):
+def deploy(c, owner, with_repro=True, api_agent=None, proof_cache=None):
     market = c.deploy(owner, "src/VolMarket.sol:VolMarket", WETH, FEE_BPS, PREDICTOR_SHARE_BPS,
                       POOL, cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
     c.send(owner, market, "setReputation(address,address)", IDENTITY, REPUTATION)
@@ -451,7 +452,8 @@ def deploy(c, owner, with_repro=True, api_agent=None):
         build(m)
         name = verifier_name(m)
         key = DEV_KEYS[1 + i]
-        zk.append((Agent(name=f"agent-{m}", model=m, key=key, address=address_of(key)),
+        zk.append((Agent(name=f"agent-{m}", model=m, key=key, address=address_of(key),
+                         proof_cache=proof_cache),
                    c.deploy(owner, f"src/verifier/{name}.sol:{name}")))
     repro = ra.ReproAgent(name=REPRO_AGENT_NAME, key=REPRO_AGENT_KEY,
                           address=address_of(REPRO_AGENT_KEY)) if with_repro else None
@@ -756,12 +758,13 @@ class Replay:
         feats = [as_int(v) for v in c.call(self.market, "getFeatures(uint256)(int256[16])", rid)[0]]
         rec["features"] = feats
         rec["features_match_mainnet"] = feats == rec["features_real"]
-        subs, prove = {}, {}
+        subs, prove, cached = {}, {}, {}
         for a in self.agents:
             feed.before(c.latest_ts() + 2)
             subs[a.name] = (commit_api(c, a, self.market, rid) if isinstance(a, ApiAgent)
                             else a.commit(c, self.market, rid))
-            prove[a.name] = a.timings.get("prove", {}).get("seconds") if a.kind == "zk" else None
+            p = a.timings.get("prove", {}) if a.kind == "zk" else {}
+            prove[a.name], cached[a.name] = p.get("seconds"), p.get("cached", False)
         feed.before(start - COMMIT_LEAD)
         c.advance_to(start - COMMIT_LEAD)
         reveal_gas = {}
@@ -789,7 +792,8 @@ class Replay:
         rec["agents"] = {}
         for a in self.agents:
             row = {"probs": probs[a.name], "probs_e18": probs_e18[a.name],
-                   "prove_seconds": prove[a.name], "reveal_gas": reveal_gas[a.name],
+                   "prove_seconds": prove[a.name], "proof_cached": cached[a.name],
+                   "reveal_gas": reveal_gas[a.name],
                    "forecast_source": REPRO_SOURCE if a.kind == "reproducible"
                    else subs[a.name].get("source", "ezkl")}
             if a.name in reproduced:
@@ -1010,8 +1014,9 @@ def main():
     owner = DEV_KEYS[0]
     with ForkAnvil(rpc_url, fork_block, cache=not live) as c:
         fork_ts = c.latest_ts()
-        market, agents, agent_ids, verifiers = deploy(c, owner, with_repro=not skipped,
-                                                      api_agent=api_agent)
+        market, agents, agent_ids, verifiers = deploy(
+            c, owner, with_repro=not skipped, api_agent=api_agent,
+            proof_cache=AGENTS_OUT / "proof-cache" if live else None)
         fee_consumer = deploy_fee_consumer(c, owner, market, fee)
         log(f"VolFeeConsumer {fee_consumer}")
         fund_trader(c)

@@ -9,10 +9,12 @@ After=network-online.target
 Type=oneshot
 WorkingDirectory=/opt/verifiable-forecasts
 Environment=PATH=/root/.foundry/bin:/usr/local/bin:/usr/bin:/bin
+# EZKL panics when HOME is unset, which it is under systemd.
+Environment=HOME=/root
 ExecStart=/bin/bash /opt/verifiable-forecasts/demo/live.sh
 Nice=10
 IOSchedulingClass=idle
 CPUQuota=150%
 MemoryHigh=900M
-MemoryMax=1400M
+MemoryMax=1536M
 TimeoutStartSec=50min
