@@ -102,6 +102,15 @@ class Anvil:
         return json.loads(out[out.index("{") :])["deployedTo"]
 
 
+class Rpc:
+    """Read-only `cast call` client for an existing node (no anvil process)."""
+
+    def __init__(self, rpc_url: str):
+        self.rpc = rpc_url
+
+    call = Anvil.call
+
+
 def address_of(key):
     return _run(["cast", "wallet", "address", "--private-key", key])
 
