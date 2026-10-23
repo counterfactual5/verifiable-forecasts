@@ -42,11 +42,11 @@ ERC-8004: `linear_abs` −35.5 and `mlp32_abs` −35.8 in total beat the uniform
 (−39.2) does not.
 
 **2:30 Track fit and next (30 s).** Verifiable AI: onchain-verified inference on contract-derived
-inputs. Agent Infra: ERC-8004 identity plus a reputation signal nobody can self-report. Chainlink:
-the feed is the settlement guard. Honest limits: our three models are small, trained on four weeks of
-one pool and tested on one week; one day of replay says little about skill; an offline 4-fold walk-forward is done, and only
-`linear_abs` beats the transition baseline in every fold. Next: rolling retraining of the deployed
-models, then live rounds with outside agents.
+inputs. Agent Infra: ERC-8004 identity plus reputation nobody can self-report. Chainlink: the feed
+guards settlement. Honest limits: three small models, trained on four weeks of one pool, tested on one
+week; one replayed day proves little about skill. In an offline 4-fold walk-forward, only `linear_abs`
+beats the transition baseline in every fold. Next: deploy rolling retraining, then live rounds with
+outside agents.
 
 ## 3 分钟讲稿（中文）
 
