@@ -22,8 +22,41 @@
   .card.wide { grid-column: 1 / -1; }
   /* 1116px to 1471px is where the 340px main grid has exactly three columns. */
   @media (min-width: 1116px) and (max-width: 1471px) { .card.span2 { grid-column: span 2; } }
-  .card h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
-             color: var(--muted); font-weight: 600; }
+  .card h2 { margin: 0 0 12px; font-size: 15px; color: var(--text); font-weight: 600; }
+  .takeaway { margin: 10px 0 4px; padding-left: 10px; border-left: 3px solid var(--accent); color: var(--text); }
+  .takeaway b { font-weight: 650; }
+  .divider { grid-column: 1 / -1; margin: 12px 0 -4px; color: var(--muted); font-size: 13px;
+             border-top: 1px solid var(--line); padding-top: 14px; }
+  .trio { grid-column: 1 / -1; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
+  #hero { padding: 4px 32px 0; }
+  #hero:empty { display: none; }
+  .claim { margin: 8px 0 2px; font-size: 22px; font-weight: 650; line-height: 1.35; }
+  .claim-en { margin: 0 0 12px; color: var(--muted); }
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; list-style: none; margin: 12px 0 0; padding: 0; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--c, var(--accent));
+          border-radius: 10px; padding: 12px 16px; min-width: 0; }
+  .step h3 { margin: 0 0 4px; font-size: 15px; }
+  .step h3 .en { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .step .stat { font-size: 24px; font-weight: 700; line-height: 1.25; }
+  .step p { margin: 4px 0; color: var(--muted); }
+  .step .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .headline { display: flex; gap: 20px; align-items: center; margin-top: 12px; padding: 14px 18px;
+              border: 1px solid var(--line); border-radius: 10px;
+              background: linear-gradient(90deg, rgba(63,185,80,.14), rgba(22,27,34,0) 60%), var(--panel); }
+  .bignum { font-size: 52px; font-weight: 750; line-height: 1; color: var(--ok); white-space: nowrap; }
+  .bignum.neg { color: var(--bad); }
+  .bignum small { font-size: 18px; font-weight: 600; color: var(--muted); margin-left: 4px; }
+  .headline .what { font-size: 16px; }
+  .headline .what .sub { font-size: 13px; }
+  @media (max-width: 760px) {
+    #hero { display: flex; flex-direction: column; }
+    #summary { order: 2; margin-top: 12px; }
+    .steps { grid-template-columns: 1fr; order: 3; }
+    .headline { order: 1; }
+    .headline { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .bignum { font-size: 44px; }
+    .claim { font-size: 19px; }
+  }
   .big { font-size: 30px; font-weight: 650; }
   .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
   .kv dt { color: var(--muted); } .kv dd { margin: 0; }
@@ -68,11 +101,12 @@
   .fee-tile .sub { margin-top: 0; }
   .fee-tile.best { border-color: var(--ok); }
   .fee-mae { font-size: 20px; font-weight: 650; }
-  #summary { grid-column: 1 / -1; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-             padding: 10px 18px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  #summary { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+             padding: 8px 16px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
   #summary b { color: var(--text); font-weight: 600; }
   @media (max-width: 600px) {
     header { padding: 16px 16px 4px; }
+    #hero { padding: 4px 12px 0; }
     main { padding: 12px 12px 24px; gap: 12px; }
     footer { padding: 0 16px 20px; }
     .card { padding: 12px; }
@@ -92,6 +126,7 @@
   <h1>Verifiable AI Forecasts · VolMarket round</h1>
   <div class="sub" id="subtitle">loading…</div>
 </header>
+<div id="hero"></div>
 <main id="app"></main>
 <footer id="source"></footer>
 <script>
@@ -293,8 +328,9 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
       if (v == null) { pen = false; return; }
       d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; pen = true;
     });
-    const dots = s.values.map((v, i) => v == null ? "" : `<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${s.color}"><title>${s.name} · ${labels[i]}: ${tipFmt(v)}</title></circle>`).join("");
-    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
+    const op = s.opacity != null ? ` opacity="${s.opacity}"` : "";
+    const dots = s.values.map((v, i) => v == null ? "" : `<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${s.color}"${op}><title>${s.name} · ${labels[i]}: ${tipFmt(v)}</title></circle>`).join("");
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}"${op} ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
   }).join("");
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-dasharray="5 4"/>` : "";
   const legend = series.map((s) => `<span class="nowrap"><span style="color:${s.color}">${!s.dash ? "━" : s.dash === "2 4" ? "┈" : "┅"}</span> ${s.name}</span>`).join(" &nbsp; ");
@@ -318,6 +354,67 @@ function summaryLine(d) {
     parts.push(`lowest fee MAE: <b>${low.key.replace("_", " ")} ${low.mae.toFixed(2)}</b> bps (forecast-driven <b>${fs.mae_bps.forecast.toFixed(2)}</b>)`);
   }
   return `<div id="summary">${parts.join(" · ")}</div>`;
+}
+
+// Best scorer among the proof-carrying agents, falling back to every agent when none carries a proof.
+function bestAgent(d, isZk) {
+  const s = d.summary, zk = d.agents.filter(isZk);
+  const pool = (zk.length ? zk : d.agents).map((a) => ({ name: a.agent, total: s.agents[a.agent].total_log_score }));
+  const best = pool.reduce((a, b) => (b.total > a.total ? b : a));
+  return { ...best, excess: best.total - s.uniform_total_log_score, zk: zk.length > 0,
+    beat: pool.filter((a) => a.total > s.uniform_total_log_score).length, of: pool.length,
+    losers: d.agents.filter((a) => s.agents[a.agent].total_log_score <= s.uniform_total_log_score).map((a) => a.agent) };
+}
+
+function heroHtml(d, isZk) {
+  const s = d.summary, rounds = d.rounds, rp = d.replay;
+  const zkN = d.agents.filter(isZk).length, repN = d.agents.filter((a) => a.tier === "reproducible").length;
+  const tc = d.tamper_checks ?? [], rej = tc.filter((t) => t.tampered_output_verifies === false).length;
+  const gas = tc.map((t) => t.verify_proof_gas).filter((g) => g != null);
+  const rvOk = rounds.filter((r) => r.rv_matches_mainnet === true).length;
+  const clOk = rp.chainlink_reports.filter((r) => r.ok).length;
+  const b = bestAgent(d, isZk), up = b.excess > 0;
+  const step = (n, color, zh, en, body) =>
+    `<li class="step" style="--c:${color}"><h3>${n} ${zh} <span class="en">${en}</span></h3>${body}</li>`;
+  const pill = (cls, text) => `<span class="badge ${cls}">${text}</span>`;
+
+  const s1 = step("①", "var(--accent)", "承诺 + 证明", "commit + prove", `
+    <div class="stat">${d.agents.length} 个 AI agent</div>
+    <p>每小时先上链提交预测的哈希，截止后再公开；${zkN} 个附 EZKL zk 证明，由合约 verifyProof 当场验证${gas.length
+      ? `（约 ${Math.round(Math.max(...gas) / 1000)}k gas）` : ""}${repN ? `，${repN} 个公开权重、可链下重算` : ""}。</p>
+    <div class="badges">${tc.length ? pill(rej === tc.length ? "ok" : "bad", `篡改证明被拒 ${rej}/${tc.length}`) : ""}
+      ${pill("zk", `${zkN} 个 zk 证明`)}</div>`);
+
+  const s2 = step("②", "var(--ok)", "链上结算", "settle on-chain", `
+    <div class="stat">${s.settled}/${s.rounds} 轮已结算</div>
+    <p>VolMarket 用真实主网那一小时的波动率给每个预测打 log score，分数写进 ERC-8004 声誉，跑赢瞎猜的分手续费。</p>
+    <div class="badges">${pill(rvOk === rounds.length ? "ok" : "bad", `波动率 = 主网 ${rvOk}/${rounds.length}`)}
+      ${pill(clOk === rp.chainlink_reports.length ? "ok" : "bad", `Chainlink 回放 ${clOk}/${rp.chainlink_reports.length}`)}</div>`);
+
+  const fs = s.fee_strategies;
+  let s3body;
+  if (fs) {
+    const low = lowestFee(fs), f = fs.mae_bps.forecast, fixed = fs.mae_bps.fixed;
+    const wins = low.key === "forecast";
+    s3body = `<div class="stat">费率误差 ${f.toFixed(2)} bps</div>
+      <p>VolFeeConsumer 按 ERC-8004 声誉加权各 agent 的预测，每小时开始前在链上设定 swap 手续费；
+      对照固定 ${fs.mean_bps.fixed} bps 的误差是 ${fixed.toFixed(2)} bps（MAE，越小越好）。</p>
+      <div class="badges">${wins ? pill("ok", "优于固定费率")
+        : pill("warn", `⚠ 暂未赢过${low.key === "fixed" ? "固定费率" : low.key.replace("_", " ")} · 如实展示`)}</div>`;
+  } else {
+    s3body = `<div class="stat">—</div><p>这份回放没有记录消费方（动态手续费）数据。</p>`;
+  }
+  const s3 = step("③", "#56d4dd", "被使用", "used by an AMM fee", s3body);
+
+  return `<p class="claim">AI 预测先承诺、再证明，链上按真实结果打分；AMM 直接读它定手续费。</p>
+    <p class="claim-en">Forecasts are committed, zk-proven and scored on-chain against the real mainnet hour; an AMM fee reads them.</p>
+    ${summaryLine(d)}
+    <ol class="steps">${s1}${s2}${s3}</ol>
+    <div class="headline"><div class="bignum${up ? "" : " neg"}">${up ? "+" : ""}${b.excess.toFixed(2)}<small>nats</small></div>
+      <div class="what"><b>${up ? "比瞎猜更准" : "没跑赢瞎猜"}：</b>最佳${b.zk ? " zk" : ""} agent <b>${b.name.replace("agent-", "")}</b>
+        ${rounds.length} 小时累计得分比“每档都猜 1/5”${up ? "高" : "低"} ${Math.abs(b.excess).toFixed(2)} nats，
+        即它给真实结果的联合概率是瞎猜的 <b>${Math.exp(b.excess) >= 10 ? Math.round(Math.exp(b.excess)) : Math.exp(b.excess).toFixed(1)} 倍</b>。
+        <div class="sub">${b.beat}/${b.of} 个${b.zk ? " zk" : ""} agent 跑赢瞎猜 · nats = 自然对数单位，得分 = ln(给真实结果的概率)</div></div></div>`;
 }
 
 function renderReplay({ data: d, src }) {
@@ -356,7 +453,7 @@ function renderReplay({ data: d, src }) {
 
   const voidList = Object.entries(s.void_reasons).map(([k, v]) => `${v} × ${k}`).join(", ") || "none";
   const clOk = rp.chainlink_reports.filter((r) => r.ok).length;
-  const overview = card("Replay", `<dl class="kv">
+  const overview = card("回放参数 · Replay", `<dl class="kv">
     <dt>Hours replayed</dt><dd>${rounds.length} consecutive rounds of ${p.n_segments} × ${p.delta_s} s</dd>
     <dt>Pool path</dt><dd>${rp.segments_replayed} five-minute segments set to mainnet's real mean tick</dd>
     <dt>Fork features = mainnet</dt><dd>${badge(s.features_match_mainnet, "all rounds", "mismatch")}</dd>
@@ -368,7 +465,7 @@ function renderReplay({ data: d, src }) {
   const counts = s.bucket_counts, maxC = Math.max(1, ...counts);
   const bucketLabel = `Winning buckets over ${rounds.length} rounds: ` +
     counts.map((c, i) => `bucket #${i} (${names[i]}) ×${c}`).join(", ");
-  const bucketCard = card("Winning buckets", `<div style="display:flex;gap:6px;align-items:flex-end;height:120px"
+  const bucketCard = card("真实结果落在哪档 · Winning buckets", `<div style="display:flex;gap:6px;align-items:flex-end;height:120px"
     role="img" aria-label="${attr(bucketLabel)}">
     ${counts.map((c, i) => `<div style="flex:1;text-align:center"><div class="sub">${c}</div>
       <div style="height:${c / maxC * 90}px;background:var(--win);opacity:.75;border-radius:4px 4px 0 0"></div></div>`).join("")}</div>
@@ -377,14 +474,19 @@ function renderReplay({ data: d, src }) {
 
   const cumulative = (vals) => { let acc = 0; return vals.map((v) => v == null ? null : (acc += v)); };
   const scoreOf = (r, a) => r.outcome.voided ? null : r.agents[a.agent]?.log_score_float ?? null;
+  const best = bestAgent(d, isZk);
   const excess = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
+    width: a.agent === best.name ? 3 : 2, opacity: a.agent === best.name ? null : 0.45,
     values: cumulative(rounds.map((r) => { const v = scoreOf(r, a); return v == null ? null : v - uniform; })) }));
   const chartLabel = (title, series) => `${title}: ${series.map((x) => x.name).join(", ")}, ${rounds.length} rounds`;
-  const excessTitle = "Cumulative log score minus uniform baseline (nats)";
+  const excessTitle = "谁比瞎猜更准？ Cumulative log score minus uniform (nats)";
   const excessCard = card(excessTitle,
+    `<p class="takeaway" style="margin-top:0"><b>${best.beat}/${best.of}</b> 个${best.zk ? " zk" : ""} agent 累计跑赢瞎猜；
+    最佳 <b>${best.name}</b>（粗线）${best.excess >= 0 ? "+" : ""}${best.excess.toFixed(2)} nats${best.losers.length
+      ? `；${best.losers.join("、")} 未跑赢` : ""}。</p>` +
     lineChart(excess, labels, { zero: 0, label: chartLabel(excessTitle, excess) }) +
-    `<div class="sub">Above the dashed zero line = the agent has, in total, put more probability on the outcome than a
-    uniform 1/5 forecast (${uniform.toFixed(3)} per round). Voided rounds are not scored.
+    `<div class="sub">nats：自然对数单位。每轮得分 = ln(agent 给真实结果所在档位的概率)，瞎猜每档 1/5 每轮得
+    ${uniform.toFixed(3)}；曲线在虚线 0 之上 = 累计比瞎猜更准。Voided rounds are not scored.
     Agent lines: solid = zk proof, dotted = reproducible, dashed = commit-only.</div>`, "wide");
 
   const W = Math.min(6, rounds.length);
@@ -394,15 +496,16 @@ function renderReplay({ data: d, src }) {
   });
   const roll = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: rolling(rounds.map((r) => scoreOf(r, a))) }));
-  const rollTitle = `Rolling ${W}-round mean log score`;
+  const rollTitle = `最近谁更准？ Rolling ${W}-round mean log score`;
   const rollCard = card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, label: chartLabel(rollTitle, roll) }) +
-    `<div class="sub">Dashed line: uniform baseline ln(1/5).</div>`, "wide");
+    `<div class="sub">最近 ${W} 轮的平均得分；虚线是瞎猜 ln(1/5)。Dashed line: uniform baseline.</div>`, "wide");
 
   const rvSeries = [{ name: "realized vol (tick²)", color: "#c9d1d9", values: rounds.map((r) => r.outcome.realized_vol ?? r.real_realized_vol) }];
-  const rvTitle = "Realized volatility per round";
+  const rvTitle = "每小时真实波动率 · Realized volatility per round";
   const rvCard = card(rvTitle,
     lineChart(rvSeries, labels, { min: 0, tip: (v) => v.toFixed(0), label: chartLabel(rvTitle, rvSeries) }) +
-    `<div class="sub">Bucket bounds ${p.bounds.join(" / ")} tick². RV from the contract's settle, equal to the mainnet recompute.</div>`, "wide");
+    `<div class="sub">tick²：相邻 5 分钟均价 tick 之差的平方和（1 tick ≈ 0.01% 价格），越大越波动，决定这一轮落在哪档。
+    Bucket bounds ${p.bounds.join(" / ")} tick². RV from the contract's settle, equal to the mainnet recompute.</div>`, "wide");
 
   const fs = s.fee_strategies;
   let feeCard = "";
@@ -424,13 +527,18 @@ function renderReplay({ data: d, src }) {
         ${win ? `<span class="badge ok">lowest</span>` : ""}</div><div class="sub">mean ${fs.mean_bps[meanKey].toFixed(2)} bps</div></div>`;
     }).join("");
     const fallback = fs.equal_weight_fallback_rounds ? ` ${fs.equal_weight_fallback_rounds} of ${fs.rounds} rounds used the equal-weight fallback.` : "";
-    const feeTitle = "Consumer example · forecast-driven AMM fee vs fair LVR fee (bps)";
+    const feeTitle = "AMM 能用它定手续费吗？ Forecast-driven fee vs fair LVR fee (bps)";
+    const low = lowestFee(fs);
     feeCard = card(feeTitle,
+      `<p class="takeaway" style="margin-top:0">预测驱动费率误差 <b>${fs.mae_bps.forecast.toFixed(2)}</b> bps，固定 ${fs.mean_bps.fixed} bps 为
+      <b>${fs.mae_bps.fixed.toFixed(2)}</b> bps：${low.key === "forecast" ? "预测驱动费率误差最小。"
+        : `暂未赢过${low.key === "fixed" ? "固定费率" : low.key.replace("_", " ")}（如实展示）。`}</p>` +
       lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), label: chartLabel(feeTitle, feeSeries) }) +
       `<div class="fee-tiles"><div class="fee-tile"><div class="sub"><span class="nowrap"><span style="color:#e6edf3">━</span> fair LVR fee</span></div>
         <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div>
         <div class="sub">reference</div></div>${tiles}</div>
-      <div class="sub" style="margin-top:8px">Fair = LVR break-even fee σ²/8 × 2L√P ÷ the hour's real mainnet volume.
+      <div class="sub" style="margin-top:8px">LVR（loss-versus-rebalancing）是套利者从 LP 身上拿走的损失；公平费率 = 刚好补偿这部分损失的费率，
+      各策略离它越近越好。Fair = LVR break-even fee σ²/8 × 2L√P ÷ the hour's real mainnet volume.
       The forecast fee is computed and recorded on-chain by VolFeeConsumer each round before startTime from the revealed,
       ERC-8004 reputation-weighted forecasts.${fallback} MAE against the fair fee over ${fs.rounds} rounds. Simulated: no real pool fee changes.</div>`,
       "wide", "fee-card");
@@ -438,7 +546,7 @@ function renderReplay({ data: d, src }) {
 
   const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
-  const rewardTitle = "Cumulative predictor fee share (WETH)";
+  const rewardTitle = "预测者分到的手续费 · Cumulative predictor fee share (WETH)";
   const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, label: chartLabel(rewardTitle, rewards) }) +
     `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters above the uniform
     baseline, pro rata to their excess log score.</div>`, "wide");
@@ -462,7 +570,8 @@ function renderReplay({ data: d, src }) {
       <td class="nowrap">agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}<br>
         <span class="mono">${rep.tag1} / ${rep.tag2}</span></div></td></tr>`;
   }).join("");
-  const agentsCard = card("Agents over the replay", scrollTable(`<tr><th>Agent</th><th class="num">Scored</th>
+  const agentsCard = card("Agents · 得分、证明与 ERC-8004 声誉", `<p class="takeaway" style="margin-top:0">Σ ln p 越接近 0 越准；
+    瞎猜基线 ${s.uniform_total_log_score.toFixed(1)}。高于基线的 agent 按超出部分分走预测者手续费，得分同时写入 ERC-8004 声誉。</p>` + scrollTable(`<tr><th>Agent</th><th class="num">Scored</th>
     <th class="num">Σ ln p</th><th class="num">Mean</th><th class="num">Rounds &gt; baseline</th><th class="num">Fee share (WETH)</th>
     <th>Verification</th><th>ERC-8004 ${link(d.contracts.erc8004_reputation)}</th></tr>
     <tr><td class="sub">uniform baseline</td><td class="num">${s.settled}</td><td class="num">${s.uniform_total_log_score.toFixed(3)}</td>
@@ -499,18 +608,22 @@ function renderReplay({ data: d, src }) {
     <table style="min-width:560px"><tr><th>Mainnet tx</th><th>Block</th><th>Updated</th><th class="num">Answer</th><th></th></tr>${clRows}</table></div>
     <div class="sub" style="margin-top:8px">Each real transmission is re-sent on the fork by its original transmitter at its
     original timestamp, so the feed's answer and age at every settle are mainnet's.</div>`, "wide");
-  const contractsCard = card("Contracts", `<dl class="kv">
+  const contractsCard = card("合约 · Contracts", `<dl class="kv">
     <dt>ERC-8004 Identity</dt><dd>${link(c.erc8004_identity)}</dd>
     <dt>ERC-8004 Reputation</dt><dd>${link(c.erc8004_reputation)}</dd>
     <dt>Chainlink ETH/USD</dt><dd>${link(c.chainlink_feed)}</dd>
     <dt>Uniswap V3 pool</dt><dd>${link(c.pool)}</dd>
     <dt>Settlement token</dt><dd>${link(c.settlement_token)} WETH</dd>
-    <dt>VolMarket</dt><dd class="mono">${short(c.market)} (deployed on the fork)</dd></dl>`, "wide");
+    <dt>VolMarket</dt><dd class="mono">${short(c.market)} (fork)</dd></dl>`);
 
+  document.getElementById("hero").innerHTML = heroHtml(d, isZk);
   const app = document.getElementById("app");
   app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
-  app.innerHTML = summaryLine(d) + overview + bucketCard + contractsCard + excessCard + rollCard +
-    agentsCard + rewardCard + rvCard + feeCard + roundsCard + clCard;
+  // The excess chart must stay the first .card.wide: every chart takes its width from it.
+  app.innerHTML = excessCard + agentsCard + feeCard +
+    `<div class="divider">审计证据 · Audit trail：回放参数、逐轮主网区块与分数、Chainlink 回放、合约地址</div>` +
+    `<div class="trio">${overview}${bucketCard}${contractsCard}</div>` +
+    rollCard + rvCard + rewardCard + roundsCard + clCard;
   document.getElementById("source").textContent =
     `Data: ${src} · generated ${d.generated_at ? new Date(d.generated_at * 1000).toISOString() : "?"} · read-only view, no wallet, no writes.`;
 }
