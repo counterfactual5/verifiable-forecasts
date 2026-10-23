@@ -54,6 +54,7 @@ print("\n".join(errs)); sys.exit(1 if errs else 0)
 EOF
 
 # independent offline recompute of three rounds from their recorded features
+mkdir -p "$root/docs/.local"
 python3 - "$json" > "$root/docs/.local/tmp_repro_rounds.tsv" <<'EOF'
 import json, sys
 d = json.load(open(sys.argv[1]))

@@ -78,6 +78,17 @@ docs/
 make check && make test
 ```
 
+## 界面与冒烟验证
+
+看板是静态页面，本地起 http 服务即可打开；冒烟检查打开下列页面并跑一次数据接口断言。页面显式指定已提交的样例数据：不带 `?data=` 时看板先探测 git 忽略的 `demo/out/`，干净检出里浏览器会把这次 404 记为控制台错误。
+
+- UI_Kind: web
+- UI_Start: python3 -m http.server 8765 --bind 127.0.0.1
+- UI_Url: http://127.0.0.1:8765
+- UI_Pages: /dashboard/?data=sample-replay.json /dashboard/?data=sample-round.json
+- UI_Selectors: #app .card;;#subtitle;;#source
+- UI_E2e: python3 -c "import json,os,urllib.request as u; b=os.environ['UI_BASE_URL']; h=u.urlopen(b+'/dashboard/',timeout=10).read().decode(); assert '<main id=\"app\">' in h; r=json.load(u.urlopen(b+'/dashboard/sample-replay.json',timeout=10)); assert r['schema']=='vol-replay/v1' and r['rounds'] and r['agents']; s=json.load(u.urlopen(b+'/dashboard/sample-round.json',timeout=10)); assert s['round'] is not None and s['outcome'] is not None; print('e2e ok')"
+
 ## 假设
 
 - 赛程以官方公告为准（10/24 下午现场演示，评审前公开仓库）；未逐条在官方渠道核实。
