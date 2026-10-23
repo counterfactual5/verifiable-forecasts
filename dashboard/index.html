@@ -291,6 +291,10 @@
   .badge.warn { background: #fde9d9; color: #a3330f; }
   .badge.zk { background: #e3e8fa; color: var(--accent); }
   .badge.commit { background: #ece6d8; color: var(--text); }
+  .badge.live { background: #e3f1e4; color: var(--ok); font-weight: 600; }
+  .badge.live::before { animation: live-pulse 1.6s ease-in-out infinite; }
+  @keyframes live-pulse { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .badge.live::before { animation: none; } }
   .badge .en { font-size: 11px; font-weight: 500; opacity: .8; }
   table { width: 100%; border-collapse: collapse; }
   /* Edge shadows show only while more columns are hidden on that side ("local" covers them at the ends). */
@@ -401,7 +405,7 @@ const scrollTable = (inner, minWidth = 0, cls = "") => (minWidth >= 900 ? `<div 
 
 async function load() {
   const param = new URLSearchParams(location.search).get("data");
-  const sources = [param, "../demo/out/fork_replay.json", "sample-replay.json",
+  const sources = [param, "live-replay.json", "../demo/out/fork_replay.json", "sample-replay.json",
                    "../demo/out/fork_round.json", "sample-round.json"];
   for (const src of sources.filter(Boolean)) {
     try {
@@ -657,6 +661,20 @@ function bestAgent(d, isZk) {
     losers: d.agents.filter((a) => s.agents[a.agent].total_log_score <= s.uniform_total_log_score).map((a) => a.agent) };
 }
 
+// Live files (demo/live.sh) are rewritten hourly; one older than this means the server timer stopped.
+const LIVE_STALE_S = 2 * 3600;
+function liveBadge(d) {
+  if (d.live !== true) return "";
+  const hm = (t) => new Date(t * 1000).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const age = Date.now() / 1000 - d.generated_at;
+  if (!(age <= LIVE_STALE_S)) {
+    const when = new Date(d.generated_at * 1000).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+    return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新 ${when}（${Math.floor(age / 3600)} 小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
+  }
+  const next = d.next_run_at ? ` · 下一轮约 ${hm(d.next_run_at)}` : "";
+  return `<span class="badge live" id="live-badge">LIVE · 最近更新 ${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
+}
+
 function heroHtml(d, isZk) {
   const s = d.summary, rounds = d.rounds, rp = d.replay;
   const zkN = d.agents.filter(isZk).length, repN = d.agents.filter((a) => a.tier === "reproducible").length;
@@ -699,8 +717,8 @@ function heroHtml(d, isZk) {
   const s3 = step("③", "#d8431b", "amm", "被使用", "used by an AMM fee", s3body);
 
   const ratio = Math.exp(b.excess);
-  return `<p class="claim">AI 预测<em>先承诺、再证明</em>，<br class="br">链上按<em class="v">真实结果</em>打分；AMM 直接读它定手续费。</p>
-    <p class="claim-en">Forecasts are committed, zk-proven and scored on-chain against the real mainnet hour; an AMM fee reads them.</p>
+  return `<p class="claim">一个链上波动率预测市场：模型<em>先承诺、再证明</em>，<br class="br">按<em class="v">真实结果</em>打分、按信誉加权；第一个消费者：AMM 动态手续费。</p>
+    <p class="claim-en">An on-chain volatility forecast market: models commit, then prove; scored against the real outcome and weighted by reputation. First consumer: an AMM dynamic fee.</p>
     <div class="stage">${flowCard(d)}<div class="headline"><div class="bignum${up ? "" : " neg"}"><span class="n" data-to="${b.excess}">${up ? "+" : ""}${b.excess.toFixed(2)}</span><small>nats</small></div>
       <div class="what"><b>${up ? "比瞎猜更准" : "没跑赢瞎猜"}：</b>最佳${b.zk ? " zk" : ""} agent <b>${b.name.replace("agent-", "")}</b>
         ${rounds.length} 小时累计得分比“每档都猜 1/5”${up ? "高" : "低"} ${Math.abs(b.excess).toFixed(2)} nats，
@@ -777,8 +795,8 @@ function renderReplay({ data: d, src }) {
     }
     return tierBadge("commit", "committed before the deadline; no proof of which model made it", "仅承诺", `commit-only · ${a.forecast_source ?? "?"}`);
   };
-  document.querySelector("h1").textContent = `Verifiable AI Forecasts · ${rp.hours} h mainnet replay`;
-  document.getElementById("subtitle").innerHTML =
+  document.querySelector("h1").textContent = `Verifiable AI Forecasts · ${rp.hours} h mainnet replay${d.live === true ? " · live" : ""}`;
+  document.getElementById("subtitle").innerHTML = liveBadge(d) +
     `${d.network} · fork block ${blockLink(d.fork_block)} · ${rp.start_utc} → ${rp.end_utc} · ` +
     `${s.settled} settled, ${s.voided ? `<span class="badge bad">${s.voided} voided</span>` : "0 voided"}`;
 
@@ -880,7 +898,8 @@ function renderReplay({ data: d, src }) {
   const rewardTitle = "预测者分到的手续费 · Cumulative predictor fee share (WETH)";
   const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, label: chartLabel(rewardTitle, rewards) }) +
     `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters above the uniform
-    baseline, pro rata to their excess log score.</div>`, "wide");
+    baseline, pro rata to their excess log score.</div>
+    <div class="sub">回放中由 2 个脚本账户每轮下注，金额为分叉测试资金 · In the replay two scripted accounts bet every round, with fork-local test funds.</div>`, "wide");
 
   const tamper = Object.fromEntries((d.tamper_checks ?? []).map((t) => [t.agent, t]));
   const agentRows = agents.map((a) => {
@@ -906,7 +925,9 @@ function renderReplay({ data: d, src }) {
     <th class="num">Σ ln p</th><th class="num">Mean</th><th class="num">Rounds &gt; baseline</th><th class="num">Fee share (WETH)</th>
     <th>Verification</th><th>ERC-8004 ${link(d.contracts.erc8004_reputation)}</th></tr>
     <tr><td class="sub">uniform baseline</td><td class="num">${s.settled}</td><td class="num">${s.uniform_total_log_score.toFixed(3)}</td>
-    <td class="num">${uniform.toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>${agentRows}`, 980), "wide");
+    <td class="num">${uniform.toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>${agentRows}`, 980) +
+    (d.skipped_agents ?? []).map((x) => `<div class="sub" style="margin-top:8px">未参赛 · not run: <span class="mono">${attr(x.agent)}</span>
+    (${attr(x.tier)}) — ${attr(x.reason)}</div>`).join(""), "wide");
 
   const roundRows = rounds.map((r) => {
     const o = r.outcome, m = r.mainnet;
