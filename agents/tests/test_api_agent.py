@@ -496,3 +496,85 @@ def test_commit_only_agent_round_and_predictor_share(server):
         c.send(owner, market, "collectFee(uint256)", 0)
         owner_got = as_int(c.call(token, "balanceOf(address)(uint256)", address_of(owner))[0])
         assert owner_got == fee - share
+
+
+# ---------------------------------------------------------------- onchain, reproducible
+
+ZERO = "0x0000000000000000000000000000000000000000"
+
+
+def test_reproducible_agent_round_registers_hash_and_recomputes(server, tmp_path, monkeypatch,
+                                                                capsys):
+    """Reproducible agents register their modelHash with the three-argument registerModel and
+    reveal without a proof; tsfm_recompute re-derives the honest reveal from chain data alone and
+    exits non-zero on a reveal beyond tolerance, a foreign modelHash or a failing runner."""
+    levels, steps = sf.step_quantiles(server.replies["/v1/forecast"])
+    runner = tmp_path / "python"
+    runner.write_text("#!/bin/sh\ncat > /dev/null\necho '"
+                      + json.dumps({"levels": levels, "steps": steps}) + "'\n")
+    runner.chmod(0o755)
+    broken = tmp_path / "broken"
+    broken.write_text("#!/bin/sh\necho 'no weights' >&2\nexit 3\n")
+    broken.chmod(0o755)
+    model = "timesfm-3.0"
+    owner = DEV_KEYS[0]
+    with Anvil() as c:
+        token = c.deploy(owner, "test/mocks/MockERC20.sol:MockERC20")
+        pool = c.deploy(owner, "test/mocks/MockPool.sol:MockPool")
+        market = c.deploy(owner, "src/VolMarket.sol:VolMarket", token, FEE_BPS, SHARE_BPS, pool,
+                          cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
+        cfg = api.ApiConfig(url=_url(server, "/v1"), key=SECRET)
+        honest, tampered, foreign = api.tsfm_agents(cfg, DEV_KEYS[1:4], [model] * 3)
+        hashes = [honest.model_hash, tampered.model_hash, sf.model_hash("chronos-2")]
+        for i, (a, h) in enumerate(zip((honest, tampered, foreign), hashes, strict=True)):
+            assert a.tier == sf.REPRODUCIBLE
+            c.send(owner, market, "registerModel(address,address,bytes32)", ZERO, a.address, h)
+            a.model_id = i
+            assert as_int(c.call(market, "verificationTier(uint256)(uint8)", i)[0]) == 1
+            assert c.call(market, "modelHash(uint256)(bytes32)", i)[0].lower() == h.lower()
+
+        t0 = c.timestamp() + 1000
+        start = t0 + 2 * cm.DELTA
+        c.send(owner, pool, "setSegments(uint256,uint256,int24[])", t0 - 17 * cm.DELTA, cm.DELTA,
+               "[" + ",".join(map(str, history_ticks())) + "]")
+        c.set_next_timestamp(t0)
+        c.send(owner, market, "createRound(uint64,uint256[])", start,
+               "[" + ",".join(map(str, BOUNDS)) + "]")
+
+        forecast = honest.commit(c, market, 0)
+        assert forecast["proof"] == "0x" and forecast["context_source"] == sf.ONCHAIN
+        off = list(forecast["outputs"])
+        top = max(range(cm.BUCKETS), key=lambda i: off[i])
+        low = (top + 1) % cm.BUCKETS
+        off[top] -= sf.RECOMPUTE_TOLERANCE + sf.PROB_QUANTUM
+        off[low] += sf.RECOMPUTE_TOLERANCE + sf.PROB_QUANTUM
+        tampered.commit(c, market, 0, {**forecast, "outputs": off})
+        foreign.commit(c, market, 0, dict(forecast))
+        c.set_next_timestamp(start - COMMIT_LEAD)
+        for a in (honest, tampered, foreign):
+            a.reveal(c, market, 0)
+
+        def recompute(model_id, python):
+            monkeypatch.setenv("VOL_REPRO_PYTHON", str(python))
+            rc = sr.main(["--model", model, "--rpc-url", c.rpc, "--market", market,
+                          "--round", "0", "--model-id", str(model_id)])
+            out = capsys.readouterr()
+            lines = out.out.strip().splitlines()
+            return rc, json.loads(lines[-1]) if lines else None, out.err
+
+        rc, got, _ = recompute(0, runner)
+        assert rc == 0 and got["verdict"] == sf.EXACT and got["maxAbsDiff"] == 0
+        assert got["revealed"] == got["recomputed"] == forecast["outputs"]
+        assert got["modelHash"].lower() == honest.model_hash.lower()
+        rc, got, _ = recompute(1, runner)
+        assert rc == sr.EXIT_MISMATCH and got["verdict"] == sf.FAIL
+        assert got["maxAbsDiff"] == sf.RECOMPUTE_TOLERANCE + sf.PROB_QUANTUM
+        rc, got, err = recompute(2, runner)
+        assert rc == sr.EXIT_MISMATCH and got is None and "model hash mismatch" in err
+        rc, got, err = recompute(0, broken)
+        assert rc == sr.EXIT_ERROR and got is None and "no weights" in err
+
+    monkeypatch.setenv("VOL_REPRO_PYTHON", str(runner))
+    assert sr.main(["--model", model, "--features=" + ",".join(map(str, FEATURES)),
+                    "--bounds=" + ",".join(map(str, BOUNDS))]) == 0
+    assert json.loads(capsys.readouterr().out) == forecast["outputs"]
