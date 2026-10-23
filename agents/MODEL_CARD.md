@@ -194,14 +194,14 @@ done
 cd ../agents && uv run python -m vol_agents.walkforward   # 写 models/walkforward.json 与本节表格
 ```
 
-### 6.2 inference API 上的三个时序大模型 agent（离线）
+### 6.2 自部署推理服务上的三个时序大模型 agent（离线）
 
-三个独立 agent（`api_agent.tsfm_agents`，后处理在 `tsfm_forecast.py`）：`agent-timesfm3`
-（`timesfm-3.0`）、`agent-timestral`（`timestral-209m`）、`agent-chronos`（`chronos-2`）。输入有两种
+三个独立 agent（`api_agent.tsfm_agents`，模型跑在运营方自部署的推理服务上，后处理在 `tsfm_forecast.py`）：
+`agent-timesfm-3.0`、`agent-timestral-209m`、`agent-chronos-2`。输入有两种
 （`history.round_context`，`Context.source`）：`onchain` 是和 zk 模型一样的链上 16 个特征（÷128 后是
 tick 差分，下称 c16）；`swaps` 是链下 swap 缓存算出的 512 个 5 分钟段均值差分（约 42.7 小时，最后 16 点
-与链上特征一致，下称 c512）。仅承诺档（timestral、chronos-2）请求 c512，缓存缺失或与链上特征对不上时
-回退 c16；可复现档 timesfm-3.0 固定用 c16（理由见下）。模型给出后 13 步每一步差分的分位数；agent 对窗口内
+与链上特征一致，下称 c512）。timestral-209m 和 chronos-2 请求 c512，缓存缺失或与链上特征对不上时
+回退 c16；timesfm-3.0 固定用 c16（理由见下）。模型给出后 13 步每一步差分的分位数；agent 对窗口内
 11 步各自独立抽样 4000 次（固定种子），乘以按模型设定的 spread，平方求和得到实际方差，再落桶。
 **不做分位数相加**：相加会把水平低估约 42%，并得到 U 形分布。
 
@@ -216,14 +216,14 @@ tick 差分，下称 c16）；`swaps` 是链下 swap 缓存算出的 512 个 5 �
   chronos-2 (0.8, 0.3)。mix 下限定为 0.2（每桶至少 0.04）。揭示记录里 `context_source` /
   `context_points` / `context_reason` 写明这一轮实际用的是哪种输入。
 
-测试期（10-15 至 10-22，174 个整点轮次，每轮单独请求一次 API，和实盘一致）平均对数得分；
+测试期（10-15 至 10-22，174 个整点轮次，每轮单独请求一次推理服务，和实盘一致）平均对数得分；
 uniform = −1.6094，linear_abs = −1.3906（回放 24 轮：−1.4795），transition = −1.4350：
 
 | agent | 档位 | 测试期 174 轮 | 相对 uniform | 相对 linear_abs | 回放 24 轮（总分） |
 |---|---|---|---|---|---|
-| agent-timesfm3 | 可复现 | −1.5250 | +0.084 ± 0.058 | −0.135 ± 0.037 | −1.564（−37.54） |
-| agent-timestral | 仅承诺 | −1.5005 | +0.109 ± 0.045 | −0.110 ± 0.026 | −1.566（−37.59） |
-| agent-chronos | 仅承诺 | −1.4964 | +0.113 ± 0.044 | −0.106 ± 0.027 | −1.625（−39.00） |
+| agent-timesfm-3.0 | 可复现 | −1.5250 | +0.084 ± 0.058 | −0.135 ± 0.037 | −1.564（−37.54） |
+| agent-timestral-209m | 可复现 | −1.5005 | +0.109 ± 0.045 | −0.110 ± 0.026 | −1.566（−37.59） |
+| agent-chronos-2 | 可复现 | −1.4964 | +0.113 ± 0.044 | −0.106 ± 0.027 | −1.625（−39.00） |
 
 回放 24 轮 uniform 的总分是 −38.63，linear_abs 是 −35.51。三个模型都没赢过 linear_abs；timestral 和
 chronos 在测试期上相对 uniform 的优势约为 2.5 个标准误，timesfm 只有约 1.5 个。在回放的 24 轮上，
@@ -235,32 +235,47 @@ chronos 在测试期上相对 uniform 的优势约为 2.5 个标准误，timesfm
 
 | agent | c16 测试期 | c512 测试期 | c512 相对 uniform | c512 相对 linear_abs | c512 回放 24 轮（总分） |
 |---|---|---|---|---|---|
-| agent-timesfm3 | −1.5250 | −1.4834 | +0.126 ± 0.042 | −0.093 ± 0.042 | −1.531（−36.75） |
-| agent-timestral | −1.5005 | −1.4177 | +0.192 ± 0.043 | −0.027 ± 0.029 | −1.449（−34.77） |
-| agent-chronos | −1.4964 | −1.4465 | +0.163 ± 0.045 | −0.056 ± 0.035 | −1.493（−35.83） |
+| agent-timesfm-3.0 | −1.5250 | −1.4834 | +0.126 ± 0.042 | −0.093 ± 0.042 | −1.531（−36.75） |
+| agent-timestral-209m | −1.5005 | −1.4177 | +0.192 ± 0.043 | −0.027 ± 0.029 | −1.449（−34.77） |
+| agent-chronos-2 | −1.4964 | −1.4465 | +0.163 ± 0.045 | −0.056 ± 0.035 | −1.493（−35.83） |
 
 长上下文让三个模型都提升了 0.04–0.08，三者相对 uniform 都超过 3 个标准误。测试期上仍然没有一个赢过
 linear_abs；timestral 只差 0.027 ± 0.029，在噪声内。回放 24 轮上 timestral 的总分（−34.77）高于
 linear_abs（−35.51），但 24 轮的标准误约 0.12/轮，不能据此说它更好。上线时实际用 c512 还是回退 c16 取决于
 `VOL_HISTORY_CACHE` 是否及时刷新，看揭示记录的 `context_source`。
 
-timesfm-3.0 用 c512 也能提升（−1.5250 → −1.4834），但仍保持 c16：可复现档要求任何人只凭链上数据重算出
-同一揭示向量。c512 的序列来自链下 swap 缓存；`tsfm_recompute` 要能凭 RPC 拉 swap 日志逐位重建同样的
-512 点，需要新代码和新的一致性验证，这些今天都没有做。c16 的 174/174 与 24/24 逐位一致是已经验证过的。
+timesfm-3.0 用 c512 也能提升（−1.5250 → −1.4834），但仍保持 c16：它的本地 c512 重算还没有逐轮对过。
 
-**档位判断**（要求三条都满足：权重公开、API 在固定参数下重复调用逐位一致、本地用公开权重重算出的
-揭示向量与 API 逐位一致）：
+**揭示量化与容差**：概率在承诺前取整到 1e-3 的网格（`PROB_QUANTUM` = 1e15，1e18 尺度；和恰为 1e18，
+每桶至少一格）。承诺先于结果，链上承诺哈希照旧绑定揭示的整数；只有“揭示 = 公开权重算出的值”这一步改为
+容差检查：每桶 |重算 − 揭示| ≤ `RECOMPUTE_TOLERANCE` = 1e15（1e-3），结论为 exact（整数相同）、
+tolerant 或 fail（`tsfm_forecast.compare_reveal`）。CPU 浮点噪声让一个蒙特卡洛样本换桶时，概率只变
+(1 − mix)/4000 < 2.5e-4，取整后多数轮次整数完全相同。
 
-- **timesfm-3.0 → 可复现**：权重公开（`google/timesfm-3.0-pytorch@43046b85…`，TimesFM 非商用许可）。
-  API 重复调用逐位一致；本地 CPU（timesfm 3.0.2，float32）重算的揭示向量在测试期 174/174 轮、回放
-  24/24 轮与 API 完全一致。登记方式：`registerModel(address(0), operator, modelHash)`，其中
-  `modelHash = keccak256(规范 JSON{公开权重 repo@revision, 推理参数, 后处理参数, sha256(tsfm_forecast.py)})`
-  （`tsfm_forecast.model_hash`）。任何人都可以用
-  `python -m vol_agents.tsfm_recompute --model timesfm-3.0 ...` 在本地重算并比对，过程完全不经过 API。
-- **chronos-2 → 仅承诺**：权重公开（Apache-2.0），API 重复调用也逐位一致，但本地 CPU 重算只有
-  173/174 轮一致（有一轮的概率差 1.75e-4），不能保证逐位相同。
-- **timestral-209m → 仅承诺**：权重公开（Mistral Modified MIT），API 重复调用逐位一致，但本机没有它的
-  运行时和权重，本地重算没有验证过。
+**c512 从链上重建**：`swap_logs.py` 通过 JSON-RPC 拉池子的 Swap 日志（从第一个检查点前 1 小时到
+createRound 段末的第一个区块），写成与 swap 缓存相同的格式，再交给 `history.round_context`。主网日志
+重建的 512 点序列与评测所用序列在回放轮次上逐位一致（见下）。若重建序列对不上揭示，重算再试 agent 缓存
+过期时回退用的 16 点链上特征；两者都只依赖链上数据。
+
+**本地重算 vs 推理服务**（每轮单独请求一次，与实盘一致；本地 CPU float32，公开权重，同一后处理与取整）：
+
+| 模型 | 上下文 | 测试期 174 轮 | 回放 24 轮 | 最大桶差（1e18） | 取整前最大概率差 |
+|---|---|---|---|---|---|
+| timesfm-3.0 | c16 | 174 exact | 24 exact | 0 | 0 |
+| timestral-209m | c512 | 174 exact | 24 exact | 0 | 0 |
+| timestral-209m | c16（回退） | 174 exact | 24 exact | 0 | 1.75e-4 |
+| chronos-2 | c512 | 174 exact | 24 exact | 0 | 1.75e-4 |
+| chronos-2 | c16（回退） | 174 exact | 24 exact | 0 | 1.75e-4 |
+
+timestral-209m 的本地推理要开 symmetric averaging（与镜像序列的预测取平均），关掉时 174 轮里 170 轮 fail。
+
+**档位判断**（要求：权重公开、推理服务在固定参数下重复调用逐位一致、本地用公开权重重算的揭示在全部
+检查轮次上落在容差内）：三个模型都是**可复现**。登记方式：`registerModel(address(0), operator, modelHash)`，
+`modelHash = keccak256(规范 JSON{公开权重 repo@revision, 上下文定义与长度, 推理参数, 后处理参数, 网格与容差,
+sha256(tsfm_forecast.py), sha256(tsfm_local.py), c512 模型另加 sha256(history.py)})`
+（`tsfm_forecast.model_hash`）。任何人都可以用
+`python -m vol_agents.tsfm_recompute --model chronos-2 ...` 在本地重算并比对，过程完全不经过推理服务。
+许可：timesfm-3.0 为 TimesFM 非商用许可，timestral-209m 为 Mistral Modified MIT，chronos-2 为 Apache-2.0。
 
 ## 7. 从训练到上链的流水线
 
