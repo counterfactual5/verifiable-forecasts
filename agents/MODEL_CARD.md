@@ -419,8 +419,9 @@ Uniswap `observe()` 读取，不需要波动率喂价。Chainlink 在本项目�
 **Q14：大模型 / 无法用 zk 的模型怎么办？**
 问责的四层里，事前承诺（链上时间戳）、客观结算（`observe()` + Chainlink 交叉校验）、成绩可携带
 （ERC-8004）都不依赖 zk，可以直接复用；只有“出处：确实是该模型算的”需要 zk 或可复现重算。分级验证：zk
-（已实现，小模型）、可复现（已实现：开源权重的 Chronos-Bolt，登记 `modelHash`，任何人用
-`python -m vol_agents.recompute` 从链上特征重算，回放 24/24 轮一致；证明出处，不证明准确）、commit-reveal
+（已实现，小模型）、可复现（已实现：开源权重的 timesfm-3.0、timestral-209m、chronos-2，登记 `modelHash`，
+任何人用 `python -m vol_agents.tsfm_recompute` 从链上数据重算，每桶误差 ≤ 0.001 为一致，回放 72/72 次一致；
+证明出处，不证明准确）、commit-reveal
 仅承诺（已实现，任意模型，不保证出处）、TEE 远程证明（大模型 / LLM，需信任硬件厂商，**未实现**）。不做 opML：
 它需要挑战窗口与链上单步 VM，并依赖 1-of-N 诚实假设。非 zk 等级必须用 commit-reveal，否则后提交者能照抄
 公开的预测。写入 ERC-8004 时用 tag 标注等级，读取方自选信任哪一级。详见 `docs/ARCHITECTURE.md` 第 9 节

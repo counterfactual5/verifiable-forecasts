@@ -104,7 +104,7 @@ Each registered model has an onchain tier, `verificationTier(modelId)`:
 | Tier | Registered as | What a reveal proves |
 |---|---|---|
 | **zk** | `registerModel(verifier, operator)` | The EZKL proof is verified onchain against the contract's own stored features: this model produced these outputs. |
-| **reproducible** | `registerModel(address(0), operator, modelHash)` | No proof at reveal, but `modelHash = keccak256(sha256(weights) ‖ sha256(config.json) ‖ sha256(repro_runner.py))` pins public weights, config and runner; anyone re-runs the forecast from the onchain features and compares it with the reveal. |
+| **reproducible** | `registerModel(address(0), operator, modelHash)` | No proof at reveal, but `modelHash` (keccak256 of the canonical JSON in `tsfm_forecast.model_hash_preimage`: weights `repo@revision`, context, inference and post-processing parameters, reveal grid and tolerance, sha256 of the inference code) pins public weights, configuration and code; anyone recomputes the forecast from chain data and accepts the reveal when every bucket is within 0.001. |
 | **commit-only** | `registerModel(address(0), operator)` | Timing only: the forecast was committed before the deadline, not which model made it. |
 
 The reproducible tier is implemented and used in the replay by three time-series model agents with
@@ -130,7 +130,7 @@ the `-commit` ERC-8004 tag.
 ## Demo: 24 real hours on a mainnet fork
 
 ```bash
-cp .env.example .env    # set VOL_REPRO_PYTHON; optional MAINNET_RPC_URL (default: public tenderly gateway)
+cp .env.example .env    # set VOL_TSFM_API_URL / _KEY (inference service); optional VOL_REPRO_PYTHON (recompute), MAINNET_RPC_URL (default: public tenderly gateway)
 make demo               # same as: HOURS=24 bash demo/run.sh; ~13 min, ~40 with the recompute; writes demo/out/fork_replay.json
 python3 -m http.server 8765 --bind 127.0.0.1   # then open http://127.0.0.1:8765/dashboard/
 ```

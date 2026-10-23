@@ -156,7 +156,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 因此“出处”可以分级提供，由读取方选择信任哪一级：
 
 - **zk**（已实现，仅小模型）：即本文第 2–4 节的 EZKL 路径。
-- **可复现**（已实现）：`registerModel(address(0), operator, modelHash)` 登记，适用于权重公开的模型，大小不受电路限制。`modelHash` 是 `tsfm_forecast.model_hash_preimage` 规范 JSON 的 keccak256（权重 `repo@revision`、上下文长度、推理与后处理参数、揭示网格与容差、运行代码的 sha256），固定权重、配置与运行代码；公开时不验证证明，任何人可用 `python -m vol_agents.tsfm_recompute` 从链上数据（16 个特征；512 点模型另用池子 Swap 日志重建上下文）重算并与公开值逐桶比对，每桶误差 ≤ 0.001 为一致（容差复核；揭示先量化到 1e-3 网格并在结果出现前承诺），哈希不符、缺公开或任一桶超差即非零退出。演示中的 `agent-timesfm-3.0`、`agent-timestral-209m`、`agent-chronos-2` 在 24 轮回放中 三个 agent 各 24/24 轮重算在容差内（72 次均完全一致）。它证明的是出处（确实是这组权重对这些输入算的），不证明预测准确；容差覆盖不同机器与软件栈之间的浮点差异。
+- **可复现**（已实现）：`registerModel(address(0), operator, modelHash)` 登记，适用于权重公开的模型，大小不受电路限制。`modelHash` 是 `tsfm_forecast.model_hash_preimage` 规范 JSON 的 keccak256（权重 `repo@revision`、上下文长度、推理与后处理参数、揭示网格与容差、运行代码的 sha256），固定权重、配置与运行代码；公开时不验证证明，任何人可用 `python -m vol_agents.tsfm_recompute` 从链上数据（16 个特征；512 点模型另用池子 Swap 日志重建上下文）重算并与公开值逐桶比对，每桶误差 ≤ 0.001 为一致（容差复核；揭示先量化到 1e-3 网格并在结果出现前承诺），哈希不符、缺公开或任一桶超差即非零退出。演示中的 `agent-timesfm-3.0`、`agent-timestral-209m`、`agent-chronos-2` 在 24 轮回放中各 24/24 轮重算在容差内（72 次均完全一致）。它证明的是出处（确实是这组权重对这些输入算的），不证明预测准确；容差覆盖不同机器与软件栈之间的浮点差异。
 - **仅承诺**（已实现）：`verifier = 0` 且不带 `modelHash` 登记，任意模型，只证明预测在事前定下，不保证是哪个模型算的。`agents/vol_agents/api_agent.py` 中无法在 CPU 上复现的模型（以及通用预测 API）走这一档；回放里的三个时序模型均可复现，不走此档。
 - **TEE 远程证明**（未实现）：适用于权重不公开的闭源大模型 / LLM，需要信任硬件厂商及其证明服务。
 - **opML**（乐观验证 + 欺诈证明，不做）：它需要挑战窗口和链上单步 VM，长于一小时一轮，且依赖 1-of-N 诚实假设（至少一个诚实验证者在盯并愿意发起挑战）。
