@@ -106,7 +106,9 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - 读取方以市场合约为唯一 client 过滤：`getSummary(agentId, [market], "logScore", tag2)`；第三方写的反馈不会混入。已部署的 Reputation 禁止 agent 的 owner/operator 自评，市场合约作为提交者不受影响。
 - 主网 fork 演示中四个 agent 在已部署的 Identity 上注册（agentId 仅存在于 fork 上），24 轮回放结束后每个 agent 的 `getSummary` 计数为 24，均值等于各轮链上 logScore 的平均。
 
-## 6. Chainlink 喂价交叉校验
+## 6. 结算时的价格校验
+
+### Chainlink 喂价交叉校验
 
 - owner 通过 `setPriceFeed(feed)` 开启；未配置时按池子 RV 照常结算，作废与退款行为不变。
 - 配置后，`settle` 在覆盖率通过后读结算时刻前 Δ 秒的 `observe([Δ, 0])`，向负无穷取整得到平均 tick，用 `TickPriceMath` 换算成 8 位小数 ETH/USD；`latestRoundData()` 的 answer 按 `decimals()` 归一到 8 位后比较。
