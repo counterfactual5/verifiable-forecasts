@@ -11,6 +11,7 @@ rm -rf "$stage" && mkdir -p "$stage"
 git -C "$REPO" archive HEAD | tar -x -C "$stage"
 rsync -az --delete --exclude /.env --exclude /agents/out/ --exclude /agents/.venv/ \
   --exclude /demo/out/ --exclude /dashboard/live-replay.json --exclude '/dashboard/*.tmp' \
+  --exclude /analysis/data/ --exclude /analysis/.venv/ \
   "$stage/" "$HOST:$DEST/"
 if [[ -f "$REPO/.env" ]]; then
   grep -E '^(MAINNET_RPC_URL|VOL_TSFM_[A-Z_]+)=' "$REPO/.env" \
@@ -20,6 +21,7 @@ ssh "$HOST" "DEST=$DEST bash -s" <<'EOF'
 set -euo pipefail
 cd "$DEST"
 uv sync --project agents --locked
+uv sync --project analysis --locked
 install -m 644 deploy/vf-live.service deploy/vf-live.timer /etc/systemd/system/
 mkdir -p /var/www/vf-acme /root/vf-nginx-backups
 tar -czf "/root/vf-nginx-backups/nginx-$(date +%Y%m%d-%H%M%S).tgz" -C /etc nginx

@@ -786,6 +786,8 @@ function renderReplay({ data: d, src }) {
   const typeBadge = (a) => {
     const tier = tierOf(a);
     if (tier === "zk") return `<span class="badge zk" title="each reveal carries an EZKL proof the contract verified">zk proof</span>`;
+    if (tier === "reproducible" && a.recompute_command)
+      return tierBadge("commit", `modelHash ${a.model_hash ? short(a.model_hash) : "?"} registered onchain; public weights recompute each reveal bit for bit offline (${a.recompute_command}); not re-run by this replay`, "可复现", "reproducible · offline check");
     if (tier === "reproducible") {
       const { checked, failed } = repro(a), hash = a.model_hash ? short(a.model_hash) : "?";
       const how = `modelHash ${hash} registered onchain; every reveal re-run from the onchain features with the public weights at a pinned revision (python -m vol_agents.recompute) and matched bucket by bucket`;
@@ -902,6 +904,23 @@ function renderReplay({ data: d, src }) {
     <div class="sub">回放中由 2 个脚本账户每轮下注，金额为分叉测试资金 · In the replay two scripted accounts bet every round, with fork-local test funds.</div>`, "wide");
 
   const tamper = Object.fromEntries((d.tamper_checks ?? []).map((t) => [t.agent, t]));
+  const ctxSummary = (a) => {
+    const rs = rounds.map((r) => r.agents[a.agent]).filter((x) => x?.context_source);
+    if (!rs.length) return "";
+    const off = rs.filter((x) => x.context_source !== "onchain"), on = rs.length - off.length;
+    const h = off.length ? Math.max(...off.map((x) => x.context_points ?? 0)) * p.delta_s / 3600 : 0;
+    return `<div class="sub">上下文：${[off.length ? `${h.toFixed(0)}h 链下历史 × ${off.length} 轮` : "",
+      on ? `16 点链上（${rs.every((x) => x.context_source !== "onchain" || /reproducible/.test(x.context_reason ?? ""))
+        ? "可复现档只读链上输入" : "回退"}）× ${on} 轮` : ""].filter(Boolean).join(" / ")}</div>`;
+  };
+  const tsfmInfo = (a) => {
+    const repo = a.weights ? a.weights.split("@")[0] : null;
+    const lic = /^TimesFM/i.test(a.license ?? "") ? `<b>TimesFM license: non-commercial</b>` : `license ${attr(a.license ?? "?")}`;
+    const out = a.sum.rounds_sat_out ? `<div class="sub">未参赛 ${a.sum.rounds_sat_out} 轮（API 失败，可复现档不提交替身）</div>` : "";
+    return `<div class="sub">${a.provider} · <span class="mono">${attr(a.model)}</span> · ${repo ? `公开权重 <span class="mono">${attr(repo)}</span>` : "闭源"} · ${lic}</div>` +
+      (a.recompute_command ? `<div class="sub">可复现（公开权重 ${attr(repo)}，可离线逐位复核：<span class="mono">${attr(a.recompute_command)}</span>）</div>`
+        : `<div class="sub">no proof; reveal checked against commit only</div>`) + ctxSummary(a) + out;
+  };
   const agentRows = agents.map((a) => {
     const m = a.sum, rep = m.erc8004, t = tamper[a.agent];
     const proves = rounds.map((r) => r.agents[a.agent]?.prove_seconds).filter((v) => v != null);
@@ -913,6 +932,7 @@ function renderReplay({ data: d, src }) {
       <td class="num">${m.beat_baseline_rounds}</td><td class="num">${eth(m.predictor_reward_wei)}</td>
       <td>${isZk(a) ? `${t ? badge(!t.tampered_output_verifies, "tampered proof rejected", "tamper accepted!") : ""}
         <div class="sub">prove ${prove} avg${t?.verify_proof_gas ? ` · verifyProof ${t.verify_proof_gas.toLocaleString()} gas` : ""}</div>`
+        : a.provider ? tsfmInfo(a)
         : tierOf(a) === "reproducible" ? (({ checked, failed }) => `${checked
           ? badge(!failed, `${checked}/${checked} reveals recomputed`, `${failed} of ${checked} not reproduced`) : ""}
         <div class="sub">no proof; public weights, model <span class="mono">${a.model_hash ? short(a.model_hash) : "?"}</span></div>`)(repro(a))
@@ -1031,7 +1051,7 @@ function flowModel(d, colorOf) {
       const ra = r.agents[a.agent] ?? {};
       if (!r.outcome.voided && ra.log_score_float != null) cum[a.agent] += ra.log_score_float - u;
       return { name: a.agent.replace("agent-", ""), color: colorOf(a), probs: ra.probs ?? [0.2, 0.2, 0.2, 0.2, 0.2],
-               weight: w && w.length === d.agents.length ? w[i] : 1, cum: cum[a.agent], score: ra.log_score_float };
+               weight: ra.entered === false ? 0 : w && w.length === d.agents.length ? w[i] : 1, cum: cum[a.agent], score: ra.log_score_float };
     });
     const tw = agents.reduce((x, a) => x + a.weight, 0) || 1;
     agents.forEach((a) => { a.share = a.weight / tw; });
@@ -1068,7 +1088,7 @@ function playerBody(d) {
 
   const commit = d.agents.map((a, i) => {
     const ra = r.agents[a.agent];
-    return `<li>${who(a, i)}${ra ? `<span class="mono">reveal ${(ra.reveal_gas / 1000).toFixed(0)}k gas</span>` : mute("未提交")}</li>`;
+    return `<li>${who(a, i)}${ra && ra.entered !== false ? `<span class="mono">reveal ${(ra.reveal_gas / 1000).toFixed(0)}k gas</span>` : mute("未提交")}</li>`;
   }).join("");
   const prove = d.agents.map((a, i) => {
     const ra = r.agents[a.agent] ?? {}, t = tc[a.agent], k = tier(a);
@@ -1076,6 +1096,8 @@ function playerBody(d) {
     if (k === "zk") b = ok("zk ✓") + (t ? ` <span class="mono">verifyProof ${(t.verify_proof_gas / 1000).toFixed(0)}k gas</span>` : "") +
       (t && t.tampered_output_verifies === false ? ` ${bad("篡改 ✗ revert")}` : "") +
       (ra.prove_seconds != null ? ` <span class="mono dim">证明 ${ra.prove_seconds}s</span>` : "");
+    else if (ra.entered === false) b = mute(`本轮未参赛 · ${ra.skip_reason ?? "—"}`);
+    else if (k === "reproducible" && a.recompute_command) b = mute("可复现 · 公开权重可离线复核");
     else if (k === "reproducible") b = ra.reproduced === true ? ok("可复现 ✓ 链下重算一致")
       : ra.reproduced === false ? bad("可复现 ✗ 重算不一致") : mute("可复现 · 本轮未核验");
     else b = mute("无证明 · 仅承诺");

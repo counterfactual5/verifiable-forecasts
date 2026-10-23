@@ -2,11 +2,13 @@
 
 The market reads the real Uniswap V3 ETH/USDC 0.05% pool, writes scores to the deployed ERC-8004
 registries and cross-checks the pool price against the Chainlink ETH/USD feed. Each hour is one
-round: the three EZKL agents from agents/ prove on the round's onchain features, and a fourth,
-reproducible agent runs the public pinned Chronos-Bolt weights (vol_agents.repro_agent, under
-VOL_REPRO_PYTHON) on the same features; its model is registered with a modelHash and, after each
-reveal, `python -m vol_agents.recompute` re-derives its revealed vector from the fork. Every agent
-commits a hash first and reveals once commits close; the zk agents' reveals carry the proof.
+round: the three EZKL agents from agents/ prove on the round's onchain features, and, when
+VOL_TSFM_API_URL is set, one agent per inference model (api_agent.tsfm_agents, VOL_TSFM_MODELS)
+forecasts through the inference API. A inference model whose public weights recompute its reveal bit
+for bit (timesfm-3.0) registers as reproducible with its modelHash; anyone can re-check a reveal
+offline with `python -m vol_agents.tsfm_recompute` (torch; not run here). The others register
+commit-only. Every agent commits a hash first and reveals once commits close; the zk agents'
+reveals carry the proof.
 Forecasts above the uniform baseline share half of each round's fee.
 
 One fork, one deployment, so ERC-8004 reputation and the market accumulate across the hours:
@@ -27,16 +29,16 @@ Everything happens on the local fork: nothing is broadcast.
 
 Environment: MAINNET_RPC_URL (archive; default the public tenderly gateway), HOURS (default 24),
 REPLAY_START (unix seconds or ISO-8601 UTC, a full hour; default 2026-10-21T06:00:00Z, inside the
-models' test period), VOL_REPRO_PYTHON (required: interpreter with chronos-forecasting and torch;
-the pinned snapshot must be downloaded). Usage: bash demo/run.sh   (writes
-demo/out/fork_replay.json)
+models' test period), VOL_TSFM_* (inference agents; see api_agent.py). Usage: bash demo/run.sh
+(writes demo/out/fork_replay.json)
+
+A inference API failure never stops the replay: a reproducible agent sits the round out (a stand-in
+forecast would not be the registered model's), a commit-only agent commits its local placeholder
+forecast, labelled "placeholder (API failed)".
 
 LIVE=1 (demo/live.sh, run hourly on a server) replays the HOURS (default LIVE_HOURS) most recent
 completed mainnet hours on a fresh fork and writes dashboard/live-replay.json with "live": true.
-It also enters the commit-only TSFM API agent (agents/vol_agents/api_agent.py, VOL_TSFM_* env);
-if its API call fails the round gets the agent's local placeholder forecast, labelled as such. The
-reproducible agent runs only when VOL_REPRO_PYTHON is set; otherwise it is listed under
-"skipped_agents" instead of being imitated. zk proofs are cached by (model, round features) in
+zk proofs are cached by (model, round features) in
 agents/out/proof-cache, so each hourly run proves only the hour it has not seen.
 """
 
@@ -54,10 +56,9 @@ from pathlib import Path
 
 from vol_agents import contract_math as cm
 from vol_agents import fee_strategies as fs
-from vol_agents import repro_agent as ra
-from vol_agents import repro_runner as rr
+from vol_agents import tsfm_forecast as sf
 from vol_agents.agent import Agent
-from vol_agents.api_agent import ApiAgent, ApiConfig
+from vol_agents.api_agent import ApiAgent, ApiConfig, tsfm_agents
 from vol_agents.build import build, model_names, verifier_name
 from vol_agents.chain import DEV_KEYS, Anvil, address_of, as_int
 from vol_agents.ezkl_step import OUT as AGENTS_OUT
@@ -89,11 +90,16 @@ BETTOR_KEYS = [
     "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a",
     "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
 ]
-# anvil dev account 6, operator of the reproducible agent; fork-local only
-REPRO_AGENT_KEY = "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e"
-# anvil dev account 9, operator of the commit-only API agent (live mode); fork-local only
-API_AGENT_KEY = "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
-API_AGENT_NAME = "agent-tsfm-api"
+# Operators of the inference agents, fork-local only: anvil dev accounts 6 and 9, then fixed keys
+# outside anvil's ten, funded with anvil_setBalance.
+TSFM_KEYS = [
+    "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
+    "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
+    "0x" + "5e" * 32,
+    "0x" + "5f" * 32,
+]
+TSFM_RECOMPUTE = "python -m vol_agents.tsfm_recompute --model {model} --rpc-url <fork> " \
+    "--market <market> --round <id> --model-id <modelId>"
 # anvil dev accounts 7 and 8 (unlocked on the fork): the pool trader and the checkpoint sampler
 TRADER_INDEX, SAMPLER_INDEX = 7, 8
 FEE_BPS = 100
@@ -117,9 +123,6 @@ SWAP_LOG_SAMPLE = 3  # swap tx hashes listed per hour
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 # Must match VolMarket TIER_COMMIT_ONLY / TIER_REPRODUCIBLE / TIER_ZK.
 TIERS = {0: "commit-only", 1: "reproducible", 2: "zk"}
-REPRO_AGENT_NAME = "agent-chronos-bolt"
-REPRO_MODEL = "chronos-bolt-tiny"
-REPRO_SOURCE = "chronos-bolt"
 EXACT_INPUT = "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))"
 ROUND_SIG = "getRound(uint256)(uint64,bool,bool,uint256,uint256,uint256,uint256[5],uint256[])"
 FEED_SIG = "latestRoundData()(uint80,int256,uint256,uint256,uint80)"
@@ -366,10 +369,11 @@ class ForkAnvil(Anvil):
         self.trader, self.sampler = accounts[TRADER_INDEX], accounts[SAMPLER_INDEX]
         # On mainnet anvil's public test keys carry EIP-7702 sweeper delegations; as plain EOAs
         # again they can receive the ERC-721 identity mint and keep their fork-local ETH.
-        for who in [address_of(k) for k in DEV_KEYS + BETTOR_KEYS + [REPRO_AGENT_KEY,
-                                                                      API_AGENT_KEY]] + [
+        for who in [address_of(k) for k in DEV_KEYS + BETTOR_KEYS + TSFM_KEYS] + [
                 self.trader, self.sampler]:
             self.rpc_call("anvil_setCode", who, "0x")
+        for k in TSFM_KEYS:
+            self.rpc_call("anvil_setBalance", address_of(k), hex(100 * 10**18))
         return self
 
     def rpc_call(self, method, *params):
@@ -441,7 +445,7 @@ def minted_agent_id(receipt):
     raise RuntimeError(f"identity registration minted no token: {receipt}")
 
 
-def deploy(c, owner, with_repro=True, api_agent=None, proof_cache=None):
+def deploy(c, owner, api_agents=(), proof_cache=None):
     market = c.deploy(owner, "src/VolMarket.sol:VolMarket", WETH, FEE_BPS, PREDICTOR_SHARE_BPS,
                       POOL, cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
     c.send(owner, market, "setReputation(address,address)", IDENTITY, REPUTATION)
@@ -455,37 +459,30 @@ def deploy(c, owner, with_repro=True, api_agent=None, proof_cache=None):
         zk.append((Agent(name=f"agent-{m}", model=m, key=key, address=address_of(key),
                          proof_cache=proof_cache),
                    c.deploy(owner, f"src/verifier/{name}.sol:{name}")))
-    repro = ra.ReproAgent(name=REPRO_AGENT_NAME, key=REPRO_AGENT_KEY,
-                          address=address_of(REPRO_AGENT_KEY)) if with_repro else None
-    local_hash = ra.local_model_hash() if with_repro else None
-    entrants = zk + ([(repro, ZERO_ADDRESS)] if repro else []) + (
-        [(api_agent, ZERO_ADDRESS)] if api_agent else [])
-    for agent, verifier in entrants:
-        if agent is repro:
+    for agent, verifier in zk + [(a, ZERO_ADDRESS) for a in api_agents]:
+        want = "zk" if verifier != ZERO_ADDRESS else agent.tier
+        if want == "reproducible":
             c.send(owner, market, "registerModel(address,address,bytes32)", ZERO_ADDRESS,
-                   agent.address, local_hash)
+                   agent.address, agent.model_hash)
         else:
             c.send(owner, market, "registerModel(address,address)", verifier, agent.address)
         agent.model_id = as_int(c.call(market, "modelCount()(uint256)")[0]) - 1
-        uri = (ra.agent_card(agent.name, local_hash, agent.model_id, market) if agent is repro
-               else f"https://example.invalid/agents/{agent.name}")
-        receipt = c.send(agent.key, IDENTITY, "register(string)(uint256)", uri)
+        receipt = c.send(agent.key, IDENTITY, "register(string)(uint256)",
+                         f"https://example.invalid/agents/{agent.name}")
         agent_id = minted_agent_id(receipt)
         c.send(agent.key, market, "linkAgent(uint256,uint256)", agent.model_id, agent_id)
         tier = model_tier(c, market, agent.model_id)
-        if agent is repro:
+        if tier != want:
+            raise RuntimeError(f"{agent.name}: onchain tier {tier}, expected {want}")
+        if tier == "reproducible":
             onchain = model_hash_of(c, market, agent.model_id)
-            if tier != "reproducible" or onchain.lower() != local_hash.lower():
-                raise SystemExit(f"{agent.name}: onchain tier {tier}, modelHash {onchain}; local "
-                                 f"model hash {local_hash}: refusing to run rounds")
+            if onchain.lower() != agent.model_hash.lower():
+                raise SystemExit(f"{agent.name}: onchain modelHash {onchain}, local "
+                                 f"{agent.model_hash}: refusing to run rounds")
             kind = f"reproducible, modelHash {onchain}"
-        elif agent is api_agent:
-            if tier != "commit-only":
-                raise RuntimeError(f"{agent.name}: onchain tier {tier}, expected commit-only")
+        elif tier == "commit-only":
             kind = f"commit-only, forecasts from {agent.source}"
         else:
-            if tier != "zk":
-                raise RuntimeError(f"{agent.name}: onchain tier {tier}, expected zk")
             kind = f"zk, verifier {verifier}"
         log(f"{agent.name}: model {agent.model_id}, {kind}, ERC-8004 agentId {agent_id}")
         agents.append(agent)
@@ -502,29 +499,20 @@ def model_hash_of(c, market, model_id):
     return c.call(market, "modelHash(uint256)(bytes32)", model_id)[0]
 
 
-def check_repro_env():
-    """The reproducible agent has no fallback: missing interpreter or weights stop the replay."""
-    python = os.environ.get("VOL_REPRO_PYTHON")
-    if not python:
-        raise SystemExit("VOL_REPRO_PYTHON is unset: point it at a Python with "
-                         "chronos-forecasting and torch (see .env.example)")
-    if not (os.path.isfile(python) and os.access(python, os.X_OK)):
-        raise SystemExit(f"VOL_REPRO_PYTHON={python} is not an executable file")
-    try:
-        rr.artifact_paths()
-    except FileNotFoundError as e:
-        raise SystemExit(f"reproducible agent weights: {e}") from None
-    h = ra.local_model_hash()
-    log(f"{REPRO_AGENT_NAME}: {rr.MODEL_REPO}@{rr.MODEL_REVISION}, local model hash {h}")
-    return h
+API_ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError)
 
 
 def commit_api(c, agent, market, rid):
-    """The API agent's forecast, or its local placeholder labelled as such when the API fails,
-    so one failed request never stops the live replay."""
+    """A inference agent's committed forecast, so one failed request never stops the replay. On an
+    API failure a commit-only agent commits its local placeholder, labelled as such; a
+    reproducible agent returns None and sits the round out: a stand-in is not its registered
+    model."""
     try:
         return agent.commit(c, market, rid)
-    except (RuntimeError, ValueError, KeyError, TypeError, OSError) as e:
+    except API_ERRORS as e:
+        if agent.tier == "reproducible":
+            log(f"round {rid}: {agent.name} API failed ({str(e)[:200]}); skipping the round")
+            return None
         log(f"round {rid}: {agent.name} API failed ({str(e)[:200]}); committing the placeholder")
         stand_in = ApiAgent(name=agent.name, key=agent.key, address=agent.address)
         forecast = stand_in.prepare(c, market, rid)
@@ -532,14 +520,14 @@ def commit_api(c, agent, market, rid):
         return agent.commit(c, market, rid, forecast)
 
 
-def recompute(c, market, rid, model_id):
-    """Exit code of the public recompute command against the fork; 0 means every bucket equals."""
-    r = subprocess.run([sys.executable, "-m", "vol_agents.recompute", "--rpc-url", c.rpc,
-                        "--market", market, "--round", str(rid), "--model-id", str(model_id)],
-                       cwd=REPO / "agents", capture_output=True, text=True, timeout=900)
-    if r.returncode != 0:
-        log(f"round {rid}: recompute exit {r.returncode}: {(r.stderr or r.stdout)[-1000:]}")
-    return r.returncode
+def tsfm_info(agent):
+    """What the dashboard shows about a inference agent's model: public weights, licence and, for
+    the reproducible tier, the offline re-check command (torch; never run by this replay)."""
+    m = sf.spec(agent.config.model)
+    out = {"provider": "inference API", "weights": m.weights or None, "license": m.license}
+    if agent.tier == "reproducible":
+        out["recompute_command"] = TSFM_RECOMPUTE.format(model=m.model)
+    return out
 
 
 def deploy_fee_consumer(c, owner, market, fee):
@@ -761,28 +749,24 @@ class Replay:
         subs, prove, cached = {}, {}, {}
         for a in self.agents:
             feed.before(c.latest_ts() + 2)
-            subs[a.name] = (commit_api(c, a, self.market, rid) if isinstance(a, ApiAgent)
-                            else a.commit(c, self.market, rid))
+            sub = (commit_api(c, a, self.market, rid) if isinstance(a, ApiAgent)
+                   else a.commit(c, self.market, rid))
+            if sub is None:
+                continue
+            subs[a.name] = sub
             p = a.timings.get("prove", {}) if a.kind == "zk" else {}
             prove[a.name], cached[a.name] = p.get("seconds"), p.get("cached", False)
+        entered = [a for a in self.agents if a.name in subs]
         feed.before(start - COMMIT_LEAD)
         c.advance_to(start - COMMIT_LEAD)
         reveal_gas = {}
-        for a in self.agents:
+        for a in entered:
             reveal_gas[a.name] = int(a.reveal(c, self.market, rid)["gasUsed"], 0)
         probs, probs_e18 = {}, {}
-        for a in self.agents:
+        for a in entered:
             p = c.call(self.market, PREDICTION_SIG, rid, a.address)
             probs_e18[a.name] = [str(as_int(v)) for v in p[2]]
             probs[a.name] = [as_int(v) / 1e18 for v in p[2]]
-        reproduced = {}
-        for a in self.agents:
-            if a.kind == "reproducible":
-                t0 = time.time()
-                reproduced[a.name] = recompute(c, self.market, rid, a.model_id) == 0
-                log(f"round {rid}: {a.name} recompute from onchain features "
-                    f"{'MATCH' if reproduced[a.name] else 'MISMATCH'} "
-                    f"({time.time() - t0:.1f} s)")
         rec["bets"] = place_bets(c, self.market, rid, list(probs.values()))
         if c.latest_ts() >= start:
             raise RuntimeError(f"round {rid}: entering ran past the round start")
@@ -791,13 +775,18 @@ class Replay:
                                         subs[a.name]) for a in self.agents if a.kind == "zk"]
         rec["agents"] = {}
         for a in self.agents:
-            row = {"probs": probs[a.name], "probs_e18": probs_e18[a.name],
+            if a.name not in subs:
+                rec["agents"][a.name] = {"entered": False, "skip_reason": "API failed",
+                                         "probs": None, "probs_e18": None}
+                continue
+            sub = subs[a.name]
+            row = {"entered": True, "probs": probs[a.name], "probs_e18": probs_e18[a.name],
                    "prove_seconds": prove[a.name], "proof_cached": cached[a.name],
                    "reveal_gas": reveal_gas[a.name],
-                   "forecast_source": REPRO_SOURCE if a.kind == "reproducible"
-                   else subs[a.name].get("source", "ezkl")}
-            if a.name in reproduced:
-                row["reproduced"] = reproduced[a.name]
+                   "forecast_source": sub.get("source", "ezkl")}
+            for k in ("context_source", "context_points", "context_reason"):
+                if k in sub:
+                    row[k] = sub[k]
             rec["agents"][a.name] = row
         self.record_fee(h, feed)
 
@@ -905,7 +894,8 @@ class Replay:
         for a in self.agents:
             row = rec["agents"][a.name]
             s = scores[a.name]
-            row.update({"p_win": None if outcome["voided"] else row["probs"][win],
+            row.update({"p_win": None if outcome["voided"] or row["probs"] is None
+                        else row["probs"][win],
                         "log_score": None if s is None else str(s),
                         "log_score_float": None if s is None else s / 1e18,
                         "beat_baseline": s is not None and s > self.baseline,
@@ -943,13 +933,13 @@ def summarize(rounds, agents, final_rep):
         counts[r["outcome"]["winning_bucket"]] += 1
     out = {}
     for a in agents:
-        s = [r["agents"][a.name]["log_score_float"] for r in settled]
+        s = [r["agents"][a.name]["log_score_float"] for r in settled
+             if r["agents"][a.name]["log_score_float"] is not None]
         out[a.name] = {
             "rounds_scored": len(s), "total_log_score": round(sum(s), 4),
             "mean_log_score": round(sum(s) / len(s), 4) if s else None,
             "beat_baseline_rounds": sum(r["agents"][a.name]["beat_baseline"] for r in settled),
-            "reproduced_rounds": (sum(r["agents"][a.name]["reproduced"] is True for r in rounds)
-                                  if a.kind == "reproducible" else None),
+            "rounds_sat_out": sum(r["agents"][a.name]["entered"] is False for r in rounds),
             "predictor_reward_wei": str(sum(int(r["agents"][a.name]["predictor_reward_wei"])
                                             for r in rounds)),
             "erc8004": final_rep[a.name],
@@ -982,17 +972,12 @@ def main():
         start = parse_start(DEFAULT_START)
     if hours < 1 or start % 3600:
         raise SystemExit("HOURS must be >= 1 and REPLAY_START a full hour")
-    skipped = []
-    if live and not os.environ.get("VOL_REPRO_PYTHON"):
-        skipped.append({"agent": REPRO_AGENT_NAME, "tier": "reproducible",
-                        "reason": "not run on this host: needs torch + chronos-forecasting "
-                                  "(VOL_REPRO_PYTHON unset)"})
-        log(f"{REPRO_AGENT_NAME}: skipped (VOL_REPRO_PYTHON unset)")
-    else:
-        check_repro_env()
-    api_agent = ApiAgent(name=API_AGENT_NAME, key=API_AGENT_KEY,
-                         address=address_of(API_AGENT_KEY),
-                         config=ApiConfig.from_env()) if live else None
+    api_config, skipped = ApiConfig.from_env(), []
+    api_agents = tsfm_agents(api_config, TSFM_KEYS) if api_config else []
+    if not api_config:
+        skipped.append({"agent": "inference agents", "tier": "-",
+                        "reason": "VOL_TSFM_API_URL unset"})
+        log("inference agents: not entered (VOL_TSFM_API_URL unset)")
     end = start + hours * hour
     warm = start - ROUND_LEAD_S - (cm.N_FEATURES + 1) * step
     grid = list(range(warm, end + 1, step))
@@ -1015,7 +1000,7 @@ def main():
     with ForkAnvil(rpc_url, fork_block, cache=not live) as c:
         fork_ts = c.latest_ts()
         market, agents, agent_ids, verifiers = deploy(
-            c, owner, with_repro=not skipped, api_agent=api_agent,
+            c, owner, api_agents=api_agents,
             proof_cache=AGENTS_OUT / "proof-cache" if live else None)
         fee_consumer = deploy_fee_consumer(c, owner, market, fee)
         log(f"VolFeeConsumer {fee_consumer}")
@@ -1093,11 +1078,11 @@ def main():
                    "baseline_log_score": str(rp.baseline),
                    "baseline_log_score_float": rp.baseline / 1e18, "fee_consumer": fee},
         "agents": [{"agent": a.name,
-                    "model": (a.source if isinstance(a, ApiAgent)
-                              else getattr(a, "model", None) or REPRO_MODEL),
+                    "model": a.config.model if isinstance(a, ApiAgent) else a.model,
                     "model_type": a.kind, "tier": tiers[a.name], "model_hash": hashes[a.name],
                     "address": a.address, "model_id": a.model_id,
-                    "agent_id": agent_ids[a.name], "verifier": verifiers[a.name]}
+                    "agent_id": agent_ids[a.name], "verifier": verifiers[a.name],
+                    **(tsfm_info(a) if isinstance(a, ApiAgent) else {})}
                    for a in agents],
         "tamper_checks": rp.tamper,
         "rounds": rounds,
@@ -1141,9 +1126,8 @@ def print_summary(r, out):
               f"{a['beat_baseline_rounds']:>7}{int(a['predictor_reward_wei']) / 1e18:>13.6f}"
               f"  {a['erc8004']['count']} ({a['erc8004']['tag2']})")
     for name, a in s["agents"].items():
-        if a["reproduced_rounds"] is not None:
-            print(f"{name}: recompute from onchain features matched the reveal in "
-                  f"{a['reproduced_rounds']}/{s['rounds']} rounds")
+        if a["rounds_sat_out"]:
+            print(f"{name}: sat out {a['rounds_sat_out']}/{s['rounds']} rounds (API failed)")
     for t in r["tamper_checks"]:
         print(f"{t['agent']}: honest proof verifies={t['honest_proof_verifies']}, tampered "
               f"output verifies={t['tampered_output_verifies']}, verifyProof gas "
