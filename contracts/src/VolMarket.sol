@@ -860,4 +860,10 @@ contract VolMarket {
     function predictorCount(uint256 id) external view returns (uint256) {
         return rounds[id].predictors.length;
     }
+
+    /// @notice The i-th committed predictor in commit order, revealed or not; reverts past
+    ///         predictorCount.
+    function predictorAt(uint256 id, uint256 i) external view returns (address) {
+        return rounds[id].predictors[i];
+    }
 }
