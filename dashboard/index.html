@@ -316,6 +316,7 @@
   .nowrap { white-space: nowrap; }
   .hdot { display: block; line-height: 1; }
   .scroll-hint { display: none; color: var(--muted); font-size: 12px; text-align: right; margin-bottom: 4px; }
+  .scroll-hint.on { display: block; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   th { color: var(--faint); font-weight: 600; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
   tr:nth-child(2n+3) > td { background: #f6f1e6; }
@@ -416,7 +417,6 @@
     .pagehead h2 { font-size: 26px; }
   }
   @media (max-width: 1000px) {
-    .scroll-hint { display: block; }
     .pin-first tr > :first-child { position: sticky; left: 0; z-index: 1; background: var(--panel);
       box-shadow: 1px 0 0 var(--line), 6px 0 6px -4px rgba(60,45,20,.2); }
   }
@@ -453,8 +453,16 @@ const txLink = (h, text) => `<a class="mono" href="${SCAN}/tx/${h}" target="_bla
 const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#f778ba", "#39c5bb", "#79c0ff"];
 const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 // The hint is shown only up to 1000 px, where a card's content box is under 900 px, so these tables always overflow.
-const scrollTable = (inner, minWidth = 0, cls = "") => (minWidth >= 900 ? `<div class="scroll-hint">scroll →</div>` : "") +
+const SCROLL_HINT = `<div class="scroll-hint">scroll →</div>`;
+const scrollTable = (inner, minWidth = 0, cls = "") => SCROLL_HINT +
   `<div class="table-scroll"><table${cls ? ` class="${cls}"` : ""}${minWidth ? ` style="min-width:${minWidth}px"` : ""}>${inner}</table></div>`;
+// A table hidden by the current view measures 0 wide, so this reruns on every view switch as well as on resize.
+function markScrollHints() {
+  document.querySelectorAll(".scroll-hint").forEach((h) => {
+    const w = h.nextElementSibling;
+    h.classList.toggle("on", !!w && w.scrollWidth > w.clientWidth + 1);
+  });
+}
 
 async function load() {
   const param = new URLSearchParams(location.search).get("data");
@@ -1129,7 +1137,7 @@ function renderReplay({ data: d, src }) {
   const clRows = rp.chainlink_reports.map((x) => `<tr><td>${txLink(x.mainnet_tx)}</td><td>${blockLink(x.mainnet_block)}</td>
     <td class="mono">${fmtTime(x.mainnet_updated_at)}</td><td class="num">$${x.answer_usd.toFixed(2)}</td>
     <td>${badge(x.ok, "replayed", "failed")}</td></tr>`).join("");
-  const clCard = card("Chainlink ETH/USD reports replayed", `<div class="table-scroll" style="max-height:320px;overflow-y:auto">
+  const clCard = card("Chainlink ETH/USD reports replayed", `${SCROLL_HINT}<div class="table-scroll" style="max-height:320px;overflow-y:auto">
     <table style="min-width:560px"><tr><th>Mainnet tx</th><th>Block</th><th>Updated</th><th class="num">Answer</th><th></th></tr>${clRows}</table></div>
     <div class="sub" style="margin-top:8px">Each real transmission is re-sent on the fork by its original transmitter at its
     original timestamp, so the feed's answer and age at every settle are mainnet's.</div>`, "wide");
@@ -1622,6 +1630,7 @@ function applyRoute(first = false) {
   if (anchor) requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ behavior: first || calm ? "auto" : "smooth" }));
   FLOW.canvas = null;
   flowKick();
+  markScrollHints();
 }
 addEventListener("hashchange", () => applyRoute());
 // Presenter keys: 1–6 jump to a view, [ and ] step through them.
@@ -1693,6 +1702,7 @@ load().then((x) => {
     // A card not laid out yet measures 0 or less; the nowcast forecast column goes negative below ~70.
     const w = Math.max(280, Math.min(1200, measureChartWidth()));
     if (w !== chartWidth) { chartWidth = w; draw(x); }
+    markScrollHints();
   };
   fit();
   chartHover(document.getElementById("app"));
