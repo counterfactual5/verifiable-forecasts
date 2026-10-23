@@ -1,5 +1,5 @@
-# One live replay (demo/live.sh). The host also runs other services: the memory limits push this
-# job into swap (an EZKL prove peaks near 1.2 GB) instead of evicting its neighbours.
+# One live replay (demo/live.sh). The memory limits push this job into swap (an EZKL prove peaks
+# near 1.2 GB) to keep the host responsive.
 [Unit]
 Description=verifiable-forecasts live replay on a mainnet fork
 Wants=network-online.target

@@ -121,6 +121,10 @@ sec = next((s for s in secs if "consumer" in s.split("\n", 1)[0].lower()), None)
 sys.exit(0 if sec and "simulated" in sec.lower() and re.search(r"collateral", sec, re.I) and re.search(r"roadmap", sec, re.I) else 1)
 EOF
 
-bash ~/.agents/skills/goal/scripts/ui_check.sh run . --no-record >/dev/null 2>&1 && ok "ui smoke passes" || bad "ui smoke passes"
+if [[ -n "${UI_CHECK:-}" ]]; then
+  bash "$UI_CHECK" run . --no-record >/dev/null 2>&1 && ok "ui smoke passes" || bad "ui smoke passes"
+else
+  echo "SKIP - ui smoke (UI_CHECK unset)"
+fi
 
 [[ $fail -eq 0 ]] && echo PASS || { echo FAIL; exit 1; }

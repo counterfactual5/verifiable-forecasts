@@ -176,6 +176,10 @@ EOF
 
 bash tests/acceptance/next_fee_replay.sh >/dev/null 2>&1 && ok "next_fee_replay.sh still passes" || bad "next_fee_replay.sh still passes"
 bash tests/acceptance/next_fee_dashboard.sh >/dev/null 2>&1 && ok "next_fee_dashboard.sh still passes" || bad "next_fee_dashboard.sh still passes"
-bash ~/.agents/skills/goal/scripts/ui_check.sh run . --no-record >/dev/null 2>&1 && ok "ui smoke passes" || bad "ui smoke passes"
+if [[ -n "${UI_CHECK:-}" ]]; then
+  bash "$UI_CHECK" run . --no-record >/dev/null 2>&1 && ok "ui smoke passes" || bad "ui smoke passes"
+else
+  echo "SKIP - ui smoke (UI_CHECK unset)"
+fi
 
 [[ $fail -eq 0 ]] && echo PASS || { echo FAIL; exit 1; }

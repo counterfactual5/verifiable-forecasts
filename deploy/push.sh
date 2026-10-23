@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Deploys the committed tree (HEAD; uncommitted edits never leave this machine) to the live server,
 # copies the keys the live run reads from the local .env, installs the hourly timer and the
-# dashboard's nginx site. Usage: bash deploy/push.sh [user@host]
+# dashboard's nginx site. Usage: VF_DEPLOY_HOST=user@host bash deploy/push.sh
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-HOST="${1:-<user>@<server>}"
+HOST="${VF_DEPLOY_HOST:?set VF_DEPLOY_HOST=user@host}"
 DEST=/opt/verifiable-forecasts
 stage="$REPO/.local/live-deploy/export"
 rm -rf "$stage" && mkdir -p "$stage"
