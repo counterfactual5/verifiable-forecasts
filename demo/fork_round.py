@@ -42,6 +42,7 @@ from decimal import Decimal, getcontext
 from pathlib import Path
 
 from vol_agents import contract_math as cm
+from vol_agents import fee_strategies as fs
 from vol_agents.agent import Agent
 from vol_agents.api_agent import ApiAgent, ApiConfig
 from vol_agents.build import build, model_names, verifier_name
@@ -98,6 +99,16 @@ OBSERVE_SIG = "observe(uint32[])(int56[],uint160[])"
 PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)"
 SWAP_TOPIC = "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
 ANSWER_UPDATED_TOPIC = "0x0559884fd3a460db3073b7fc896cc77986f16e378210ded43186175bf646fc5f"
+FEE_RECORDED_SIG = "FeeRecorded(uint256,uint24,uint256,uint256[5])"
+REPUTATION_TAG1 = "logScore"
+# Must equal VolMarket._reputationTag, or the consumer finds no reputation and weighs equally.
+REPUTATION_TAG2 = f"vol-{cm.DELTA}s-{cm.N_SEGMENTS}"
+SUMMARY_SIG = "getSummary(uint256,address[],string,string)(uint64,int128,uint8)"
+# VolFeeConsumer calibration: mainnet hours ending at the replay start, never inside it.
+CALIBRATION_HOURS = 24
+# VolFeeConsumer fee bounds in pips (1e-6; 100 pips = 1 bp); the pool's own tier is 500 pips.
+MIN_FEE_PIPS, MAX_FEE_PIPS = 100, 10_000
+FIXED_FEE_PIPS = 500
 VOID_REASONS = {1: "pool tick out of range", 2: "Chainlink answer stale or invalid",
                 3: "Chainlink decimals", 4: "pool price deviates from Chainlink",
                 5: "Chainlink call failed"}
@@ -197,6 +208,70 @@ class Mainnet:
     def logs(self, address, topic, first, last):
         return self.call("eth_getLogs", {"address": address, "topics": [topic],
                                          "fromBlock": hex(first), "toBlock": hex(last)})
+
+    def pool_state(self, block):
+        """(liquidity, sqrtPriceX96) of the pool after `block`."""
+        liq = self.call("eth_call", {"to": POOL, "data": calldata("liquidity()")}, hex(block))
+        slot0 = self.call("eth_call", {"to": POOL, "data": calldata("slot0()")}, hex(block))
+        return int(liq, 16), int(slot0[2:66], 16)
+
+
+def int256(word):
+    v = int(word, 16)
+    return v - 2**256 if v >= 2**255 else v
+
+
+def hour_market(mainnet, first, nxt, swaps=None):
+    """Fair-fee inputs of the mainnet hour in blocks [first, nxt): pool state at its first block
+    and the hour's swap volume as sum |amount1|, in WETH wei like 2 * L * sqrt(P)."""
+    if swaps is None:
+        swaps = mainnet.logs(POOL, SWAP_TOPIC, first, nxt - 1)
+    liquidity, sqrt_price = mainnet.pool_state(first)
+    volume = sum(abs(int256(lg["data"][66:130])) for lg in swaps)
+    return {"state_block": first, "liquidity": liquidity, "sqrt_price_x96": sqrt_price,
+            "volume_token1": volume, "swap_count": len(swaps)}
+
+
+def fair_bps(rv, m):
+    return fs.fair_fee(rv, m["liquidity"], m["sqrt_price_x96"], m["volume_token1"]) * 10_000
+
+
+def calibrate_fee(mainnet, start):
+    """VolFeeConsumer parameters from the CALIBRATION_HOURS mainnet hours before `start`."""
+    step, hour = cm.DELTA, cm.N_SEGMENTS * cm.DELTA
+    cal_start = start - CALIBRATION_HOURS * hour
+    grid = list(range(cal_start, start + 1, step))
+    cums, block_at = real_cumulatives(
+        mainnet, grid, [cal_start + k * hour for k in range(CALIBRATION_HOURS + 1)])
+    hours = []
+    for k in range(CALIBRATION_HOURS):
+        s = cal_start + k * hour
+        window = [cm.floor_div(cums[s + (i + 1) * step] - cums[s + i * step], step)
+                  for i in range(cm.N_SEGMENTS)]
+        rv = cm.realized_vol(window)
+        m = hour_market(mainnet, block_at[s], block_at[s + hour])
+        bps = fair_bps(rv, m)
+        hours.append({"start": s, "rv": rv, "fair_bps": bps, "fair_pips": bps * fs.PIPS_PER_BPS,
+                      "liquidity": str(m["liquidity"]),
+                      "sqrt_price_x96": str(m["sqrt_price_x96"]),
+                      "volume_token1": str(m["volume_token1"]), "swap_count": m["swap_count"]})
+    fpv, bucket_var, sources = fs.calibrate(hours, BOUNDS)
+    log(f"fee calibration {utc(cal_start)} .. {utc(start)}: feePerVarE18 {fpv}, "
+        f"bucketVar {bucket_var}")
+    return {"bucket_var": bucket_var, "fee_per_var_e18": str(fpv), "min_fee_pips": MIN_FEE_PIPS,
+            "max_fee_pips": MAX_FEE_PIPS, "fixed_fee_pips": FIXED_FEE_PIPS,
+            "tag1": REPUTATION_TAG1, "tag2_zk": REPUTATION_TAG2,
+            "tag2_commit": REPUTATION_TAG2 + "-commit",
+            "calibration": {
+                "window": [cal_start, start], "hours": CALIBRATION_HOURS,
+                "fee_per_var": "ratio of sums: sum fair pips / sum rv over the calibration hours, "
+                               "1e18-scaled, so fee_for_var(rv) totals the fair fee unclamped",
+                "bucket_var": "mean rv of the calibration hours in each bucket; an empty bucket "
+                              "takes its bounds' midpoint (bucket 0: half its upper bound, "
+                              "bucket 4: 1.5x its lower bound), then a running max",
+                "bucket_var_sources": sources,
+                "fair": fs.FAIR_DEFINITION,
+                "hours_data": [{k: v for k, v in h.items() if k != "fair_pips"} for h in hours]}}
 
 
 def real_cumulatives(mainnet, grid, ends):
@@ -364,6 +439,13 @@ def deploy(c, owner):
         agent_ids[agent.name] = agent_id
         verifiers[agent.name] = verifier if verifier != ZERO_ADDRESS else None
     return market, agents, agent_ids, verifiers
+
+
+def deploy_fee_consumer(c, owner, market, fee):
+    return c.deploy(owner, "src/VolFeeConsumer.sol:VolFeeConsumer", market, fee["tag1"],
+                    fee["tag2_zk"], fee["tag2_commit"],
+                    "[" + ",".join(map(str, fee["bucket_var"])) + "]", fee["fee_per_var_e18"],
+                    fee["min_fee_pips"], fee["max_fee_pips"])
 
 
 def fund_trader(c):
@@ -540,11 +622,10 @@ def collect_fee(c, owner, market, rid, outcome, pool):
 
 
 def reputation_of(c, market, agent_id, kind):
-    tag2 = f"vol-{cm.DELTA}s-{cm.N_SEGMENTS}" + ("-commit" if kind == "commit-only" else "")
-    count, value, decimals = c.call(
-        REPUTATION, "getSummary(uint256,address[],string,string)(uint64,int128,uint8)",
-        agent_id, f"[{market}]", "logScore", tag2)
-    return {"tag1": "logScore", "tag2": tag2, "count": as_int(count),
+    tag2 = REPUTATION_TAG2 + ("-commit" if kind == "commit-only" else "")
+    count, value, decimals = c.call(REPUTATION, SUMMARY_SIG, agent_id, f"[{market}]",
+                                    REPUTATION_TAG1, tag2)
+    return {"tag1": REPUTATION_TAG1, "tag2": tag2, "count": as_int(count),
             "summary_value": str(as_int(value)), "summary_decimals": as_int(decimals)}
 
 
@@ -599,14 +680,100 @@ class Replay:
                                   "reveal_gas": reveal_gas[a.name],
                                   "forecast_source": subs[a.name].get("source", "ezkl")}
                          for a in self.agents}
+        self.record_fee(h, feed)
 
-    def close(self, h, real_window_ticks, mainnet_info):
+    def record_fee(self, h, feed):
+        """VolFeeConsumer.record once reveals have closed, its Python mirror at the same block,
+        and the previous-hour strategy priced from what is known at that time."""
+        rec, c, fee = self.rounds[h], self.c, self.fee
+        rid, start = rec["id"], rec["start"]
+        feed.before(start - REVEAL_LEAD)
+        c.advance_to(start - REVEAL_LEAD)
+        receipt = c.send(self.owner, self.fee_consumer, "record(uint256)", rid)
+        block = int(receipt["blockNumber"], 0)
+        ts = int(c.rpc_call("eth_getBlockByNumber", hex(block), False)["timestamp"], 16)
+        if not start - REVEAL_LEAD <= ts < start:
+            raise RuntimeError(f"round {rid}: fee recorded at {ts}, outside the quote window")
+        data = logs_with(receipt, self.fee_consumer, FEE_RECORDED_SIG)[0]["data"][2:]
+        words = [int(data[64 * i:64 * (i + 1)], 16) for i in range(7)]
+        on_fee, on_ev, on_mix = words[0], words[1], words[2:]
+        mirror = fs.mirror_quote(self.fee_inputs(rid, block), self.baseline,
+                                 self.registry_at(block) != ZERO_ADDRESS, fee["bucket_var"],
+                                 int(fee["fee_per_var_e18"]), MIN_FEE_PIPS, MAX_FEE_PIPS)
+        matches = (mirror["fee_pips"], mirror["mix_e18"], mirror["expected_var_e18"]) == (
+            on_fee, on_mix, on_ev)
+        if not matches:
+            log(f"round {rid}: fee mirror {mirror} differs from on-chain {words}")
+        lo, hi = fs.prev_hour_window(ts, self.grid_origin)
+        prev_ticks = [self.ticks[t] for t in range(lo, hi, cm.DELTA)]
+        prev_rv = cm.realized_vol(prev_ticks)
+        fpv = int(fee["fee_per_var_e18"])
+        rec["fee"] = {
+            "onchain": {"fee_pips": on_fee, "mix_e18": [str(v) for v in on_mix],
+                        "expected_var_e18": str(on_ev), "tx": receipt["transactionHash"],
+                        "block": block, "timestamp": ts},
+            "mirror": {"fee_pips": mirror["fee_pips"],
+                       "mix_e18": [str(v) for v in mirror["mix_e18"]],
+                       "expected_var_e18": str(mirror["expected_var_e18"]),
+                       "weights": [str(w) for w in mirror["weights"]],
+                       "equal_weight_fallback": mirror["equal_weight_fallback"]},
+            "mirror_matches": matches,
+            "fixed_bps": FIXED_FEE_PIPS / fs.PIPS_PER_BPS,
+            "forecast_bps": on_fee / fs.PIPS_PER_BPS,
+            "prev_hour": {"window": [lo, hi], "segment_ticks": prev_ticks,
+                          "realized_vol": prev_rv},
+            "prev_hour_bps": fs.fee_for_var(prev_rv, fpv, MIN_FEE_PIPS, MAX_FEE_PIPS)
+            / fs.PIPS_PER_BPS,
+        }
+
+    def registry_at(self, block):
+        return self.c.call_at(block, self.market, "reputationRegistry()(address)")[0]
+
+    def fee_inputs(self, rid, block):
+        """Revealed forecasts of round `rid` and their models' reputation, read at `block` the
+        way VolFeeConsumer._forecasts reads them (mainnet ERC-8004 tuple getSummary)."""
+        c, m = self.c, self.market
+        registry = self.registry_at(block)
+        n = as_int(c.call_at(block, m, "predictorCount(uint256)(uint256)", rid)[0])
+        out = []
+        for i in range(n):
+            who = c.call_at(block, m, "predictorAt(uint256,uint256)(address)", rid, i)[0]
+            p = c.call_at(block, m, PREDICTION_SIG, rid, who)
+            if not truthy(p[0]):
+                continue
+            out.append({"probs": [as_int(v) for v in p[2]],
+                        "reputation": self.model_reputation(block, as_int(p[1]), registry)})
+        return out
+
+    def model_reputation(self, block, model_id, registry):
+        c, m = self.c, self.market
+        if registry == ZERO_ADDRESS or not truthy(
+                c.call_at(block, m, "agentBound(uint256)(bool)", model_id)[0]):
+            return False, 0
+        agent_id = as_int(c.call_at(block, m, "agentOfModel(uint256)(uint256)", model_id)[0])
+        zk = truthy(c.call_at(block, m, "isZkModel(uint256)(bool)", model_id)[0])
+        tag2 = self.fee["tag2_zk"] if zk else self.fee["tag2_commit"]
+        try:
+            count, value, decimals = c.call_at(block, registry, SUMMARY_SIG, agent_id, f"[{m}]",
+                                               self.fee["tag1"], tag2)
+        except RuntimeError:
+            return False, 0
+        return fs.reputation_mean(as_int(count), as_int(value), as_int(decimals))
+
+    def close(self, h, real_window_ticks, mainnet_info, market_hour):
         rec, c = self.rounds[h], self.c
         rid = rec["id"]
         c.advance_to(rec["start"] + cm.N_SEGMENTS * cm.DELTA + SETTLE_AFTER_S)
         outcome = settle(c, self.owner, self.market, rid)
         settle_ts = c.latest_ts()
         real_rv = cm.realized_vol(real_window_ticks)
+        rec["fee"].update({
+            "fair_bps": fair_bps(real_rv, market_hour),
+            "fair_inputs": {"realized_vol": real_rv, "state_block": market_hour["state_block"],
+                            "liquidity": str(market_hour["liquidity"]),
+                            "sqrt_price_x96": str(market_hour["sqrt_price_x96"]),
+                            "volume_token1": str(market_hour["volume_token1"]),
+                            "volume_token": "WETH wei"}})
         price = chainlink_check(c, self.market, outcome["settle_block"], settle_ts)
         preds = {a.name: c.call(self.market, PREDICTION_SIG, rid, a.address) for a in self.agents}
         scores = {n: as_int(p[3]) if truthy(p[0]) and not outcome["voided"] else None
@@ -640,8 +807,10 @@ class Replay:
             f"RV {outcome['realized_vol']} (mainnet {real_rv}) bucket {win}")
         best = ", ".join(f"{n.removeprefix('agent-')} {r['log_score_float']:.3f}"
                          for n, r in rec["agents"].items() if r["log_score_float"] is not None)
+        f = rec["fee"]
         log(f"round {rid} {utc(rec['start'])}: {status}; feed age {price['feed_age_s']} s, "
-            f"dev {price['deviation_bps']} bps; {best}")
+            f"dev {price['deviation_bps']} bps; {best}; fee bps fair {f['fair_bps']:.3f} "
+            f"forecast {f['forecast_bps']} prev-hour {f['prev_hour_bps']}")
 
 
 def summarize(rounds, agents, final_rep):
@@ -669,7 +838,12 @@ def summarize(rounds, agents, final_rep):
             "uniform_total_log_score": round(len(settled) * math.log(1 / cm.BUCKETS), 4),
             "features_match_mainnet": all(r["features_match_mainnet"] for r in rounds),
             "rv_matches_mainnet": all(r["rv_matches_mainnet"] for r in rounds),
-            "agents": out}
+            "agents": out,
+            "fee_strategies": {
+                **fs.strategy_summary([r["fee"] for r in rounds]),
+                "mirror_matches": all(r["fee"]["mirror_matches"] for r in rounds),
+                "equal_weight_fallback_rounds": sum(
+                    r["fee"]["mirror"]["equal_weight_fallback"] for r in rounds)}}
 
 
 def main():
@@ -697,15 +871,19 @@ def main():
     reports = feed_reports(mainnet, aggregator, fork_block + 1, last_block)
     log(f"forking mainnet at block {fork_block} ({utc(mainnet.ts(fork_block))}); "
         f"{len(reports)} Chainlink reports to replay")
+    fee = calibrate_fee(mainnet, start)
 
     owner = DEV_KEYS[0]
     with ForkAnvil(rpc_url, fork_block) as c:
         fork_ts = c.latest_ts()
         market, agents, agent_ids, verifiers = deploy(c, owner)
+        fee_consumer = deploy_fee_consumer(c, owner, market, fee)
+        log(f"VolFeeConsumer {fee_consumer}")
         fund_trader(c)
         feed = FeedReplay(c, reports)
         rp = Replay(c, mainnet, owner, start, hours)
         rp.market, rp.agents, rp.verifiers = market, agents, verifiers
+        rp.fee_consumer, rp.fee, rp.ticks, rp.grid_origin = fee_consumer, fee, ticks, warm
         rp.baseline = as_int(c.call(market, "baselineLogScore()(int256)")[0])
         tick_now = pool_tick(c)
         log(f"deployed in {c.latest_ts() - fork_ts} s of chain time; replay grid starts "
@@ -743,7 +921,7 @@ def main():
                 info = {"block_from": first, "block_to": nxt - 1, "swap_count": len(swaps),
                         "swap_txs": [lg["transactionHash"] for lg in swaps[:SWAP_LOG_SAMPLE]],
                         "last_swap_tx": swaps[-1]["transactionHash"] if swaps else None}
-                rp.close(h_end, window, info)
+                rp.close(h_end, window, info, hour_market(mainnet, first, nxt, swaps))
             if opening:
                 rp.enter(h_open, feed)
 
@@ -763,13 +941,14 @@ def main():
                    "chainlink_reports": feed.done},
         "contracts": {"market": market, "pool": POOL, "chainlink_feed": FEED,
                       "chainlink_aggregator": aggregator, "erc8004_identity": IDENTITY,
-                      "erc8004_reputation": REPUTATION, "settlement_token": WETH},
+                      "erc8004_reputation": REPUTATION, "settlement_token": WETH,
+                      "fee_consumer": fee_consumer},
         "params": {"delta_s": cm.DELTA, "n_segments": cm.N_SEGMENTS, "bounds": list(BOUNDS),
                    "fee_bps": FEE_BPS, "predictor_share_bps": PREDICTOR_SHARE_BPS,
                    "commit_lead_s": COMMIT_LEAD, "reveal_lead_s": REVEAL_LEAD,
                    "round_lead_s": ROUND_LEAD_S, "bet_wei": str(BET_WEI),
                    "baseline_log_score": str(rp.baseline),
-                   "baseline_log_score_float": rp.baseline / 1e18},
+                   "baseline_log_score_float": rp.baseline / 1e18, "fee_consumer": fee},
         "agents": [{"agent": a.name, "model": getattr(a, "model", None) or "tsfm-api",
                     "model_type": a.kind, "address": a.address, "model_id": a.model_id,
                     "agent_id": agent_ids[a.name], "verifier": verifiers[a.name]}
@@ -808,6 +987,12 @@ def print_summary(r):
         print(f"{t['agent']}: honest proof verifies={t['honest_proof_verifies']}, tampered "
               f"output verifies={t['tampered_output_verifies']}, verifyProof gas "
               f"{t['verify_proof_gas']}")
+    fs_ = s["fee_strategies"]
+    print(f"fee strategies over {fs_['rounds']} rounds (bps): mean "
+          + ", ".join(f"{k} {v:.3f}" for k, v in fs_["mean_bps"].items()) + "; MAE vs fair "
+          + ", ".join(f"{k} {v:.3f}" for k, v in fs_["mae_bps"].items())
+          + f"; mirror matches {fs_['mirror_matches']}, equal-weight rounds "
+          f"{fs_['equal_weight_fallback_rounds']}")
     print(f"left in market {int(r['market_balance_after_wei'])} wei; wrote "
           f"{RESULT.relative_to(REPO)}")
 
