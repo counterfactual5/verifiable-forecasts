@@ -452,7 +452,6 @@ const txLink = (h, text) => `<a class="mono" href="${SCAN}/tx/${h}" target="_bla
 // Agent colours never reuse --win or the fee-card series colours.
 const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#f778ba", "#39c5bb", "#79c0ff"];
 const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-// The hint is shown only up to 1000 px, where a card's content box is under 900 px, so these tables always overflow.
 const SCROLL_HINT = `<div class="scroll-hint">scroll →</div>`;
 const scrollTable = (inner, minWidth = 0, cls = "") => SCROLL_HINT +
   `<div class="table-scroll"><table${cls ? ` class="${cls}"` : ""}${minWidth ? ` style="min-width:${minWidth}px"` : ""}>${inner}</table></div>`;
