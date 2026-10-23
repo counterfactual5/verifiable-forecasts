@@ -45,9 +45,19 @@ def verifier_name(model):
     return "".join(part.capitalize() for part in model.split("_")) + "Verifier"
 
 
+def peak_mb(time_stderr):
+    """Peak RSS from /usr/bin/time: BSD `-l` reports bytes, GNU `-v` kilobytes."""
+    if m := re.search(r"(\d+)\s+maximum resident set size", time_stderr):
+        return round(int(m.group(1)) / 2**20, 1)
+    if m := re.search(r"Maximum resident set size \(kbytes\): (\d+)", time_stderr):
+        return round(int(m.group(1)) / 2**10, 1)
+    return None
+
+
 def run_step(model, step, work=None):
-    """Run one EZKL step under /usr/bin/time -l; returns {seconds, peak_mb}."""
-    cmd = ["/usr/bin/time", "-l", sys.executable, "-m", "vol_agents.ezkl_step", model, step]
+    """Run one EZKL step under /usr/bin/time; returns {seconds, peak_mb}."""
+    flag = "-l" if sys.platform == "darwin" else "-v"
+    cmd = ["/usr/bin/time", flag, sys.executable, "-m", "vol_agents.ezkl_step", model, step]
     if work:
         cmd += ["--work", str(work)]
     t0 = time.time()
@@ -55,9 +65,8 @@ def run_step(model, step, work=None):
     secs = time.time() - t0
     if r.returncode != 0:
         raise RuntimeError(f"ezkl {model}:{step} failed\n{r.stdout[-2000:]}\n{r.stderr[-4000:]}")
-    m = re.search(r"(\d+)\s+maximum resident set size", r.stderr)
     rec = {"model": model, "step": step, "seconds": round(secs, 2),
-           "peak_mb": round(int(m.group(1)) / 2**20, 1) if m else None}
+           "peak_mb": peak_mb(r.stderr)}
     log = OUT / model / "timing.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a") as f:

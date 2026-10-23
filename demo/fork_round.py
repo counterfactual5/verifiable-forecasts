@@ -30,6 +30,13 @@ REPLAY_START (unix seconds or ISO-8601 UTC, a full hour; default 2026-10-21T06:0
 models' test period), VOL_REPRO_PYTHON (required: interpreter with chronos-forecasting and torch;
 the pinned snapshot must be downloaded). Usage: bash demo/run.sh   (writes
 demo/out/fork_replay.json)
+
+LIVE=1 (demo/live.sh, run hourly on a server) replays the HOURS (default LIVE_HOURS) most recent
+completed mainnet hours on a fresh fork and writes dashboard/live-replay.json with "live": true.
+It also enters the commit-only TSFM API agent (agents/vol_agents/api_agent.py, VOL_TSFM_* env);
+if its API call fails the round gets the agent's local placeholder forecast, labelled as such. The
+reproducible agent runs only when VOL_REPRO_PYTHON is set; otherwise it is listed under
+"skipped_agents" instead of being imitated.
 """
 
 import json
@@ -49,12 +56,20 @@ from vol_agents import fee_strategies as fs
 from vol_agents import repro_agent as ra
 from vol_agents import repro_runner as rr
 from vol_agents.agent import Agent
+from vol_agents.api_agent import ApiAgent, ApiConfig
 from vol_agents.build import build, model_names, verifier_name
 from vol_agents.chain import DEV_KEYS, Anvil, address_of, as_int
 from vol_agents.ezkl_step import OUT as AGENTS_OUT
 
 REPO = Path(__file__).resolve().parent.parent
 RESULT = REPO / "demo" / "out" / "fork_replay.json"
+LIVE_RESULT = REPO / "dashboard" / "live-replay.json"
+LIVE_HOURS = 6
+# A live run replays hours that ended at least this long ago, so mainnet has the blocks the
+# settlement and its Chainlink replay read (SETTLE_AFTER_S + 60 s past the hour, plus slack).
+LIVE_SETTLE_MARGIN_S = 180
+# demo/live.sh runs hourly at this offset past the hour (deploy/vf-live.timer).
+LIVE_INTERVAL_S, LIVE_OFFSET_S = 3600, 420
 
 POOL = "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640"  # Uniswap V3 ETH/USDC 0.05%, token0 USDC
 FEED = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"  # Chainlink ETH/USD proxy, 8 decimals
@@ -75,6 +90,9 @@ BETTOR_KEYS = [
 ]
 # anvil dev account 6, operator of the reproducible agent; fork-local only
 REPRO_AGENT_KEY = "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e"
+# anvil dev account 9, operator of the commit-only API agent (live mode); fork-local only
+API_AGENT_KEY = "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
+API_AGENT_NAME = "agent-tsfm-api"
 # anvil dev accounts 7 and 8 (unlocked on the fork): the pool trader and the checkpoint sampler
 TRADER_INDEX, SAMPLER_INDEX = 7, 8
 FEE_BPS = 100
@@ -320,14 +338,16 @@ def sqrt_price_x96(tick):
 
 
 class ForkAnvil(Anvil):
-    def __init__(self, fork_url, fork_block):
+    def __init__(self, fork_url, fork_block, cache=True):
         super().__init__()
-        self.fork_url, self.fork_block = fork_url, fork_block
+        self.fork_url, self.fork_block, self.cache = fork_url, fork_block, cache
 
     def __enter__(self):
+        # Hourly live forks never revisit a block, so their on-disk fork cache would only grow.
         self.proc = subprocess.Popen(
             ["anvil", "--port", str(self.port), "--silent", "--fork-url", self.fork_url,
-             "--fork-block-number", str(self.fork_block)],
+             "--fork-block-number", str(self.fork_block)]
+            + ([] if self.cache else ["--no-storage-caching"]),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         deadline = time.time() + 120
@@ -345,7 +365,8 @@ class ForkAnvil(Anvil):
         self.trader, self.sampler = accounts[TRADER_INDEX], accounts[SAMPLER_INDEX]
         # On mainnet anvil's public test keys carry EIP-7702 sweeper delegations; as plain EOAs
         # again they can receive the ERC-721 identity mint and keep their fork-local ETH.
-        for who in [address_of(k) for k in DEV_KEYS + BETTOR_KEYS + [REPRO_AGENT_KEY]] + [
+        for who in [address_of(k) for k in DEV_KEYS + BETTOR_KEYS + [REPRO_AGENT_KEY,
+                                                                      API_AGENT_KEY]] + [
                 self.trader, self.sampler]:
             self.rpc_call("anvil_setCode", who, "0x")
         return self
@@ -419,7 +440,7 @@ def minted_agent_id(receipt):
     raise RuntimeError(f"identity registration minted no token: {receipt}")
 
 
-def deploy(c, owner):
+def deploy(c, owner, with_repro=True, api_agent=None):
     market = c.deploy(owner, "src/VolMarket.sol:VolMarket", WETH, FEE_BPS, PREDICTOR_SHARE_BPS,
                       POOL, cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
     c.send(owner, market, "setReputation(address,address)", IDENTITY, REPUTATION)
@@ -433,9 +454,11 @@ def deploy(c, owner):
         zk.append((Agent(name=f"agent-{m}", model=m, key=key, address=address_of(key)),
                    c.deploy(owner, f"src/verifier/{name}.sol:{name}")))
     repro = ra.ReproAgent(name=REPRO_AGENT_NAME, key=REPRO_AGENT_KEY,
-                          address=address_of(REPRO_AGENT_KEY))
-    local_hash = ra.local_model_hash()
-    for agent, verifier in zk + [(repro, ZERO_ADDRESS)]:
+                          address=address_of(REPRO_AGENT_KEY)) if with_repro else None
+    local_hash = ra.local_model_hash() if with_repro else None
+    entrants = zk + ([(repro, ZERO_ADDRESS)] if repro else []) + (
+        [(api_agent, ZERO_ADDRESS)] if api_agent else [])
+    for agent, verifier in entrants:
         if agent is repro:
             c.send(owner, market, "registerModel(address,address,bytes32)", ZERO_ADDRESS,
                    agent.address, local_hash)
@@ -454,6 +477,10 @@ def deploy(c, owner):
                 raise SystemExit(f"{agent.name}: onchain tier {tier}, modelHash {onchain}; local "
                                  f"model hash {local_hash}: refusing to run rounds")
             kind = f"reproducible, modelHash {onchain}"
+        elif agent is api_agent:
+            if tier != "commit-only":
+                raise RuntimeError(f"{agent.name}: onchain tier {tier}, expected commit-only")
+            kind = f"commit-only, forecasts from {agent.source}"
         else:
             if tier != "zk":
                 raise RuntimeError(f"{agent.name}: onchain tier {tier}, expected zk")
@@ -488,6 +515,19 @@ def check_repro_env():
     h = ra.local_model_hash()
     log(f"{REPRO_AGENT_NAME}: {rr.MODEL_REPO}@{rr.MODEL_REVISION}, local model hash {h}")
     return h
+
+
+def commit_api(c, agent, market, rid):
+    """The API agent's forecast, or its local placeholder labelled as such when the API fails,
+    so one failed request never stops the live replay."""
+    try:
+        return agent.commit(c, market, rid)
+    except (RuntimeError, ValueError, KeyError, TypeError) as e:
+        log(f"round {rid}: {agent.name} API failed ({str(e)[:200]}); committing the placeholder")
+        stand_in = ApiAgent(name=agent.name, key=agent.key, address=agent.address)
+        forecast = stand_in.prepare(c, market, rid)
+        forecast["source"] = "placeholder (API failed)"
+        return agent.commit(c, market, rid, forecast)
 
 
 def recompute(c, market, rid, model_id):
@@ -719,7 +759,8 @@ class Replay:
         subs, prove = {}, {}
         for a in self.agents:
             feed.before(c.latest_ts() + 2)
-            subs[a.name] = a.commit(c, self.market, rid)
+            subs[a.name] = (commit_api(c, a, self.market, rid) if isinstance(a, ApiAgent)
+                            else a.commit(c, self.market, rid))
             prove[a.name] = a.timings.get("prove", {}).get("seconds") if a.kind == "zk" else None
         feed.before(start - COMMIT_LEAD)
         c.advance_to(start - COMMIT_LEAD)
@@ -926,12 +967,28 @@ def main():
     t_wall = time.time()
     os.environ.setdefault("ETH_RPC_TIMEOUT", "300")
     rpc_url = os.environ.get("MAINNET_RPC_URL") or DEFAULT_RPC
-    hours = int(os.environ.get("HOURS") or DEFAULT_HOURS)
-    start = parse_start(os.environ.get("REPLAY_START") or DEFAULT_START)
+    live = os.environ.get("LIVE") == "1"
+    step, hour = cm.DELTA, cm.N_SEGMENTS * cm.DELTA
+    hours = int(os.environ.get("HOURS") or (LIVE_HOURS if live else DEFAULT_HOURS))
+    if os.environ.get("REPLAY_START"):
+        start = parse_start(os.environ["REPLAY_START"])
+    elif live:
+        start = (int(time.time()) - LIVE_SETTLE_MARGIN_S) // hour * hour - hours * hour
+    else:
+        start = parse_start(DEFAULT_START)
     if hours < 1 or start % 3600:
         raise SystemExit("HOURS must be >= 1 and REPLAY_START a full hour")
-    check_repro_env()
-    step, hour = cm.DELTA, cm.N_SEGMENTS * cm.DELTA
+    skipped = []
+    if live and not os.environ.get("VOL_REPRO_PYTHON"):
+        skipped.append({"agent": REPRO_AGENT_NAME, "tier": "reproducible",
+                        "reason": "not run on this host: needs torch + chronos-forecasting "
+                                  "(VOL_REPRO_PYTHON unset)"})
+        log(f"{REPRO_AGENT_NAME}: skipped (VOL_REPRO_PYTHON unset)")
+    else:
+        check_repro_env()
+    api_agent = ApiAgent(name=API_AGENT_NAME, key=API_AGENT_KEY,
+                         address=address_of(API_AGENT_KEY),
+                         config=ApiConfig.from_env()) if live else None
     end = start + hours * hour
     warm = start - ROUND_LEAD_S - (cm.N_FEATURES + 1) * step
     grid = list(range(warm, end + 1, step))
@@ -951,9 +1008,10 @@ def main():
     fee = calibrate_fee(mainnet, start)
 
     owner = DEV_KEYS[0]
-    with ForkAnvil(rpc_url, fork_block) as c:
+    with ForkAnvil(rpc_url, fork_block, cache=not live) as c:
         fork_ts = c.latest_ts()
-        market, agents, agent_ids, verifiers = deploy(c, owner)
+        market, agents, agent_ids, verifiers = deploy(c, owner, with_repro=not skipped,
+                                                      api_agent=api_agent)
         fee_consumer = deploy_fee_consumer(c, owner, market, fee)
         log(f"VolFeeConsumer {fee_consumer}")
         fund_trader(c)
@@ -1029,7 +1087,9 @@ def main():
                    "round_lead_s": ROUND_LEAD_S, "bet_wei": str(BET_WEI),
                    "baseline_log_score": str(rp.baseline),
                    "baseline_log_score_float": rp.baseline / 1e18, "fee_consumer": fee},
-        "agents": [{"agent": a.name, "model": getattr(a, "model", None) or REPRO_MODEL,
+        "agents": [{"agent": a.name,
+                    "model": (a.source if isinstance(a, ApiAgent)
+                              else getattr(a, "model", None) or REPRO_MODEL),
                     "model_type": a.kind, "tier": tiers[a.name], "model_hash": hashes[a.name],
                     "address": a.address, "model_id": a.model_id,
                     "agent_id": agent_ids[a.name], "verifier": verifiers[a.name]}
@@ -1038,13 +1098,24 @@ def main():
         "rounds": rounds,
         "summary": summarize(rounds, agents, final_rep),
         "market_balance_after_wei": str(market_left),
+        "skipped_agents": skipped,
     }
-    RESULT.parent.mkdir(parents=True, exist_ok=True)
-    RESULT.write_text(json.dumps(result, indent=1) + "\n")
-    print_summary(result)
+    out = RESULT
+    if live:
+        now = int(time.time())
+        result.update({"live": True, "live_interval_s": LIVE_INTERVAL_S,
+                       "next_run_at": (now - LIVE_OFFSET_S) // LIVE_INTERVAL_S * LIVE_INTERVAL_S
+                       + LIVE_INTERVAL_S + LIVE_OFFSET_S})
+        out = LIVE_RESULT
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # Written then renamed: the live dashboard is served from this file while the next run writes.
+    tmp = out.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(result, indent=1) + "\n")
+    tmp.replace(out)
+    print_summary(result, out)
 
 
-def print_summary(r):
+def print_summary(r, out):
     s = r["summary"]
     print(f"\n=== VolMarket replay on a mainnet fork: {r['replay']['hours']} h from "
           f"{r['replay']['start_utc']} ===")
@@ -1079,7 +1150,7 @@ def print_summary(r):
           + f"; mirror matches {fs_['mirror_matches']}, equal-weight rounds "
           f"{fs_['equal_weight_fallback_rounds']}")
     print(f"left in market {int(r['market_balance_after_wei'])} wei; wrote "
-          f"{RESULT.relative_to(REPO)}")
+          f"{out.relative_to(REPO)}")
 
 
 if __name__ == "__main__":

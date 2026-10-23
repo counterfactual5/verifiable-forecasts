@@ -84,3 +84,9 @@ def test_changed_verifier_needs_force(verifier_env):
     assert dest.read_text() == committed
     b.install_verifier("toy_model", force=True)
     assert "= 2;" in dest.read_text()
+
+
+def test_peak_mb_reads_bsd_and_gnu_time():
+    assert b.peak_mb("  1233125376  maximum resident set size\n") == 1176.0
+    assert b.peak_mb("\tMaximum resident set size (kbytes): 1204224\n") == 1176.0
+    assert b.peak_mb("no time output") is None

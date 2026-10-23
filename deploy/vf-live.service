@@ -1,0 +1,18 @@
+# One live replay (demo/live.sh). The host also runs other services: the memory limits push this
+# job into swap (an EZKL prove peaks near 1.2 GB) instead of evicting its neighbours.
+[Unit]
+Description=verifiable-forecasts live replay on a mainnet fork
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/verifiable-forecasts
+Environment=PATH=/root/.foundry/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/bin/bash /opt/verifiable-forecasts/demo/live.sh
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=150%
+MemoryHigh=900M
+MemoryMax=1400M
+TimeoutStartSec=50min

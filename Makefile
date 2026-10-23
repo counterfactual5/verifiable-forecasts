@@ -1,4 +1,4 @@
-.PHONY: verify test check fmt analysis analysis-sync demo
+.PHONY: verify test check fmt analysis analysis-sync demo live
 
 # After `make analysis-sync`, analysis checks run from uv.lock without network access
 export UV_LOCKED := 1
@@ -30,3 +30,7 @@ analysis-sync:
 # Mainnet-fork round; needs network (MAINNET_RPC_URL), so it stays out of verify
 demo:
 	bash demo/run.sh
+
+# One live run over the most recent completed mainnet hours; writes dashboard/live-replay.json
+live:
+	bash demo/live.sh

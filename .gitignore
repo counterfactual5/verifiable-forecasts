@@ -14,6 +14,9 @@ __pycache__/
 agents/out/
 # mainnet-fork demo output (round JSON, separate forge build)
 demo/out/
+# live replay output (demo/live.sh), served from the server
+dashboard/live-replay.json
+dashboard/*.json.tmp
 *.key
 *.srs
 *.compiled

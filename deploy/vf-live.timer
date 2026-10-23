@@ -1,0 +1,11 @@
+# Hourly at HH:07 UTC; must match LIVE_INTERVAL_S / LIVE_OFFSET_S in demo/fork_round.py.
+[Unit]
+Description=Hourly verifiable-forecasts live replay
+
+[Timer]
+OnCalendar=*-*-* *:07:00 UTC
+AccuracySec=30s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

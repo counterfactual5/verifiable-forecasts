@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Deploys the committed tree (HEAD; uncommitted edits never leave this machine) to the live server,
+# copies the keys the live run reads from the local .env, installs the hourly timer and the
+# dashboard's nginx site. Usage: bash deploy/push.sh [user@host]
+set -euo pipefail
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+HOST="${1:-<user>@<server>}"
+DEST=/opt/verifiable-forecasts
+stage="$REPO/.local/live-deploy/export"
+rm -rf "$stage" && mkdir -p "$stage"
+git -C "$REPO" archive HEAD | tar -x -C "$stage"
+rsync -az --delete --exclude /.env --exclude /agents/out/ --exclude /agents/.venv/ \
+  --exclude /demo/out/ --exclude /dashboard/live-replay.json --exclude '/dashboard/*.tmp' \
+  "$stage/" "$HOST:$DEST/"
+if [[ -f "$REPO/.env" ]]; then
+  grep -E '^(MAINNET_RPC_URL|VOL_TSFM_[A-Z_]+)=' "$REPO/.env" \
+    | ssh "$HOST" "umask 077 && cat > $DEST/.env && chmod 600 $DEST/.env"
+fi
+ssh "$HOST" "DEST=$DEST bash -s" <<'EOF'
+set -euo pipefail
+cd "$DEST"
+uv sync --project agents --locked
+install -m 644 deploy/vf-live.service deploy/vf-live.timer /etc/systemd/system/
+install -m 644 deploy/nginx-vf.conf /etc/nginx/sites-available/verifiable-forecasts
+ln -sf /etc/nginx/sites-available/verifiable-forecasts /etc/nginx/sites-enabled/verifiable-forecasts
+if nginx -t; then systemctl reload nginx
+else rm -f /etc/nginx/sites-enabled/verifiable-forecasts; exit 1; fi
+systemctl daemon-reload
+systemctl enable --now vf-live.timer
+systemctl list-timers vf-live.timer --no-pager
+EOF
