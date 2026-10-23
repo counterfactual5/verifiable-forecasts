@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Verifiable AI Forecasts · round dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f3eee3' stroke='%231b1a17' stroke-width='2'/%3E%3Cpath d='M6 21l5-7 5 4 4-8 6 11' fill='none' stroke='%231d3fc4' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #f3eee3; --panel: #fbf8f1; --panel-2: #f2ecdf; --line: #dcd2bf; --line-2: #b8aa90;
@@ -355,7 +356,7 @@
   .tip .r { display: flex; justify-content: space-between; gap: 14px; white-space: nowrap; }
   .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
   footer { color: var(--faint); padding: 0 40px 28px; font-size: 12px; }
-  #error { color: var(--bad); padding: 32px; }
+  #error { color: var(--bad); padding: 8px 32px; }
   .load-failed > .sub, .load-failed > a { display: block; padding: 0 32px; }
   .load-failed > a { text-decoration: underline; }
   .fee-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
@@ -767,10 +768,10 @@ function liveBadge(d) {
   const age = Date.now() / 1000 - d.generated_at;
   if (!(age <= LIVE_STALE_S)) {
     const when = new Date(d.generated_at * 1000).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-    return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新 ${when}（${Math.floor(age / 3600)}&nbsp;小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
+    return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新&nbsp;${when.replace(/\s+/g, "&nbsp;")}（${Math.floor(age / 3600)}&nbsp;小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
   }
-  const next = d.next_run_at ? ` · 下一轮约 ${hm(d.next_run_at)}` : "";
-  return `<span class="badge live" id="live-badge">LIVE · 最近更新 ${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
+  const next = d.next_run_at ? ` · 下一轮约&nbsp;${hm(d.next_run_at)}` : "";
+  return `<span class="badge live" id="live-badge">LIVE · 最近更新&nbsp;${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
 }
 
 // recompute_tolerance is on the 1e18 probability scale.
