@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # Replays HOURS (default 24) consecutive real hours of VolMarket rounds on one local anvil fork of
-# Ethereum mainnet; see demo/fork_round.py. Reads MAINNET_RPC_URL and optional HOURS /
-# REPLAY_START from the environment or the repo's .env.
+# Ethereum mainnet; see demo/fork_round.py. Reads MAINNET_RPC_URL, VOL_REPRO_PYTHON and optional
+# HOURS / REPLAY_START from the environment or the repo's .env (the environment wins).
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+repro_python="${VOL_REPRO_PYTHON:-}"
 if [[ -f "$REPO/.env" ]]; then set -a; source "$REPO/.env"; set +a; fi
+export VOL_REPRO_PYTHON="${repro_python:-${VOL_REPRO_PYTHON:-}}"
+if [[ -z "$VOL_REPRO_PYTHON" ]]; then
+  echo "VOL_REPRO_PYTHON is unset: the replay's reproducible agent needs a Python with" \
+       "chronos-forecasting and torch (see .env.example)" >&2
+  exit 1
+fi
 # Separate Foundry output so the demo never races another forge build in contracts/.
 export FOUNDRY_OUT="${FOUNDRY_OUT:-$REPO/demo/out/forge}"
 export FOUNDRY_CACHE_PATH="${FOUNDRY_CACHE_PATH:-$REPO/demo/out/forge-cache}"

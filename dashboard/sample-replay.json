@@ -3,8 +3,8 @@
  "network": "anvil fork of Ethereum mainnet",
  "fork_block": 26238538,
  "fork_timestamp": 1792556399,
- "generated_at": 1792742164,
- "elapsed_s": 705,
+ "generated_at": 1792746995,
+ "elapsed_s": 873,
  "replay": {
   "hours": 24,
   "start": 1792562400,
@@ -558,6 +558,8 @@
    "agent": "agent-linear_abs",
    "model": "linear_abs",
    "model_type": "zk",
+   "tier": "zk",
+   "model_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
    "address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
    "model_id": 0,
    "agent_id": 54337,
@@ -567,6 +569,8 @@
    "agent": "agent-mlp16",
    "model": "mlp16",
    "model_type": "zk",
+   "tier": "zk",
+   "model_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
    "address": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
    "model_id": 1,
    "agent_id": 54338,
@@ -576,15 +580,19 @@
    "agent": "agent-mlp32_abs",
    "model": "mlp32_abs",
    "model_type": "zk",
+   "tier": "zk",
+   "model_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
    "address": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
    "model_id": 2,
    "agent_id": 54339,
    "verifier": "0x7b929026F0933B809953f6d1CcfE27e2c210688d"
   },
   {
-   "agent": "agent-tsfm-api",
-   "model": "tsfm-api",
-   "model_type": "commit-only",
+   "agent": "agent-chronos-bolt",
+   "model": "chronos-bolt-tiny",
+   "model_type": "reproducible",
+   "tier": "reproducible",
+   "model_hash": "0x288d2b85cd01b47902947250ecd9221631afeae022d69d3cb15f2bc1fbd35a77",
    "address": "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
    "model_id": 3,
    "agent_id": 54340,
@@ -596,19 +604,19 @@
    "agent": "agent-linear_abs",
    "honest_proof_verifies": true,
    "tampered_output_verifies": false,
-   "verify_proof_gas": 848552
+   "verify_proof_gas": 848492
   },
   {
    "agent": "agent-mlp16",
    "honest_proof_verifies": true,
    "tampered_output_verifies": false,
-   "verify_proof_gas": 848528
+   "verify_proof_gas": 848576
   },
   {
    "agent": "agent-mlp32_abs",
    "honest_proof_verifies": true,
    "tampered_output_verifies": false,
-   "verify_proof_gas": 848636
+   "verify_proof_gas": 848612
   }
  ],
  "rounds": [
@@ -641,13 +649,13 @@
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
      "bucket": 3,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "0"
+     "payout_wei": "1000000000000000000"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 2,
+     "bucket": 0,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1980000000000000000"
+     "payout_wei": "1000000000000000000"
     }
    ],
    "agents": {
@@ -659,14 +667,21 @@
       0.20912640312347489,
       0.15788189360663737
      ],
-     "prove_seconds": 2.07,
-     "reveal_gas": 1045196,
+     "probs_e18": [
+      "145680819912152269",
+      "263787213274768179",
+      "223523670082967301",
+      "209126403123474865",
+      "157881893606637386"
+     ],
+     "prove_seconds": 2.96,
+     "reveal_gas": 1045158,
      "forecast_source": "ezkl",
      "p_win": 0.2235236700829673,
      "log_score": "-1498237964124714790",
      "log_score_float": -1.4982379641247148,
      "beat_baseline": true,
-     "predictor_reward_wei": "1907299135502720"
+     "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
      "probs": [
@@ -676,14 +691,21 @@
       0.28184480234260617,
       0.21107857491459248
      ],
-     "prove_seconds": 2.17,
-     "reveal_gas": 1045172,
+     "probs_e18": [
+      "32698877501220107",
+      "224743777452415812",
+      "249633967789165446",
+      "281844802342606149",
+      "211078574914592486"
+     ],
+     "prove_seconds": 2.54,
+     "reveal_gas": 1045242,
      "forecast_source": "ezkl",
      "p_win": 0.24963396778916544,
      "log_score": "-1387759562847218582",
      "log_score_float": -1.3877595628472188,
      "beat_baseline": true,
-     "predictor_reward_wei": "3802222311744036"
+     "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -693,58 +715,73 @@
       0.421142578125,
       0.029296875
      ],
-     "prove_seconds": 2.18,
-     "reveal_gas": 1045280,
+     "probs_e18": [
+      "125976562500000000",
+      "196044921875000000",
+      "227539062500000000",
+      "421142578125000000",
+      "29296875000000000"
+     ],
+     "prove_seconds": 2.28,
+     "reveal_gas": 1045278,
      "forecast_source": "ezkl",
      "p_win": 0.2275390625,
      "log_score": "-1480433352033752522",
      "log_score_float": -1.4804333520337525,
      "beat_baseline": true,
-     "predictor_reward_wei": "2212683461353053"
+     "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.09901960784313726,
-      0.18249299719887954,
-      0.2257566441210631,
-      0.10916626813326957,
-      0.3835644827036505
+      0.5945,
+      0.1429,
+      0.0756,
+      0.0701,
+      0.1169
+     ],
+     "probs_e18": [
+      "594500000000000000",
+      "142900000000000000",
+      "75600000000000000",
+      "70100000000000000",
+      "116900000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178492,
-     "forecast_source": "placeholder",
-     "p_win": 0.2257566441210631,
-     "log_score": "-1488297655795596426",
-     "log_score_float": -1.4882976557955965,
-     "beat_baseline": true,
-     "predictor_reward_wei": "2077795091400191"
+     "reveal_gas": 178442,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.0756,
+     "log_score": "-2582298995796649721",
+     "log_score_float": -2.5822989957966493,
+     "beat_baseline": false,
+     "predictor_reward_wei": "0"
     }
    },
    "fee": {
     "onchain": {
-     "fee_pips": 407,
+     "fee_pips": 302,
      "mix_e18": [
-      "100843966939127410",
-      "216767227450265883",
-      "231613336123298964",
-      "255320012931087646",
-      "195455456556220097"
+      "224714064978343094",
+      "206868978150545997",
+      "194074175093033186",
+      "245553445897770253",
+      "128789335880307470"
      ],
-     "expected_var_e18": "1946773640196065161861",
-     "tx": "0x95f27800333c40d7029bd1a4d4935b3276b7506ec1ca0be58c5a3ce91aadbb04",
+     "expected_var_e18": "1447946714454793133889",
+     "tx": "0xe4bf046c7d66486d13d9f8fb079c77f447993980abbaf8a52ad0028497315ade",
      "block": 26238594,
      "timestamp": 1792562370
     },
     "mirror": {
-     "fee_pips": 407,
+     "fee_pips": 302,
      "mix_e18": [
-      "100843966939127410",
-      "216767227450265883",
-      "231613336123298964",
-      "255320012931087646",
-      "195455456556220097"
+      "224714064978343094",
+      "206868978150545997",
+      "194074175093033186",
+      "245553445897770253",
+      "128789335880307470"
      ],
-     "expected_var_e18": "1946773640196065161861",
+     "expected_var_e18": "1447946714454793133889",
      "weights": [
       "1",
       "1",
@@ -755,7 +792,7 @@
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 4.07,
+    "forecast_bps": 3.02,
     "prev_hour": {
      "window": [
       1792558500,
@@ -823,17 +860,17 @@
    "rv_matches_mainnet": true,
    "outcome": {
     "settle_block": 26238624,
-    "settle_tx": "0x60ad24d8c228334e4be9b2c07d7703f79c6773e92f6d9aac5f519d2aae341589",
-    "gas_used": 1147654,
+    "settle_tx": "0xcc312f188b8213344eba557c9d69ce6498eade1d0afd69f251c4fa7438d8f475",
+    "gas_used": 1153372,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
     "realized_vol": 538,
     "total_stake_wei": "2000000000000000000",
     "pools_wei": [
-     "0",
-     "0",
      "1000000000000000000",
+     "0",
+     "0",
      "1000000000000000000",
      "0"
     ],
@@ -848,9 +885,9 @@
     "deviation_bps": 2.93
    },
    "fee_split": {
-    "fee_wei": "20000000000000000",
-    "owner_wei": "10000000000000000",
-    "predictors_wei": "10000000000000000"
+    "fee_wei": "0",
+    "owner_wei": "0",
+    "predictors_wei": "0"
    }
   },
   {
@@ -882,13 +919,13 @@
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
      "bucket": 1,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "0"
+     "payout_wei": "1000000000000000000"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 3,
+     "bucket": 2,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1980000000000000000"
+     "payout_wei": "1000000000000000000"
     }
    ],
    "agents": {
@@ -900,14 +937,21 @@
       0.21055202735710796,
       0.17440156326331216
      ],
-     "prove_seconds": 1.97,
-     "reveal_gas": 1045292,
+     "probs_e18": [
+      "91841719589643380",
+      "272349780166096726",
+      "250854909623839765",
+      "210552027357107962",
+      "174401563263312167"
+     ],
+     "prove_seconds": 2.01,
+     "reveal_gas": 1045266,
      "forecast_source": "ezkl",
      "p_win": 0.21055202735710796,
      "log_score": "-1558022495557541734",
      "log_score_float": -1.5580224955575417,
      "beat_baseline": true,
-     "predictor_reward_wei": "1279080385521499"
+     "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
      "probs": [
@@ -917,14 +961,21 @@
       0.231990231990232,
       0.16483516483516483
      ],
-     "prove_seconds": 2.44,
-     "reveal_gas": 1045268,
+     "probs_e18": [
+      "143101343101343101",
+      "232967032967032967",
+      "227106227106227106",
+      "231990231990231990",
+      "164835164835164836"
+     ],
+     "prove_seconds": 2.86,
+     "reveal_gas": 1045278,
      "forecast_source": "ezkl",
      "p_win": 0.231990231990232,
      "log_score": "-1461060011692583276",
      "log_score_float": -1.4610600116925831,
      "beat_baseline": true,
-     "predictor_reward_wei": "3691252040977975"
+     "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -934,58 +985,73 @@
       0.24481327800829875,
       0.22675128142543324
      ],
-     "prove_seconds": 2.46,
-     "reveal_gas": 1045220,
+     "probs_e18": [
+      "77617769099340981",
+      "224066390041493775",
+      "226751281425433243",
+      "244813278008298755",
+      "226751281425433246"
+     ],
+     "prove_seconds": 2.15,
+     "reveal_gas": 1045266,
      "forecast_source": "ezkl",
      "p_win": 0.24481327800829875,
      "log_score": "-1407259489584935540",
      "log_score_float": -1.4072594895849355,
      "beat_baseline": true,
-     "predictor_reward_wei": "5029667573500526"
+     "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.17426478283621138,
-      0.28466771323914186,
-      0.10911797197511484,
-      0.16994748702065762,
-      0.26200204492887424
+      0.3824,
+      0.2205,
+      0.1239,
+      0.1015,
+      0.1717
+     ],
+     "probs_e18": [
+      "382400000000000000",
+      "220500000000000000",
+      "123900000000000000",
+      "101500000000000000",
+      "171700000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.16994748702065762,
-     "log_score": "-1772265789529754438",
-     "log_score_float": -1.7722657895297544,
+     "reveal_gas": 178442,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1015,
+     "log_score": "-2287696480500295019",
+     "log_score_float": -2.287696480500295,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
    },
    "fee": {
     "onchain": {
-     "fee_pips": 410,
+     "fee_pips": 373,
      "mix_e18": [
-      "121706403656634717",
-      "253512729103441330",
-      "203457597532653742",
-      "214325756094074088",
-      "206997513613196123"
+      "173740207947581865",
+      "237470800793655867",
+      "207153104538875028",
+      "197213884338909676",
+      "184422002380977564"
      ],
-     "expected_var_e18": "1964759147353241035370",
-     "tx": "0xd20a4d89b01becfbd5daa63bcdb68f6d5405a94c5b4bffb11a9cceb80e60689d",
+     "expected_var_e18": "1784243434342168316257",
+     "tx": "0xac5e0136eb49615d542aebc222462af491939bb97a1581b3d51d6e206d868d66",
      "block": 26238622,
      "timestamp": 1792565970
     },
     "mirror": {
-     "fee_pips": 410,
+     "fee_pips": 373,
      "mix_e18": [
-      "121706403656634717",
-      "253512729103441330",
-      "203457597532653742",
-      "214325756094074088",
-      "206997513613196123"
+      "173740207947581865",
+      "237470800793655867",
+      "207153104538875028",
+      "197213884338909676",
+      "184422002380977564"
      ],
-     "expected_var_e18": "1964759147353241035370",
+     "expected_var_e18": "1784243434342168316257",
      "weights": [
       "1",
       "1",
@@ -996,7 +1062,7 @@
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 4.1,
+    "forecast_bps": 3.73,
     "prev_hour": {
      "window": [
       1792562100,
@@ -1063,9 +1129,9 @@
    "real_bucket": 3,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26238659,
-    "settle_tx": "0x2b81f421bf941469d3bf692812a0841050fdbd1c7bbae31955a1cf5c5292a75a",
-    "gas_used": 825518,
+    "settle_block": 26238655,
+    "settle_tx": "0x4de6c63ecdcc6ccc233fcc33d3a2f3438a3ffc13481c3b3c0c95779d9dabdab3",
+    "gas_used": 823646,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -1074,8 +1140,8 @@
     "pools_wei": [
      "0",
      "1000000000000000000",
-     "0",
      "1000000000000000000",
+     "0",
      "0"
     ],
     "erc8004_feedback_logs": 4
@@ -1089,9 +1155,9 @@
     "deviation_bps": 5.89
    },
    "fee_split": {
-    "fee_wei": "20000000000000000",
-    "owner_wei": "10000000000000000",
-    "predictors_wei": "10000000000000000"
+    "fee_wei": "0",
+    "owner_wei": "0",
+    "predictors_wei": "0"
    }
   },
   {
@@ -1121,15 +1187,15 @@
    "bets": [
     {
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
-     "bucket": 4,
+     "bucket": 1,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "0"
+     "payout_wei": "1000000000000000000"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 3,
+     "bucket": 4,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1980000000000000000"
+     "payout_wei": "1000000000000000000"
     }
    ],
    "agents": {
@@ -1141,14 +1207,21 @@
       0.255859375,
       0.256591796875
      ],
-     "prove_seconds": 2.0,
-     "reveal_gas": 1045694,
+     "probs_e18": [
+      "36376953125000000",
+      "198242187500000000",
+      "252929687500000000",
+      "255859375000000000",
+      "256591796875000000"
+     ],
+     "prove_seconds": 2.23,
+     "reveal_gas": 1045644,
      "forecast_source": "ezkl",
      "p_win": 0.255859375,
      "log_score": "-1363127301838356221",
      "log_score_float": -1.3631273018383563,
      "beat_baseline": true,
-     "predictor_reward_wei": "4108183392265272"
+     "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
      "probs": [
@@ -1158,8 +1231,15 @@
       0.177734375,
       0.19189453125
      ],
-     "prove_seconds": 2.08,
-     "reveal_gas": 1045586,
+     "probs_e18": [
+      "192382812500000000",
+      "256591796875000000",
+      "181396484375000000",
+      "177734375000000000",
+      "191894531250000000"
+     ],
+     "prove_seconds": 2.31,
+     "reveal_gas": 1045632,
      "forecast_source": "ezkl",
      "p_win": 0.177734375,
      "log_score": "-1727465118522657730",
@@ -1175,69 +1255,84 @@
       0.2847374847374847,
       0.2571428571428572
      ],
-     "prove_seconds": 2.84,
-     "reveal_gas": 1045622,
+     "probs_e18": [
+      "28327228327228327",
+      "214652014652014652",
+      "215140415140415140",
+      "284737484737484737",
+      "257142857142857144"
+     ],
+     "prove_seconds": 2.75,
+     "reveal_gas": 1045752,
      "forecast_source": "ezkl",
      "p_win": 0.2847374847374847,
      "log_score": "-1256187629376732093",
      "log_score_float": -1.2561876293767322,
      "beat_baseline": true,
-     "predictor_reward_wei": "5891816607734728"
+     "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.07555356074207062,
-      0.13044284859365654,
-      0.19594767889202358,
-      0.16275014578819802,
-      0.43530576598405124
+      0.2303,
+      0.2393,
+      0.1695,
+      0.1614,
+      0.1995
+     ],
+     "probs_e18": [
+      "230300000000000000",
+      "239300000000000000",
+      "169500000000000000",
+      "161400000000000000",
+      "199500000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.16275014578819802,
-     "log_score": "-1815539102113841072",
-     "log_score_float": -1.8155391021138412,
+     "reveal_gas": 178466,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1614,
+     "log_score": "-1823869523146288616",
+     "log_score_float": -1.8238695231462887,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
    },
    "fee": {
     "onchain": {
-     "fee_pips": 497,
+     "fee_pips": 440,
      "mix_e18": [
-      "102052796060441527",
-      "209971668121032073",
-      "205529909829721048",
-      "213198134828593084",
-      "269247491160212268"
+      "109002878986294686",
+      "230830077206039974",
+      "208043087996243601",
+      "226429373506269460",
+      "225694582305152279"
      ],
-     "expected_var_e18": "2380685164149520009043",
-     "tx": "0x43900fdac444b59a320531c62e5f764f1e65923d0435ade93e631e81f622dc8a",
-     "block": 26238657,
+     "expected_var_e18": "2105900502443778277180",
+     "tx": "0xcfeeea6b16273d75ed07279581b90c79ad89c0ac60b10aaaf4cd1b2331afac6e",
+     "block": 26238653,
      "timestamp": 1792569570
     },
     "mirror": {
-     "fee_pips": 497,
+     "fee_pips": 440,
      "mix_e18": [
-      "102052796060441527",
-      "209971668121032073",
-      "205529909829721048",
-      "213198134828593084",
-      "269247491160212268"
+      "109002878986294686",
+      "230830077206039974",
+      "208043087996243601",
+      "226429373506269460",
+      "225694582305152279"
      ],
-     "expected_var_e18": "2380685164149520009043",
+     "expected_var_e18": "2105900502443778277180",
      "weights": [
       "111199948309385576",
       "221678349586881784",
       "129004560400347844",
-      "121140256638503940"
+      "0"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 4.97,
+    "forecast_bps": 4.4,
     "prev_hour": {
      "window": [
       1792565700,
@@ -1304,9 +1399,9 @@
    "real_bucket": 3,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26238694,
-    "settle_tx": "0x359b51a476840153295c3c1e7f5c895a872dfec534d50788c0c387d478aca7d7",
-    "gas_used": 797558,
+    "settle_block": 26238687,
+    "settle_tx": "0x6fb132258624dfaab4566d84f5969def1c11b870b757ad4243f20d4c7caa5ede",
+    "gas_used": 797494,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -1314,9 +1409,9 @@
     "total_stake_wei": "2000000000000000000",
     "pools_wei": [
      "0",
-     "0",
-     "0",
      "1000000000000000000",
+     "0",
+     "0",
      "1000000000000000000"
     ],
     "erc8004_feedback_logs": 4
@@ -1330,9 +1425,9 @@
     "deviation_bps": 38.68
    },
    "fee_split": {
-    "fee_wei": "20000000000000000",
-    "owner_wei": "10000000000000000",
-    "predictors_wei": "10000000000000000"
+    "fee_wei": "0",
+    "owner_wei": "0",
+    "predictors_wei": "0"
    }
   },
   {
@@ -1362,15 +1457,15 @@
    "bets": [
     {
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
-     "bucket": 4,
+     "bucket": 3,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "1980000000000000000"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 2,
+     "bucket": 4,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "0"
     }
    ],
    "agents": {
@@ -1382,14 +1477,21 @@
       0.27800829875518673,
       0.2604344642421284
      ],
-     "prove_seconds": 1.98,
-     "reveal_gas": 1046108,
+     "probs_e18": [
+      "34171344886502318",
+      "191359531364412985",
+      "236026360751769587",
+      "278008298755186721",
+      "260434464242128389"
+     ],
+     "prove_seconds": 2.12,
+     "reveal_gas": 1046142,
      "forecast_source": "ezkl",
      "p_win": 0.27800829875518673,
      "log_score": "-1280104314099688919",
      "log_score_float": -1.280104314099689,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "3729729705846221"
     },
     "agent-mlp16": {
      "probs": [
@@ -1399,14 +1501,21 @@
       0.2301684159140835,
       0.1952648279228704
      ],
-     "prove_seconds": 2.48,
-     "reveal_gas": 1046216,
+     "probs_e18": [
+      "39541127654381254",
+      "265560165975103734",
+      "269465462533561142",
+      "230168415914083475",
+      "195264827922870395"
+     ],
+     "prove_seconds": 2.44,
+     "reveal_gas": 1046142,
      "forecast_source": "ezkl",
      "p_win": 0.2301684159140835,
      "log_score": "-1468943994913413578",
      "log_score_float": -1.4689439949134135,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "1591105008167222"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -1416,29 +1525,44 @@
       0.30231990231990236,
       0.2722832722832723
      ],
-     "prove_seconds": 2.02,
-     "reveal_gas": 1046132,
+     "probs_e18": [
+      "37851037851037851",
+      "158485958485958485",
+      "229059829059829059",
+      "302319902319902319",
+      "272283272283272286"
+     ],
+     "prove_seconds": 2.33,
+     "reveal_gas": 1046010,
      "forecast_source": "ezkl",
      "p_win": 0.30231990231990236,
      "log_score": "-1196269543042628373",
      "log_score_float": -1.1962695430426284,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "4679165285986557"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.08597208035410285,
-      0.1535522155746875,
-      0.22296804319276228,
-      0.12517413100586572,
-      0.41233352987258165
+      0.3217,
+      0.1347,
+      0.137,
+      0.1808,
+      0.2258
+     ],
+     "probs_e18": [
+      "321700000000000000",
+      "134700000000000000",
+      "137000000000000000",
+      "180800000000000000",
+      "225800000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178504,
-     "forecast_source": "placeholder",
-     "p_win": 0.12517413100586572,
-     "log_score": "-2078049463024172728",
-     "log_score_float": -2.078049463024173,
+     "reveal_gas": 178454,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1808,
+     "log_score": "-1710363831024060918",
+     "log_score_float": -1.710363831024061,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -1454,8 +1578,8 @@
       "237059804102045033"
      ],
      "expected_var_e18": "2256988564021952347838",
-     "tx": "0x5efa64a9300ccbbf3b7eb1bc656dc07213846b9e5f91e384aecfcd2c095c8cb6",
-     "block": 26238692,
+     "tx": "0xf152edc26855b3b1381a7fc8a889bf515edeed1523c8a214a83d000f6573aa1a",
+     "block": 26238685,
      "timestamp": 1792573170
     },
     "mirror": {
@@ -1545,9 +1669,9 @@
    "real_bucket": 3,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26238727,
-    "settle_tx": "0x6fefea66ed426b1334016ea5182cabc491ae469f163f6d686ca8d589bb2dfc3b",
-    "gas_used": 843666,
+    "settle_block": 26238718,
+    "settle_tx": "0x1c61dec452ae88a30c0c57a33807804928074662435a5d1a3695b256af3a4160",
+    "gas_used": 838010,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -1556,8 +1680,8 @@
     "pools_wei": [
      "0",
      "0",
-     "1000000000000000000",
      "0",
+     "1000000000000000000",
      "1000000000000000000"
     ],
     "erc8004_feedback_logs": 4
@@ -1571,9 +1695,9 @@
     "deviation_bps": 2.75
    },
    "fee_split": {
-    "fee_wei": "0",
-    "owner_wei": "0",
-    "predictors_wei": "0"
+    "fee_wei": "20000000000000000",
+    "owner_wei": "10000000000000000",
+    "predictors_wei": "10000000000000000"
    }
   },
   {
@@ -1605,13 +1729,13 @@
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
      "bucket": 4,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "0"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 2,
+     "bucket": 3,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "1980000000000000000"
     }
    ],
    "agents": {
@@ -1623,14 +1747,21 @@
       0.2592140590676104,
       0.21918476934342201
      ],
-     "prove_seconds": 1.94,
-     "reveal_gas": 1045634,
+     "probs_e18": [
+      "33195020746887966",
+      "203075421039785208",
+      "285330729802294361",
+      "259214059067610446",
+      "219184769343422019"
+     ],
+     "prove_seconds": 2.18,
+     "reveal_gas": 1045644,
      "forecast_source": "ezkl",
      "p_win": 0.2592140590676104,
      "log_score": "-1350101075744986919",
      "log_score_float": -1.350101075744987,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "2856322543886162"
     },
     "agent-mlp16": {
      "probs": [
@@ -1640,14 +1771,21 @@
       0.2548828125,
       0.291748046875
      ],
-     "prove_seconds": 2.18,
-     "reveal_gas": 1045694,
+     "probs_e18": [
+      "26611328125000000",
+      "188232421875000000",
+      "238525390625000000",
+      "254882812500000000",
+      "291748046875000000"
+     ],
+     "prove_seconds": 2.36,
+     "reveal_gas": 1045596,
      "forecast_source": "ezkl",
      "p_win": 0.2548828125,
      "log_score": "-1366951398276759667",
      "log_score_float": -1.3669513982767596,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "2670733960583774"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -1657,29 +1795,44 @@
       0.30019540791402055,
       0.2510991695163654
      ],
-     "prove_seconds": 2.21,
-     "reveal_gas": 1045682,
+     "probs_e18": [
+      "12457254518808011",
+      "162921348314606741",
+      "273326819736199316",
+      "300195407914020517",
+      "251099169516365415"
+     ],
+     "prove_seconds": 2.65,
+     "reveal_gas": 1045596,
      "forecast_source": "ezkl",
      "p_win": 0.30019540791402055,
      "log_score": "-1203321656655200005",
      "log_score_float": -1.2033216566552,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "4472943495530064"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.08944385405596884,
-      0.16125297302768082,
-      0.23197206619098226,
-      0.11265263804907666,
-      0.40467846867629137
+      0.3308,
+      0.079,
+      0.0937,
+      0.1577,
+      0.3388
+     ],
+     "probs_e18": [
+      "330800000000000000",
+      "79000000000000000",
+      "93700000000000000",
+      "157700000000000000",
+      "338800000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178504,
-     "forecast_source": "placeholder",
-     "p_win": 0.11265263804907666,
-     "log_score": "-2183446194277091863",
-     "log_score_float": -2.1834461942770917,
+     "reveal_gas": 178454,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1577,
+     "log_score": "-1847060785013144336",
+     "log_score_float": -1.8470607850131444,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -1695,8 +1848,8 @@
       "249013578649697187"
      ],
      "expected_var_e18": "2361302889764121363186",
-     "tx": "0x2aa7b56fcd1f3ad603d26c05d584f8db2934f80b9431d6b3ebfa3ea34d620710",
-     "block": 26238725,
+     "tx": "0x007e1ab379698f48594ef29aaa0c1f34ec70769f5a1174780d45ab3f08f89a01",
+     "block": 26238716,
      "timestamp": 1792576770
     },
     "mirror": {
@@ -1786,9 +1939,9 @@
    "real_bucket": 3,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26238758,
-    "settle_tx": "0xac6dd0178ccd95f3f8ea85644b8a26319461cce6f1495c618080147ff1df60e7",
-    "gas_used": 843497,
+    "settle_block": 26238752,
+    "settle_tx": "0xa9801db805a1fac22ff45eb59fb63cbda9beeaadd2e94cdc30ed0dce8099f222",
+    "gas_used": 848037,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -1797,8 +1950,8 @@
     "pools_wei": [
      "0",
      "0",
-     "1000000000000000000",
      "0",
+     "1000000000000000000",
      "1000000000000000000"
     ],
     "erc8004_feedback_logs": 4
@@ -1812,9 +1965,9 @@
     "deviation_bps": 1.46
    },
    "fee_split": {
-    "fee_wei": "0",
-    "owner_wei": "0",
-    "predictors_wei": "0"
+    "fee_wei": "20000000000000000",
+    "owner_wei": "10000000000000000",
+    "predictors_wei": "10000000000000000"
    }
   },
   {
@@ -1844,15 +1997,15 @@
    "bets": [
     {
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
-     "bucket": 4,
+     "bucket": 3,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "1980000000000000000"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
      "bucket": 2,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "0"
     }
    ],
    "agents": {
@@ -1864,14 +2017,21 @@
       0.2763671875,
       0.220703125
      ],
-     "prove_seconds": 1.82,
-     "reveal_gas": 1045430,
+     "probs_e18": [
+      "37353515625000000",
+      "211425781250000000",
+      "254150390625000000",
+      "276367187500000000",
+      "220703125000000000"
+     ],
+     "prove_seconds": 1.88,
+     "reveal_gas": 1045356,
      "forecast_source": "ezkl",
      "p_win": 0.2763671875,
      "log_score": "-1286024907956215455",
      "log_score_float": -1.2860249079562156,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "4056381012095019"
     },
     "agent-mlp16": {
      "probs": [
@@ -1881,14 +2041,21 @@
       0.23084431429965838,
       0.15031722791605662
      ],
-     "prove_seconds": 2.03,
-     "reveal_gas": 1045322,
+     "probs_e18": [
+      "69058077110785749",
+      "274768179599804782",
+      "275012201073694485",
+      "230844314299658369",
+      "150317227916056615"
+     ],
+     "prove_seconds": 2.48,
+     "reveal_gas": 1045296,
      "forecast_source": "ezkl",
      "p_win": 0.23084431429965838,
      "log_score": "-1466011759746966784",
      "log_score_float": -1.4660117597469668,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "1798910725118082"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -1898,29 +2065,44 @@
       0.2783203125,
       0.227294921875
      ],
-     "prove_seconds": 2.16,
-     "reveal_gas": 1045430,
+     "probs_e18": [
+      "70312500000000000",
+      "204345703125000000",
+      "219726562500000000",
+      "278320312500000000",
+      "227294921875000000"
+     ],
+     "prove_seconds": 2.63,
+     "reveal_gas": 1045380,
      "forecast_source": "ezkl",
      "p_win": 0.2783203125,
      "log_score": "-1278982625330802553",
      "log_score_float": -1.2789826253308025,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "4144708262786899"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.08023514458214173,
-      0.140827091561124,
-      0.20808933678333105,
-      0.1458652840103234,
-      0.4249831430630798
+      0.3355,
+      0.1314,
+      0.1331,
+      0.1812,
+      0.2188
+     ],
+     "probs_e18": [
+      "335500000000000000",
+      "131400000000000000",
+      "133100000000000000",
+      "181200000000000000",
+      "218800000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.1458652840103234,
-     "log_score": "-1925071795492861586",
-     "log_score_float": -1.9250717954928618,
+     "reveal_gas": 178454,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1812,
+     "log_score": "-1708153885373258082",
+     "log_score_float": -1.708153885373258,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -1936,8 +2118,8 @@
       "211551689615787700"
      ],
      "expected_var_e18": "2082741965282785556956",
-     "tx": "0x71c8476808c94162075ab98ab16ce2de33bf1db3b1ce71ba30477bf7f24a6e75",
-     "block": 26238756,
+     "tx": "0x0c2f9377a0510ff8993f8f606f83dda7f177db91e0b2b4c21b51a8e8cdd163d1",
+     "block": 26238750,
      "timestamp": 1792580370
     },
     "mirror": {
@@ -2027,9 +2209,9 @@
    "real_bucket": 3,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26238789,
-    "settle_tx": "0xe00e5160dda42095c395500cc4ecaebda0e6a4c3c645bb5b6a1e346adfc55230",
-    "gas_used": 841084,
+    "settle_block": 26238786,
+    "settle_tx": "0xb82f6f8b496916b21117fd95fa8a30204ead63f211b2745ae23104948bcf2a2c",
+    "gas_used": 837525,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -2039,8 +2221,8 @@
      "0",
      "0",
      "1000000000000000000",
-     "0",
-     "1000000000000000000"
+     "1000000000000000000",
+     "0"
     ],
     "erc8004_feedback_logs": 4
    },
@@ -2053,9 +2235,9 @@
     "deviation_bps": 10.77
    },
    "fee_split": {
-    "fee_wei": "0",
-    "owner_wei": "0",
-    "predictors_wei": "0"
+    "fee_wei": "20000000000000000",
+    "owner_wei": "10000000000000000",
+    "predictors_wei": "10000000000000000"
    }
   },
   {
@@ -2105,8 +2287,15 @@
       0.2884004884004884,
       0.2989010989010989
      ],
-     "prove_seconds": 1.87,
-     "reveal_gas": 1046174,
+     "probs_e18": [
+      "36385836385836385",
+      "163125763125763125",
+      "213186813186813186",
+      "288400488400488400",
+      "298901098901098904"
+     ],
+     "prove_seconds": 2.91,
+     "reveal_gas": 1046328,
      "forecast_source": "ezkl",
      "p_win": 0.03638583638583638,
      "log_score": "-3313575690341710660",
@@ -2122,8 +2311,15 @@
       0.25634765625,
       0.362548828125
      ],
-     "prove_seconds": 2.55,
-     "reveal_gas": 1046258,
+     "probs_e18": [
+      "20019531250000000",
+      "161132812500000000",
+      "199951171875000000",
+      "256347656250000000",
+      "362548828125000000"
+     ],
+     "prove_seconds": 2.68,
+     "reveal_gas": 1046424,
      "forecast_source": "ezkl",
      "p_win": 0.02001953125,
      "log_score": "-3911046919455090583",
@@ -2139,8 +2335,15 @@
       0.31193556260678545,
       0.35464974371491337
      ],
-     "prove_seconds": 2.11,
-     "reveal_gas": 1046258,
+     "probs_e18": [
+      "19526482792287039",
+      "129607029533805223",
+      "184281181352208933",
+      "311935562606785452",
+      "354649743714913353"
+     ],
+     "prove_seconds": 2.97,
+     "reveal_gas": 1046220,
      "forecast_source": "ezkl",
      "p_win": 0.01952648279228704,
      "log_score": "-3935983642872989461",
@@ -2148,21 +2351,29 @@
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.08124195624195628,
-      0.14306030520316235,
-      0.2107004964147821,
-      0.14223406084033263,
-      0.42276318129976664
+      0.2623,
+      0.0997,
+      0.111,
+      0.1767,
+      0.3503
+     ],
+     "probs_e18": [
+      "262300000000000000",
+      "99700000000000000",
+      "111000000000000000",
+      "176700000000000000",
+      "350300000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.08124195624195628,
-     "log_score": "-2510323462772123245",
-     "log_score_float": -2.510323462772123,
-     "beat_baseline": false,
+     "reveal_gas": 178478,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.2623,
+     "log_score": "-1338266392109309047",
+     "log_score_float": -1.338266392109309,
+     "beat_baseline": true,
      "predictor_reward_wei": "0"
     }
    },
@@ -2177,8 +2388,8 @@
       "338516634348548759"
      ],
      "expected_var_e18": "2939829307841360347688",
-     "tx": "0x3bb5d4a51ed4a8652c0bbdd7454c32e7cce0066e32f5d9ad994cedd1161d1f6a",
-     "block": 26238787,
+     "tx": "0x794211201137507590427b7f5cf5456d6339f6562ea37f0d11f5d86c1972f870",
+     "block": 26238784,
      "timestamp": 1792583970
     },
     "mirror": {
@@ -2269,8 +2480,8 @@
    "rv_matches_mainnet": true,
    "outcome": {
     "settle_block": 26238820,
-    "settle_tx": "0xada77f97bdb3575b4877a9c8b87352d38635f06fa34f91857c16fcd655c68238",
-    "gas_used": 825437,
+    "settle_tx": "0x100919063176922ca11b40341a5681b61d4d9629ad1b296c342aa805fd5f4c4f",
+    "gas_used": 848289,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 0,
@@ -2346,8 +2557,15 @@
       0.15771484375,
       0.102783203125
      ],
-     "prove_seconds": 2.13,
-     "reveal_gas": 1045376,
+     "probs_e18": [
+      "191162109375000000",
+      "338867187500000000",
+      "209472656250000000",
+      "157714843750000000",
+      "102783203125000000"
+     ],
+     "prove_seconds": 1.86,
+     "reveal_gas": 1045398,
      "forecast_source": "ezkl",
      "p_win": 0.102783203125,
      "log_score": "-2275133333036962283",
@@ -2363,8 +2581,15 @@
       0.135009765625,
       0.07763671875
      ],
-     "prove_seconds": 2.13,
-     "reveal_gas": 1045580,
+     "probs_e18": [
+      "231933593750000000",
+      "345947265625000000",
+      "209472656250000000",
+      "135009765625000000",
+      "77636718750000000"
+     ],
+     "prove_seconds": 2.3,
+     "reveal_gas": 1045590,
      "forecast_source": "ezkl",
      "p_win": 0.07763671875,
      "log_score": "-2555714783939166857",
@@ -2380,8 +2605,15 @@
       0.167724609375,
       0.119384765625
      ],
-     "prove_seconds": 1.99,
-     "reveal_gas": 1045436,
+     "probs_e18": [
+      "197265625000000000",
+      "294189453125000000",
+      "221435546875000000",
+      "167724609375000000",
+      "119384765625000000"
+     ],
+     "prove_seconds": 3.56,
+     "reveal_gas": 1045578,
      "forecast_source": "ezkl",
      "p_win": 0.119384765625,
      "log_score": "-2125403677244471683",
@@ -2389,20 +2621,28 @@
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.5691734417344173,
-      0.23035230352303526,
-      0.15971158125579699,
-      0.03855721993063499,
-      0.002205453556115455
+      0.4753,
+      0.133,
+      0.1075,
+      0.1069,
+      0.1773
+     ],
+     "probs_e18": [
+      "475300000000000000",
+      "133000000000000000",
+      "107500000000000000",
+      "106900000000000000",
+      "177300000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178480,
-     "forecast_source": "placeholder",
-     "p_win": 0.002205453556115455,
-     "log_score": "-6116822096852090556",
-     "log_score_float": -6.116822096852091,
+     "reveal_gas": 178478,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1773,
+     "log_score": "-1729912065901974834",
+     "log_score_float": -1.7299120659019749,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -2418,7 +2658,7 @@
       "105547889648529637"
      ],
      "expected_var_e18": "1217672730390796424884",
-     "tx": "0x277597825740314ebe36bb41941c75ed95c87dc27f76b37f4c753f8561be78b8",
+     "tx": "0x7fbe3275ede5c00f77f7e1acff8d3a3c495022f5a3b7bd777196618adf28c264",
      "block": 26238818,
      "timestamp": 1792587570
     },
@@ -2510,8 +2750,8 @@
    "rv_matches_mainnet": true,
    "outcome": {
     "settle_block": 26238852,
-    "settle_tx": "0x6684a12ed4fa7ea579fc8a1cf161e3157ee5e1dc994e0bb4d851bfdd8c51ee6b",
-    "gas_used": 816720,
+    "settle_tx": "0x652f2f606655a3ba99733f4b62ab05bc96f862f06f59e975b3f80b752f328bdf",
+    "gas_used": 812126,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 4,
@@ -2587,14 +2827,21 @@
       0.2826458384183549,
       0.5618745423480596
      ],
-     "prove_seconds": 1.98,
-     "reveal_gas": 1045412,
+     "probs_e18": [
+      "20990969001708567",
+      "20990969001708567",
+      "113497681230168415",
+      "282645838418354893",
+      "561874542348059558"
+     ],
+     "prove_seconds": 4.77,
+     "reveal_gas": 1045458,
      "forecast_source": "ezkl",
      "p_win": 0.5618745423480596,
      "log_score": "-576476688265043106",
      "log_score_float": -0.5764766882650431,
      "beat_baseline": true,
-     "predictor_reward_wei": "2330430460941913"
+     "predictor_reward_wei": "2778483160942204"
     },
     "agent-mlp16": {
      "probs": [
@@ -2604,14 +2851,21 @@
       0.3505859375,
       0.4541015625
      ],
-     "prove_seconds": 2.71,
-     "reveal_gas": 1045520,
+     "probs_e18": [
+      "17578125000000000",
+      "27832031250000000",
+      "149902343750000000",
+      "350585937500000000",
+      "454101562500000000"
+     ],
+     "prove_seconds": 4.02,
+     "reveal_gas": 1045566,
      "forecast_source": "ezkl",
      "p_win": 0.4541015625,
      "log_score": "-789434400012096775",
      "log_score_float": -0.7894344000120967,
      "beat_baseline": true,
-     "predictor_reward_wei": "1849983444407440"
+     "predictor_reward_wei": "2205664547583361"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -2621,58 +2875,73 @@
       0.27483524530144005,
       0.5921405906761045
      ],
-     "prove_seconds": 2.16,
-     "reveal_gas": 1045532,
+     "probs_e18": [
+      "21479131071515743",
+      "21479131071515743",
+      "90065901879423968",
+      "274835245301440078",
+      "592140590676104468"
+     ],
+     "prove_seconds": 3.65,
+     "reveal_gas": 1045494,
      "forecast_source": "ezkl",
      "p_win": 0.5921405906761045,
      "log_score": "-524011188042875616",
      "log_score_float": -0.5240111880428756,
      "beat_baseline": true,
-     "predictor_reward_wei": "2448796181750697"
+     "predictor_reward_wei": "2919606085488541"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.012567816435219752,
-      0.016923000348414714,
-      0.023766860783435373,
-      0.055677666616893134,
-      0.891064655816037
+      0.3053,
+      0.0704,
+      0.0748,
+      0.1135,
+      0.436
+     ],
+     "probs_e18": [
+      "305300000000000000",
+      "70400000000000000",
+      "74800000000000000",
+      "113500000000000000",
+      "436000000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178468,
-     "forecast_source": "placeholder",
-     "p_win": 0.891064655816037,
-     "log_score": "-115338288693974976",
-     "log_score_float": -0.11533828869397497,
+     "reveal_gas": 178430,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.436,
+     "log_score": "-830113035633102725",
+     "log_score_float": -0.8301130356331027,
      "beat_baseline": true,
-     "predictor_reward_wei": "3370789912899950"
+     "predictor_reward_wei": "2096246205985894"
     }
    },
    "fee": {
     "onchain": {
-     "fee_pips": 991,
+     "fee_pips": 834,
      "mix_e18": [
-      "18154010377111015",
-      "21806282917909756",
-      "94308196910756939",
-      "240936171959172026",
-      "624795337835050264"
+      "91337056268306077",
+      "35175532830806077",
+      "107066481714898095",
+      "255391755304948742",
+      "511029173881041009"
      ],
-     "expected_var_e18": "4741208676196219963230",
-     "tx": "0x44805066391fddd3a6ec6fc4d4b60e0686a615dd313f474edc8e93f0071576bf",
+     "expected_var_e18": "3988734646687982462521",
+     "tx": "0xa3c3584e1d92ed0684b651507e8b6d3c97086ab1e1c9d0615593886470957c3f",
      "block": 26238850,
      "timestamp": 1792591170
     },
     "mirror": {
-     "fee_pips": 991,
+     "fee_pips": 834,
      "mix_e18": [
-      "18154010377111015",
-      "21806282917909756",
-      "94308196910756939",
-      "240936171959172026",
-      "624795337835050264"
+      "91337056268306077",
+      "35175532830806077",
+      "107066481714898095",
+      "255391755304948742",
+      "511029173881041009"
      ],
-     "expected_var_e18": "4741208676196219963230",
+     "expected_var_e18": "3988734646687982462521",
      "weights": [
       "1",
       "1",
@@ -2683,7 +2952,7 @@
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 9.91,
+    "forecast_bps": 8.34,
     "prev_hour": {
      "window": [
       1792587300,
@@ -2751,8 +3020,8 @@
    "rv_matches_mainnet": true,
    "outcome": {
     "settle_block": 26238884,
-    "settle_tx": "0x36106578ff6c4b78e0dcff0aa88a3f0090c26026c269090afc1a608ec44fa086",
-    "gas_used": 833249,
+    "settle_tx": "0x0b18bd055ef029478bb18c98d26147eb694fc74916ffd6f6ccc9a5260102a1d1",
+    "gas_used": 834173,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 4,
@@ -2828,14 +3097,21 @@
       0.29240907981449843,
       0.5550402733707591
      ],
-     "prove_seconds": 2.09,
-     "reveal_gas": 1046198,
+     "probs_e18": [
+      "10495484500854283",
+      "21479131071515743",
+      "120576031242372467",
+      "292409079814498413",
+      "555040273370759094"
+     ],
+     "prove_seconds": 4.07,
+     "reveal_gas": 1046280,
      "forecast_source": "ezkl",
      "p_win": 0.5550402733707591,
      "log_score": "-588714603236389708",
      "log_score_float": -0.5887146032363898,
      "beat_baseline": true,
-     "predictor_reward_wei": "2378882592195729"
+     "predictor_reward_wei": "2400135589400307"
     },
     "agent-mlp16": {
      "probs": [
@@ -2845,14 +3121,21 @@
       0.2509765625,
       0.5966796875
      ],
-     "prove_seconds": 2.31,
-     "reveal_gas": 1046102,
+     "probs_e18": [
+      "13183593750000000",
+      "20019531250000000",
+      "119140625000000000",
+      "250976562500000000",
+      "596679687500000000"
+     ],
+     "prove_seconds": 3.32,
+     "reveal_gas": 1046292,
      "forecast_source": "ezkl",
      "p_win": 0.5966796875,
      "log_score": "-516374846427857754",
      "log_score_float": -0.5163748464278577,
      "beat_baseline": true,
-     "predictor_reward_wei": "2547476555559562"
+     "predictor_reward_wei": "2570235775494020"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -2862,58 +3145,73 @@
       0.28644688644688643,
       0.5111111111111111
      ],
-     "prove_seconds": 2.16,
-     "reveal_gas": 1046246,
+     "probs_e18": [
+      "3907203907203907",
+      "32967032967032967",
+      "165567765567765567",
+      "286446886446886446",
+      "511111111111111113"
+     ],
+     "prove_seconds": 3.44,
+     "reveal_gas": 1046292,
      "forecast_source": "ezkl",
      "p_win": 0.5111111111111111,
      "log_score": "-671168273841170050",
      "log_score_float": -0.6711682738411701,
      "beat_baseline": true,
-     "predictor_reward_wei": "2186717291475277"
+     "predictor_reward_wei": "2206253479026270"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.029846335697399532,
-      0.04018912529550829,
-      0.06627659574468085,
-      0.17345491388044582,
-      0.6902330293819655
+      0.1388,
+      0.0637,
+      0.0411,
+      0.0919,
+      0.6645
+     ],
+     "probs_e18": [
+      "138800000000000000",
+      "63700000000000000",
+      "41100000000000000",
+      "91900000000000000",
+      "664500000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178480,
-     "forecast_source": "placeholder",
-     "p_win": 0.6902330293819655,
-     "log_score": "-370726014664679218",
-     "log_score_float": -0.37072601466467925,
+     "reveal_gas": 178430,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.6645,
+     "log_score": "-408720400828837018",
+     "log_score_float": -0.408720400828837,
      "beat_baseline": true,
-     "predictor_reward_wei": "2886923560769432"
+     "predictor_reward_wei": "2823375156079403"
     }
    },
    "fee": {
     "onchain": {
-     "fee_pips": 945,
+     "fee_pips": 929,
      "mix_e18": [
-      "14358154463864430",
-      "28663705146014250",
-      "117890254388704721",
-      "250821860660457668",
-      "588266025340958931"
+      "41596570539514547",
+      "34541423822137177",
+      "111596105452534508",
+      "230433132190346214",
+      "581832767995467554"
      ],
-     "expected_var_e18": "4519649729264220924360",
-     "tx": "0xcbca9527aba90d78a6c0e0633bf5b4e717d0cb704eb4ad4e3c62e9e3412cca64",
+     "expected_var_e18": "4446021924426328388295",
+     "tx": "0x32fc22af39697398c5c7ab6062cdd9e8de09c66edb5e55f7b2095cf38348d212",
      "block": 26238882,
      "timestamp": 1792594770
     },
     "mirror": {
-     "fee_pips": 945,
+     "fee_pips": 929,
      "mix_e18": [
-      "14358154463864430",
-      "28663705146014250",
-      "117890254388704721",
-      "250821860660457668",
-      "588266025340958931"
+      "41596570539514547",
+      "34541423822137177",
+      "111596105452534508",
+      "230433132190346214",
+      "581832767995467554"
      ],
-     "expected_var_e18": "4519649729264220924360",
+     "expected_var_e18": "4446021924426328388295",
      "weights": [
       "1",
       "1",
@@ -2924,7 +3222,7 @@
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 9.45,
+    "forecast_bps": 9.29,
     "prev_hour": {
      "window": [
       1792590900,
@@ -2992,8 +3290,8 @@
    "rv_matches_mainnet": true,
    "outcome": {
     "settle_block": 26238919,
-    "settle_tx": "0x6af42d0f0e783ef9006eb92ed8b7e50ab8ea04e3d320b03485fbbb5a57d7e039",
-    "gas_used": 844527,
+    "settle_tx": "0xa11a7ef03cf82e4003f3bb9d328fd7d33bdc1509c53b1ebb98b4c9861dc4d7da",
+    "gas_used": 845162,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 4,
@@ -3069,8 +3367,15 @@
       0.31982421875,
       0.39892578125
      ],
-     "prove_seconds": 1.97,
-     "reveal_gas": 1046318,
+     "probs_e18": [
+      "15869140625000000",
+      "50781250000000000",
+      "214599609375000000",
+      "319824218750000000",
+      "398925781250000000"
+     ],
+     "prove_seconds": 4.7,
+     "reveal_gas": 1046304,
      "forecast_source": "ezkl",
      "p_win": 0.31982421875,
      "log_score": "-1139983750524146473",
@@ -3086,8 +3391,15 @@
       0.2592140590676104,
       0.5010983646570661
      ],
-     "prove_seconds": 2.86,
-     "reveal_gas": 1046294,
+     "probs_e18": [
+      "15865267268733219",
+      "61020258725896997",
+      "162802050280693190",
+      "259214059067610446",
+      "501098364657066148"
+     ],
+     "prove_seconds": 4.36,
+     "reveal_gas": 1046232,
      "forecast_source": "ezkl",
      "p_win": 0.2592140590676104,
      "log_score": "-1350101075744986919",
@@ -3103,8 +3415,15 @@
       0.422119140625,
       0.3515625
      ],
-     "prove_seconds": 4.99,
-     "reveal_gas": 1046306,
+     "probs_e18": [
+      "1220703125000000",
+      "41259765625000000",
+      "183837890625000000",
+      "422119140625000000",
+      "351562500000000000"
+     ],
+     "prove_seconds": 3.49,
+     "reveal_gas": 1046316,
      "forecast_source": "ezkl",
      "p_win": 0.422119140625,
      "log_score": "-862467681036053203",
@@ -3112,20 +3431,28 @@
      "beat_baseline": true,
      "predictor_reward_wei": "5061592730685220"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.02885384527482574,
-      0.03885270254828021,
-      0.06283755325921936,
-      0.1676869582251824,
-      0.7017689406924923
+      0.2518,
+      0.0603,
+      0.0523,
+      0.1107,
+      0.5249
+     ],
+     "probs_e18": [
+      "251800000000000000",
+      "60300000000000000",
+      "52300000000000000",
+      "110700000000000000",
+      "524900000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178480,
-     "forecast_source": "placeholder",
-     "p_win": 0.1676869582251824,
-     "log_score": "-1785656381661402170",
-     "log_score_float": -1.7856563816614022,
+     "reveal_gas": 178454,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1107,
+     "log_score": "-2200931439267545849",
+     "log_score_float": -2.2009314392675456,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -3141,7 +3468,7 @@
       "351562500000000000"
      ],
      "expected_var_e18": "3161852294921875000000",
-     "tx": "0x3dea5261d2dfae81a1e400d4bc33b21eea47548ce9e5df46b7498b6a87386a5c",
+     "tx": "0x4656082b0567be7b642f940b862ba7f77abaa8c5b00b2a278981fb2b1f4a9a5c",
      "block": 26238917,
      "timestamp": 1792598370
     },
@@ -3233,8 +3560,8 @@
    "rv_matches_mainnet": true,
    "outcome": {
     "settle_block": 26238955,
-    "settle_tx": "0x2b4eccec302ec4b399c04c89176e441e79c83149a3640d5db81d92eaaaad40ef",
-    "gas_used": 839566,
+    "settle_tx": "0x44b89a6cad8a7d8d2bff8720ac560d6ed4f99da4e68cebaf1daf4a8880047e7d",
+    "gas_used": 835597,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -3292,13 +3619,13 @@
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
      "bucket": 4,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "0"
+     "payout_wei": "1000000000000000000"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 2,
+     "bucket": 3,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1980000000000000000"
+     "payout_wei": "1000000000000000000"
     }
    ],
    "agents": {
@@ -3310,14 +3637,21 @@
       0.253662109375,
       0.246337890625
      ],
-     "prove_seconds": 3.69,
-     "reveal_gas": 1045820,
+     "probs_e18": [
+      "42968750000000000",
+      "209472656250000000",
+      "247558593750000000",
+      "253662109375000000",
+      "246337890625000000"
+     ],
+     "prove_seconds": 2.56,
+     "reveal_gas": 1045818,
      "forecast_source": "ezkl",
      "p_win": 0.24755859375,
      "log_score": "-1396107982568215234",
      "log_score_float": -1.3961079825682152,
      "beat_baseline": true,
-     "predictor_reward_wei": "2589765626123599"
+     "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
      "probs": [
@@ -3327,14 +3661,21 @@
       0.2470703125,
       0.263427734375
      ],
-     "prove_seconds": 3.49,
-     "reveal_gas": 1045772,
+     "probs_e18": [
+      "40527343750000000",
+      "164550781250000000",
+      "284423828125000000",
+      "247070312500000000",
+      "263427734375000000"
+     ],
+     "prove_seconds": 2.75,
+     "reveal_gas": 1045854,
      "forecast_source": "ezkl",
      "p_win": 0.284423828125,
      "log_score": "-1257289800719542757",
      "log_score_float": -1.2572898007195428,
      "beat_baseline": true,
-     "predictor_reward_wei": "4274979491138599"
+     "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -3344,31 +3685,46 @@
       0.2915750915750916,
       0.2669108669108669
      ],
-     "prove_seconds": 4.52,
-     "reveal_gas": 1045844,
+     "probs_e18": [
+      "21489621489621489",
+      "195115995115995115",
+      "224908424908424908",
+      "291575091575091575",
+      "266910866910866913"
+     ],
+     "prove_seconds": 2.68,
+     "reveal_gas": 1045914,
      "forecast_source": "ezkl",
      "p_win": 0.2249084249084249,
      "log_score": "-1492061960031862948",
      "log_score_float": -1.492061960031863,
      "beat_baseline": true,
-     "predictor_reward_wei": "1424911202361225"
+     "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.08878340365682139,
-      0.1597880249146072,
-      0.23025919228450872,
-      0.11503465534956736,
-      0.40613472379449533
+      0.3697,
+      0.2097,
+      0.1302,
+      0.1029,
+      0.1875
+     ],
+     "probs_e18": [
+      "369700000000000000",
+      "209700000000000000",
+      "130200000000000000",
+      "102900000000000000",
+      "187500000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.23025919228450872,
-     "log_score": "-1468549681583869388",
-     "log_score_float": -1.4685496815838694,
-     "beat_baseline": true,
-     "predictor_reward_wei": "1710343680376577"
+     "reveal_gas": 178478,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1302,
+     "log_score": "-2038683549207668162",
+     "log_score_float": -2.038683549207668,
+     "beat_baseline": false,
+     "predictor_reward_wei": "0"
     }
    },
    "fee": {
@@ -3382,7 +3738,7 @@
       "256677828578833795"
      ],
      "expected_var_e18": "2390211289589052256257",
-     "tx": "0x7aa0deb9e120f92a294e6360a89607125b17845268edd44977180775129e4390",
+     "tx": "0x0e81c8b5dfc619a50758bd3e56e9a55b6a0acbc802de5bcb393e84c45799c9a6",
      "block": 26238953,
      "timestamp": 1792601970
     },
@@ -3474,8 +3830,8 @@
    "rv_matches_mainnet": true,
    "outcome": {
     "settle_block": 26238989,
-    "settle_tx": "0x85f27bc2e8fa1db45025c77943ef0d9c9867ccea14abc26f04da6b5e509d47e4",
-    "gas_used": 825976,
+    "settle_tx": "0xa7ae5a4417d5bcd3ca53c1e2517c71a18a0d0def7069a74acad25ce0725f461c",
+    "gas_used": 834201,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -3484,8 +3840,8 @@
     "pools_wei": [
      "0",
      "0",
-     "1000000000000000000",
      "0",
+     "1000000000000000000",
      "1000000000000000000"
     ],
     "erc8004_feedback_logs": 4
@@ -3499,9 +3855,9 @@
     "deviation_bps": 38.82
    },
    "fee_split": {
-    "fee_wei": "20000000000000000",
-    "owner_wei": "10000000000000000",
-    "predictors_wei": "10000000000000000"
+    "fee_wei": "0",
+    "owner_wei": "0",
+    "predictors_wei": "0"
    }
   },
   {
@@ -3531,15 +3887,15 @@
    "bets": [
     {
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
-     "bucket": 4,
+     "bucket": 3,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "1980000000000000000"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
      "bucket": 2,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "0"
     }
    ],
    "agents": {
@@ -3551,14 +3907,21 @@
       0.25848181596289965,
       0.22162557969245789
      ],
-     "prove_seconds": 4.28,
-     "reveal_gas": 1045928,
+     "probs_e18": [
+      "31974615572370026",
+      "214791310715157432",
+      "273126678057114962",
+      "258481815962899682",
+      "221625579692457898"
+     ],
+     "prove_seconds": 2.35,
+     "reveal_gas": 1045818,
      "forecast_source": "ezkl",
      "p_win": 0.25848181596289965,
      "log_score": "-1352929931945464605",
      "log_score_float": -1.3529299319454646,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "3538263746109075"
     },
     "agent-mlp16": {
      "probs": [
@@ -3568,8 +3931,15 @@
       0.19047619047619047,
       0.11941391941391942
      ],
-     "prove_seconds": 4.54,
-     "reveal_gas": 1045856,
+     "probs_e18": [
+      "76678876678876678",
+      "338217338217338217",
+      "275213675213675213",
+      "190476190476190476",
+      "119413919413919416"
+     ],
+     "prove_seconds": 2.82,
+     "reveal_gas": 1045866,
      "forecast_source": "ezkl",
      "p_win": 0.19047619047619047,
      "log_score": "-1658228076603532368",
@@ -3585,29 +3955,44 @@
       0.31950207468879666,
       0.2806931901391262
      ],
-     "prove_seconds": 4.05,
-     "reveal_gas": 1045904,
+     "probs_e18": [
+      "16109348303636807",
+      "138638027825237979",
+      "245057359043202343",
+      "319502074688796680",
+      "280693190139126191"
+     ],
+     "prove_seconds": 3.59,
+     "reveal_gas": 1045878,
      "forecast_source": "ezkl",
      "p_win": 0.31950207468879666,
      "log_score": "-1140991511636971139",
      "log_score_float": -1.140991511636971,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "6461736253890925"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.08934890304317057,
-      0.16104236174299874,
-      0.23172581134364584,
-      0.11299509367553473,
-      0.40488783019465013
+      0.3579,
+      0.1267,
+      0.1187,
+      0.1497,
+      0.247
+     ],
+     "probs_e18": [
+      "357900000000000000",
+      "126700000000000000",
+      "118700000000000000",
+      "149700000000000000",
+      "247000000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.11299509367553473,
-     "log_score": "-2180410880012997501",
-     "log_score_float": -2.1804108800129973,
+     "reveal_gas": 178466,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1497,
+     "log_score": "-1899121987556554368",
+     "log_score_float": -1.8991219875565541,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -3623,7 +4008,7 @@
       "253787456700209238"
      ],
      "expected_var_e18": "2400801882619815258692",
-     "tx": "0xefe007b1c40a19e5187ae4cadbbcc050bdd8682ee5df88ca568e8e9d55ecfa6d",
+     "tx": "0x6bac2695555fb10569754ff725af3be8afe1a3bdd590a1f0aff75ccae568dd4d",
      "block": 26238987,
      "timestamp": 1792605570
     },
@@ -3714,9 +4099,9 @@
    "real_bucket": 3,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239025,
-    "settle_tx": "0xcb9441da575317fb50d0708c308a7f0f55770564d5e9c3ac0c58029c75c38d4c",
-    "gas_used": 837881,
+    "settle_block": 26239021,
+    "settle_tx": "0x4284e49fcbe3d9194d1fff02239cabc5822ff28ae1afa26b429739b69ea1e170",
+    "gas_used": 843120,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -3726,8 +4111,8 @@
      "0",
      "0",
      "1000000000000000000",
-     "0",
-     "1000000000000000000"
+     "1000000000000000000",
+     "0"
     ],
     "erc8004_feedback_logs": 4
    },
@@ -3740,9 +4125,9 @@
     "deviation_bps": 3.12
    },
    "fee_split": {
-    "fee_wei": "0",
-    "owner_wei": "0",
-    "predictors_wei": "0"
+    "fee_wei": "20000000000000000",
+    "owner_wei": "10000000000000000",
+    "predictors_wei": "10000000000000000"
    }
   },
   {
@@ -3792,14 +4177,21 @@
       0.30078125,
       0.336181640625
      ],
-     "prove_seconds": 4.12,
-     "reveal_gas": 1045616,
+     "probs_e18": [
+      "34179687500000000",
+      "131347656250000000",
+      "197509765625000000",
+      "300781250000000000",
+      "336181640625000000"
+     ],
+     "prove_seconds": 2.78,
+     "reveal_gas": 1045566,
      "forecast_source": "ezkl",
      "p_win": 0.30078125,
      "log_score": "-1201372022625878613",
      "log_score_float": -1.2013720226258786,
      "beat_baseline": true,
-     "predictor_reward_wei": "2954163896887759"
+     "predictor_reward_wei": "3051900969385511"
     },
     "agent-mlp16": {
      "probs": [
@@ -3809,14 +4201,21 @@
       0.298095703125,
       0.351806640625
      ],
-     "prove_seconds": 4.32,
-     "reveal_gas": 1045460,
+     "probs_e18": [
+      "18798828125000000",
+      "121337890625000000",
+      "209960937500000000",
+      "298095703125000000",
+      "351806640625000000"
+     ],
+     "prove_seconds": 2.74,
+     "reveal_gas": 1045566,
      "forecast_source": "ezkl",
      "p_win": 0.298095703125,
      "log_score": "-1210340692608639019",
      "log_score_float": -1.210340692608639,
      "beat_baseline": true,
-     "predictor_reward_wei": "2889235850393543"
+     "predictor_reward_wei": "2984824810122729"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -3826,31 +4225,46 @@
       0.3397608005857945,
       0.1484012692213815
      ],
-     "prove_seconds": 4.34,
-     "reveal_gas": 1045460,
+     "probs_e18": [
+      "12448132780082987",
+      "216011715889675372",
+      "283378081523065657",
+      "339760800585794483",
+      "148401269221381501"
+     ],
+     "prove_seconds": 2.84,
+     "reveal_gas": 1045530,
      "forecast_source": "ezkl",
      "p_win": 0.3397608005857945,
      "log_score": "-1079513436652506109",
      "log_score_float": -1.079513436652506,
      "beat_baseline": true,
-     "predictor_reward_wei": "3836350436364298"
+     "predictor_reward_wei": "3963274220491760"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.06271733730750126,
-      0.10197076147895819,
-      0.16265701511603153,
-      0.20904598622311532,
-      0.4636088998743937
+      0.1223,
+      0.0724,
+      0.0668,
+      0.1204,
+      0.6181
+     ],
+     "probs_e18": [
+      "122300000000000000",
+      "72400000000000000",
+      "66800000000000000",
+      "120400000000000000",
+      "618100000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178504,
-     "forecast_source": "placeholder",
-     "p_win": 0.20904598622311532,
-     "log_score": "-1565201021444655548",
-     "log_score_float": -1.5652010214446557,
-     "beat_baseline": true,
-     "predictor_reward_wei": "320249816354400"
+     "reveal_gas": 178430,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1204,
+     "log_score": "-2116935746107416381",
+     "log_score_float": -2.1169357461074165,
+     "beat_baseline": false,
+     "predictor_reward_wei": "0"
     }
    },
    "fee": {
@@ -3864,8 +4278,8 @@
       "238979314273940609"
      ],
      "expected_var_e18": "2328244718556453963721",
-     "tx": "0xcf85e51adce56538ad80a82302f581d17fe3e4ec88e36ffc5857151925562dd0",
-     "block": 26239023,
+     "tx": "0x47bc1568e4d427f31b13f90edfc95a60f64d83b8580d53a7aafdcfebe28fd6a8",
+     "block": 26239019,
      "timestamp": 1792609170
     },
     "mirror": {
@@ -3955,9 +4369,9 @@
    "real_bucket": 3,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239056,
-    "settle_tx": "0x112bc8e30f9ff4d3e3260d5c17aafc2fad8262761ede7ba74d760bcb60714ede",
-    "gas_used": 839271,
+    "settle_block": 26239054,
+    "settle_tx": "0xe9e645f16235d9e9d04036fd9a5445a480d195040bd00f2ea5b7f1cdb6773308",
+    "gas_used": 836601,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -4033,8 +4447,15 @@
       0.31485100146555933,
       0.2650219833903273
      ],
-     "prove_seconds": 3.17,
-     "reveal_gas": 1045460,
+     "probs_e18": [
+      "25158768930141670",
+      "139228138739618954",
+      "255740107474352711",
+      "314851001465559355",
+      "265021983390327310"
+     ],
+     "prove_seconds": 4.32,
+     "reveal_gas": 1045554,
      "forecast_source": "ezkl",
      "p_win": 0.13922813873961895,
      "log_score": "-1971641405392638992",
@@ -4050,8 +4471,15 @@
       0.335205078125,
       0.356201171875
      ],
-     "prove_seconds": 4.35,
-     "reveal_gas": 1045544,
+     "probs_e18": [
+      "31494140625000000",
+      "52246093750000000",
+      "224853515625000000",
+      "335205078125000000",
+      "356201171875000000"
+     ],
+     "prove_seconds": 2.87,
+     "reveal_gas": 1045482,
      "forecast_source": "ezkl",
      "p_win": 0.05224609375,
      "log_score": "-2951790151697492222",
@@ -4067,8 +4495,15 @@
       0.3056640625,
       0.3203125
      ],
-     "prove_seconds": 4.38,
-     "reveal_gas": 1045580,
+     "probs_e18": [
+      "2197265625000000",
+      "156982421875000000",
+      "214843750000000000",
+      "305664062500000000",
+      "320312500000000000"
+     ],
+     "prove_seconds": 3.19,
+     "reveal_gas": 1045566,
      "forecast_source": "ezkl",
      "p_win": 0.156982421875,
      "log_score": "-1851621442481724310",
@@ -4076,20 +4511,28 @@
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.03152309612983771,
-      0.042446941323345824,
-      0.07208667736757626,
-      0.1831995719636169,
-      0.6707437132156233
+      0.4075,
+      0.0491,
+      0.0596,
+      0.0937,
+      0.3901
+     ],
+     "probs_e18": [
+      "407500000000000000",
+      "49100000000000000",
+      "59600000000000000",
+      "93700000000000000",
+      "390100000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178480,
-     "forecast_source": "placeholder",
-     "p_win": 0.042446941323345824,
-     "log_score": "-3159500422452197670",
-     "log_score_float": -3.159500422452198,
+     "reveal_gas": 178442,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.0491,
+     "log_score": "-3013896244181662146",
+     "log_score_float": -3.0138962441816624,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -4105,8 +4548,8 @@
       "295358712025730970"
      ],
      "expected_var_e18": "2688555835032896459782",
-     "tx": "0xea785364930614d4aaa75369fc2524bdfe41600f33bebaaa06cb400b2cfbcb80",
-     "block": 26239054,
+     "tx": "0x884218b3930dd8099a134f83d7d7b1a2f5948110db6fe00016c4160b9fb8e04b",
+     "block": 26239052,
      "timestamp": 1792612770
     },
     "mirror": {
@@ -4196,9 +4639,9 @@
    "real_bucket": 1,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239091,
-    "settle_tx": "0x4331c6f48c510f629dd59316728a013b18fa5b612b3c812e80f35dbe28140acb",
-    "gas_used": 820446,
+    "settle_block": 26239088,
+    "settle_tx": "0x5e2a174f7d9d4bc228b39ba5aafb87618e970d8d1592ebc67fa72e7fc4c705d4",
+    "gas_used": 818285,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -4260,7 +4703,7 @@
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 2,
+     "bucket": 0,
      "amount_wei": "1000000000000000000",
      "payout_wei": "0"
     }
@@ -4274,14 +4717,21 @@
       0.170654296875,
       0.127685546875
      ],
-     "prove_seconds": 4.98,
-     "reveal_gas": 1045460,
+     "probs_e18": [
+      "200195312500000000",
+      "294433593750000000",
+      "207031250000000000",
+      "170654296875000000",
+      "127685546875000000"
+     ],
+     "prove_seconds": 3.37,
+     "reveal_gas": 1045626,
      "forecast_source": "ezkl",
      "p_win": 0.29443359375,
      "log_score": "-1222701789432212949",
      "log_score_float": -1.222701789432213,
      "beat_baseline": true,
-     "predictor_reward_wei": "2425492330800237"
+     "predictor_reward_wei": "3188574418040286"
     },
     "agent-mlp16": {
      "probs": [
@@ -4291,14 +4741,21 @@
       0.18716447047340165,
       0.12054660810151292
      ],
-     "prove_seconds": 3.4,
-     "reveal_gas": 1045556,
+     "probs_e18": [
+      "108101512933138116",
+      "332113225963884821",
+      "252074182528062469",
+      "187164470473401659",
+      "120546608101512935"
+     ],
+     "prove_seconds": 3.16,
+     "reveal_gas": 1045470,
      "forecast_source": "ezkl",
      "p_win": 0.3321132259638848,
      "log_score": "-1102279326147378985",
      "log_score_float": -1.102279326147379,
      "beat_baseline": true,
-     "predictor_reward_wei": "3180745703270986"
+     "predictor_reward_wei": "4181437414149763"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -4308,31 +4765,46 @@
       0.183349609375,
       0.142333984375
      ],
-     "prove_seconds": 5.23,
-     "reveal_gas": 1045364,
+     "probs_e18": [
+      "190185546875000000",
+      "275146484375000000",
+      "208984375000000000",
+      "183349609375000000",
+      "142333984375000000"
+     ],
+     "prove_seconds": 3.43,
+     "reveal_gas": 1045458,
      "forecast_source": "ezkl",
      "p_win": 0.275146484375,
      "log_score": "-1290451652679567391",
      "log_score_float": -1.2904516526795673,
      "beat_baseline": true,
-     "predictor_reward_wei": "2000585620654567"
+     "predictor_reward_wei": "2629988167809951"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.21936507936507935,
-      0.29292037682281585,
-      0.09202047576031314,
-      0.20620295091839813,
-      0.1894911171333935
+      0.4934,
+      0.1796,
+      0.1373,
+      0.1278,
+      0.0619
+     ],
+     "probs_e18": [
+      "493400000000000000",
+      "179600000000000000",
+      "137300000000000000",
+      "127800000000000000",
+      "61900000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.29292037682281585,
-     "log_score": "-1227854458354154425",
-     "log_score_float": -1.2278544583541544,
-     "beat_baseline": true,
-     "predictor_reward_wei": "2393176345274210"
+     "reveal_gas": 178454,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1796,
+     "log_score": "-1717023123114037810",
+     "log_score_float": -1.7170231231140378,
+     "beat_baseline": false,
+     "predictor_reward_wei": "0"
     }
    },
    "fee": {
@@ -4346,8 +4818,8 @@
       "134652756461474913"
      ],
      "expected_var_e18": "1433494672856743409813",
-     "tx": "0x1d84d8a34da7d268fc33994ea915807956480dd68a5aca2b593d3b1566649075",
-     "block": 26239089,
+     "tx": "0x92d78b5035cdb6df7640fb3af22bef4670ce1ab56c502fd4bc20fc54344447aa",
+     "block": 26239086,
      "timestamp": 1792616370
     },
     "mirror": {
@@ -4437,18 +4909,18 @@
    "real_bucket": 1,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239122,
-    "settle_tx": "0xec81085c33479602c0253cd3b38415d2225d701089e6555bf1b2aa5490a18ab4",
-    "gas_used": 844180,
+    "settle_block": 26239119,
+    "settle_tx": "0xfc915f963cd1598ebffc83059fe7833a11a067b52d13a1d0b1b23eb5cd671d48",
+    "gas_used": 841510,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
     "realized_vol": 371,
     "total_stake_wei": "2000000000000000000",
     "pools_wei": [
+     "1000000000000000000",
+     "1000000000000000000",
      "0",
-     "1000000000000000000",
-     "1000000000000000000",
      "0",
      "0"
     ],
@@ -4515,8 +4987,15 @@
       0.16703296703296705,
       0.11257631257631258
      ],
-     "prove_seconds": 2.35,
-     "reveal_gas": 1045580,
+     "probs_e18": [
+      "169474969474969474",
+      "318192918192918192",
+      "232722832722832722",
+      "167032967032967032",
+      "112576312576312580"
+     ],
+     "prove_seconds": 2.52,
+     "reveal_gas": 1045530,
      "forecast_source": "ezkl",
      "p_win": 0.23272283272283273,
      "log_score": "-1457907092632967684",
@@ -4532,8 +5011,15 @@
       0.0869140625,
       0.05029296875
      ],
-     "prove_seconds": 3.01,
-     "reveal_gas": 1045412,
+     "probs_e18": [
+      "510253906250000000",
+      "221679687500000000",
+      "130859375000000000",
+      "86914062500000000",
+      "50292968750000000"
+     ],
+     "prove_seconds": 3.14,
+     "reveal_gas": 1045578,
      "forecast_source": "ezkl",
      "p_win": 0.130859375,
      "log_score": "-2033632005648541708",
@@ -4549,8 +5035,15 @@
       0.2220595412396291,
       0.16593460224499756
      ],
-     "prove_seconds": 2.87,
-     "reveal_gas": 1045580,
+     "probs_e18": [
+      "118350414836505612",
+      "250854075158613958",
+      "242801366520253782",
+      "222059541239629087",
+      "165934602244997561"
+     ],
+     "prove_seconds": 2.77,
+     "reveal_gas": 1045554,
      "forecast_source": "ezkl",
      "p_win": 0.2428013665202538,
      "log_score": "-1415511591640252290",
@@ -4558,20 +5051,28 @@
      "beat_baseline": true,
      "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.2666165413533835,
-      0.2667025286794222,
-      0.10897161603194983,
-      0.24418770503494502,
-      0.1135216089002995
+      0.5446,
+      0.1956,
+      0.098,
+      0.1024,
+      0.0594
+     ],
+     "probs_e18": [
+      "544600000000000000",
+      "195600000000000000",
+      "98000000000000000",
+      "102400000000000000",
+      "59400000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178504,
-     "forecast_source": "placeholder",
-     "p_win": 0.10897161603194983,
-     "log_score": "-2216667834040446855",
-     "log_score_float": -2.216667834040447,
+     "reveal_gas": 178418,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.098,
+     "log_score": "-2322787800311565123",
+     "log_score_float": -2.3227878003115654,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -4587,8 +5088,8 @@
       "142980441428760200"
      ],
      "expected_var_e18": "1532526974496102208430",
-     "tx": "0xac6f9c9632a2645baf6df5065eefba4707134957e0e29cadcb97d09aaa216682",
-     "block": 26239120,
+     "tx": "0x364c6e4602705dc62c98f99cff605c476fd10bab26b8588e8b6d2c4fac710a3c",
+     "block": 26239117,
      "timestamp": 1792619970
     },
     "mirror": {
@@ -4678,9 +5179,9 @@
    "real_bucket": 2,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239157,
-    "settle_tx": "0x084792e21e53f11fd8537b1406e6f2b54b52ba59f52dff9f3a1c161b3044a268",
-    "gas_used": 829953,
+    "settle_block": 26239153,
+    "settle_tx": "0x62a8e4521c8899a48343b289ad080fd1f000011d7d893345872c3e8b2194d701",
+    "gas_used": 831287,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -4738,13 +5239,13 @@
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
      "bucket": 1,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "0"
+     "payout_wei": "1000000000000000000"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 2,
+     "bucket": 3,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1980000000000000000"
+     "payout_wei": "1000000000000000000"
     }
    ],
    "agents": {
@@ -4756,14 +5257,21 @@
       0.20034163006344557,
       0.15080527086383602
      ],
-     "prove_seconds": 2.31,
-     "reveal_gas": 1045130,
+     "probs_e18": [
+      "144948755490483162",
+      "277208394338701805",
+      "226695949243533430",
+      "200341630063445583",
+      "150805270863836020"
+     ],
+     "prove_seconds": 3.3,
+     "reveal_gas": 1045080,
      "forecast_source": "ezkl",
      "p_win": 0.22669594924353345,
      "log_score": "-1484145589985006542",
      "log_score_float": -1.4841455899850067,
      "beat_baseline": true,
-     "predictor_reward_wei": "2930676726522122"
+     "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
      "probs": [
@@ -4773,14 +5281,21 @@
       0.2376068376068376,
       0.13797313797313798
      ],
-     "prove_seconds": 2.92,
-     "reveal_gas": 1045118,
+     "probs_e18": [
+      "36874236874236874",
+      "316971916971916971",
+      "270573870573870573",
+      "237606837606837606",
+      "137973137973137976"
+     ],
+     "prove_seconds": 2.73,
+     "reveal_gas": 1045116,
      "forecast_source": "ezkl",
      "p_win": 0.27057387057387056,
      "log_score": "-1307210128979940663",
      "log_score_float": -1.3072101289799407,
      "beat_baseline": true,
-     "predictor_reward_wei": "7069323273477878"
+     "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -4790,8 +5305,15 @@
       0.263980463980464,
       0.17973137973137973
      ],
-     "prove_seconds": 3.09,
-     "reveal_gas": 1045034,
+     "probs_e18": [
+      "109401709401709401",
+      "255189255189255189",
+      "191697191697191697",
+      "263980463980463980",
+      "179731379731379733"
+     ],
+     "prove_seconds": 2.93,
+     "reveal_gas": 1045116,
      "forecast_source": "ezkl",
      "p_win": 0.1916971916971917,
      "log_score": "-1651838278504761360",
@@ -4799,20 +5321,28 @@
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.11635258358662615,
-      0.20668693009118544,
-      0.19845619064093378,
-      0.12339272328893502,
-      0.3551115723923196
+      0.4965,
+      0.1451,
+      0.1245,
+      0.1353,
+      0.0986
+     ],
+     "probs_e18": [
+      "496500000000000000",
+      "145100000000000000",
+      "124500000000000000",
+      "135300000000000000",
+      "98600000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.19845619064093378,
-     "log_score": "-1617186905273962758",
-     "log_score_float": -1.6171869052739627,
+     "reveal_gas": 178478,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1245,
+     "log_score": "-2083449563077374743",
+     "log_score_float": -2.083449563077375,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -4828,8 +5358,8 @@
       "166836602961761688"
      ],
      "expected_var_e18": "1722135210442189652741",
-     "tx": "0x97ea1145afcbad3ec67fa478ae99b909368c9afba0a9159de46c1efe396ecf55",
-     "block": 26239155,
+     "tx": "0x5c4ea42f2543799125f1aa7c313c956aa653158560e651d0e5dac4ad7d739c87",
+     "block": 26239151,
      "timestamp": 1792623570
     },
     "mirror": {
@@ -4919,9 +5449,9 @@
    "real_bucket": 2,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239188,
-    "settle_tx": "0xb6f4c4bb2aa55992538f9fa2a8ea5ef67bac3dc3624c737d5c91f3ff595e4a84",
-    "gas_used": 833636,
+    "settle_block": 26239184,
+    "settle_tx": "0x0f4abfbe46f865502be34d8f71d89311ecb11dbda0fd008acda850c64a76d097",
+    "gas_used": 828968,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -4930,8 +5460,8 @@
     "pools_wei": [
      "0",
      "1000000000000000000",
-     "1000000000000000000",
      "0",
+     "1000000000000000000",
      "0"
     ],
     "erc8004_feedback_logs": 4
@@ -4945,9 +5475,9 @@
     "deviation_bps": 29.13
    },
    "fee_split": {
-    "fee_wei": "20000000000000000",
-    "owner_wei": "10000000000000000",
-    "predictors_wei": "10000000000000000"
+    "fee_wei": "0",
+    "owner_wei": "0",
+    "predictors_wei": "0"
    }
   },
   {
@@ -4997,8 +5527,15 @@
       0.2255859375,
       0.1767578125
      ],
-     "prove_seconds": 1.93,
-     "reveal_gas": 1045046,
+     "probs_e18": [
+      "88623046875000000",
+      "273681640625000000",
+      "235351562500000000",
+      "225585937500000000",
+      "176757812500000000"
+     ],
+     "prove_seconds": 3.9,
+     "reveal_gas": 1045092,
      "forecast_source": "ezkl",
      "p_win": 0.2353515625,
      "log_score": "-1446674872108798092",
@@ -5014,8 +5551,15 @@
       0.2133268245057359,
       0.1322919209177447
      ],
-     "prove_seconds": 2.28,
-     "reveal_gas": 1045070,
+     "probs_e18": [
+      "170368562362704417",
+      "265072003905296558",
+      "218940688308518428",
+      "213326824505735904",
+      "132291920917744693"
+     ],
+     "prove_seconds": 4.82,
+     "reveal_gas": 1045092,
      "forecast_source": "ezkl",
      "p_win": 0.21894068830851843,
      "log_score": "-1518954415488074948",
@@ -5031,8 +5575,15 @@
       0.23125763125763127,
       0.19145299145299147
      ],
-     "prove_seconds": 2.63,
-     "reveal_gas": 1045034,
+     "probs_e18": [
+      "87423687423687423",
+      "235653235653235653",
+      "254212454212454212",
+      "231257631257631257",
+      "191452991452991455"
+     ],
+     "prove_seconds": 5.52,
+     "reveal_gas": 1045020,
      "forecast_source": "ezkl",
      "p_win": 0.2542124542124542,
      "log_score": "-1369584927672200895",
@@ -5040,20 +5591,28 @@
      "beat_baseline": true,
      "predictor_reward_wei": "4864190169418522"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.16187192118226604,
-      0.2679802955665026,
-      0.12823581240738502,
-      0.1599850481263434,
-      0.28192692271750297
+      0.3491,
+      0.193,
+      0.1591,
+      0.1505,
+      0.1483
+     ],
+     "probs_e18": [
+      "349100000000000000",
+      "193000000000000000",
+      "159100000000000000",
+      "150500000000000000",
+      "148300000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.12823581240738502,
-     "log_score": "-2053884425554420382",
-     "log_score_float": -2.0538844255544206,
+     "reveal_gas": 178478,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1591,
+     "log_score": "-1838222343638395854",
+     "log_score_float": -1.838222343638396,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -5069,8 +5628,8 @@
       "184908514810266363"
      ],
      "expected_var_e18": "1858296893117438928240",
-     "tx": "0xf6f3154e5529926b226e68c5a3fc40c4eb4fbd2d582e233d456c9c604e42c7dc",
-     "block": 26239186,
+     "tx": "0x30c93dd36254b0ed57a1ea6f8273f59a3fc2ba35617f85f0b82b0261eafa8c17",
+     "block": 26239182,
      "timestamp": 1792627170
     },
     "mirror": {
@@ -5160,9 +5719,9 @@
    "real_bucket": 2,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239221,
-    "settle_tx": "0x7375a9e3c9a6b4ef837d783d43665d4f63b4697b7fb6497bbb366eae31fce055",
-    "gas_used": 837929,
+    "settle_block": 26239215,
+    "settle_tx": "0xe9b1a66abf6e3cd001ff7876395168f253aaa60beca911cb8ffad4e368660e22",
+    "gas_used": 835069,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -5238,8 +5797,15 @@
       0.225830078125,
       0.15234375
      ],
-     "prove_seconds": 3.63,
-     "reveal_gas": 1045880,
+     "probs_e18": [
+      "87890625000000000",
+      "290283203125000000",
+      "243652343750000000",
+      "225830078125000000",
+      "152343750000000000"
+     ],
+     "prove_seconds": 4.15,
+     "reveal_gas": 1045854,
      "forecast_source": "ezkl",
      "p_win": 0.15234375,
      "log_score": "-1881615798349916034",
@@ -5255,8 +5821,15 @@
       0.1951636541279922,
       0.10503175378602833
      ],
-     "prove_seconds": 4.52,
-     "reveal_gas": 1045856,
+     "probs_e18": [
+      "126770884220810942",
+      "330483634587200781",
+      "242550073277967757",
+      "195163654127992183",
+      "105031753786028337"
+     ],
+     "prove_seconds": 4.14,
+     "reveal_gas": 1045890,
      "forecast_source": "ezkl",
      "p_win": 0.10503175378602833,
      "log_score": "-2253492557533626691",
@@ -5272,8 +5845,15 @@
       0.18583638583638581,
       0.1506715506715507
      ],
-     "prove_seconds": 3.64,
-     "reveal_gas": 1045832,
+     "probs_e18": [
+      "135775335775335775",
+      "266178266178266178",
+      "261538461538461538",
+      "185836385836385836",
+      "150671550671550673"
+     ],
+     "prove_seconds": 4.18,
+     "reveal_gas": 1045938,
      "forecast_source": "ezkl",
      "p_win": 0.1506715506715507,
      "log_score": "-1892652972381781962",
@@ -5281,21 +5861,29 @@
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.1348818394720034,
-      0.23163721524377265,
-      0.16987204540983025,
-      0.13828811909579608,
-      0.3253207807785976
+      0.2989,
+      0.4316,
+      0.0884,
+      0.0835,
+      0.0976
+     ],
+     "probs_e18": [
+      "298900000000000000",
+      "431600000000000000",
+      "88400000000000000",
+      "83500000000000000",
+      "97600000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.3253207807785976,
-     "log_score": "-1122943565653866697",
-     "log_score_float": -1.1229435656538667,
-     "beat_baseline": true,
+     "reveal_gas": 178442,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.0976,
+     "log_score": "-2326877785563090241",
+     "log_score_float": -2.32687778556309,
+     "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
    },
@@ -5310,8 +5898,8 @@
       "151441919110222459"
      ],
      "expected_var_e18": "1607262871281684569378",
-     "tx": "0xf8ece60f81fac01b14886e1de8ac59cdaf090b21b55f96def70ca9fd22bf8cd9",
-     "block": 26239219,
+     "tx": "0x84b03855f32278ea8ee844f2b96428e43c3ca6271ab1d72620ad76765ddf0283",
+     "block": 26239213,
      "timestamp": 1792630770
     },
     "mirror": {
@@ -5401,9 +5989,9 @@
    "real_bucket": 4,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239256,
-    "settle_tx": "0x958d75709472d37ddf8d782c3a31938ff5f8a24d071e22a576322dfa1d94caf3",
-    "gas_used": 838864,
+    "settle_block": 26239250,
+    "settle_tx": "0x638584b10ff19612538c5b920d9493c0c0bf2427ffcbef0e4ac7286450462660",
+    "gas_used": 817282,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 4,
@@ -5479,8 +6067,15 @@
       0.2880156211862338,
       0.4288503783256041
      ],
-     "prove_seconds": 5.91,
-     "reveal_gas": 1045718,
+     "probs_e18": [
+      "36856236270441786",
+      "69319013912618989",
+      "176958750305101293",
+      "288015621186233829",
+      "428850378325604103"
+     ],
+     "prove_seconds": 5.41,
+     "reveal_gas": 1045620,
      "forecast_source": "ezkl",
      "p_win": 0.2880156211862338,
      "log_score": "-1244740560087160619",
@@ -5496,8 +6091,15 @@
       0.30998291432755676,
       0.36758603856480354
      ],
-     "prove_seconds": 4.61,
-     "reveal_gas": 1045622,
+     "probs_e18": [
+      "20258725896997803",
+      "107395655357578716",
+      "194776665853063216",
+      "309982914327556748",
+      "367586038564803517"
+     ],
+     "prove_seconds": 4.58,
+     "reveal_gas": 1045656,
      "forecast_source": "ezkl",
      "p_win": 0.30998291432755676,
      "log_score": "-1171238098094234107",
@@ -5513,8 +6115,15 @@
       0.2680009763241396,
       0.406394923114474
      ],
-     "prove_seconds": 3.69,
-     "reveal_gas": 1045658,
+     "probs_e18": [
+      "7810593116914815",
+      "80546741518184037",
+      "237246765926287527",
+      "268000976324139614",
+      "406394923114474007"
+     ],
+     "prove_seconds": 5.11,
+     "reveal_gas": 1045644,
      "forecast_source": "ezkl",
      "p_win": 0.2680009763241396,
      "log_score": "-1316764655477395121",
@@ -5522,20 +6131,28 @@
      "beat_baseline": true,
      "predictor_reward_wei": "2671423494469385"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.02538198632891034,
-      0.03417772416566145,
-      0.050807341030501475,
-      0.1475099086679304,
-      0.7421230398069963
+      0.3064,
+      0.1558,
+      0.1251,
+      0.1269,
+      0.2858
+     ],
+     "probs_e18": [
+      "306400000000000000",
+      "155800000000000000",
+      "125100000000000000",
+      "126900000000000000",
+      "285800000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178468,
-     "forecast_source": "placeholder",
-     "p_win": 0.1475099086679304,
-     "log_score": "-1913859928048866022",
-     "log_score_float": -1.913859928048866,
+     "reveal_gas": 178466,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.1269,
+     "log_score": "-2064355904261795054",
+     "log_score_float": -2.064355904261795,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -5551,8 +6168,8 @@
       "416657182491325162"
      ],
      "expected_var_e18": "3444325085166083310638",
-     "tx": "0xa3060fbd2b7c3adf16a0aa1de679eeb5fb117321544f2a609e4587d616f4def1",
-     "block": 26239254,
+     "tx": "0x705809bbf3202eb1a10b4e4a6d31e7fe66328adc02ff0b0eb64089e3732f080e",
+     "block": 26239248,
      "timestamp": 1792634370
     },
     "mirror": {
@@ -5642,9 +6259,9 @@
    "real_bucket": 3,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239287,
-    "settle_tx": "0xfa4274544157afa496b3eb85861f880fb03cea75c4e8d0bc7770ea7503a942a9",
-    "gas_used": 846331,
+    "settle_block": 26239281,
+    "settle_tx": "0x8b112d2ec93c80c8e33345dee1abfcb66262e9acf68e6b7a2d5494520c53a471",
+    "gas_used": 848364,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -5700,13 +6317,13 @@
    "bets": [
     {
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
-     "bucket": 2,
+     "bucket": 4,
      "amount_wei": "1000000000000000000",
      "payout_wei": "1000000000000000000"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 3,
+     "bucket": 2,
      "amount_wei": "1000000000000000000",
      "payout_wei": "1000000000000000000"
     }
@@ -5720,8 +6337,15 @@
       0.26513671875,
       0.24072265625
      ],
-     "prove_seconds": 3.92,
-     "reveal_gas": 1044980,
+     "probs_e18": [
+      "20507812500000000",
+      "167968750000000000",
+      "305664062500000000",
+      "265136718750000000",
+      "240722656250000000"
+     ],
+     "prove_seconds": 3.43,
+     "reveal_gas": 1044942,
      "forecast_source": "ezkl",
      "p_win": 0.16796875,
      "log_score": "-1783977328786000042",
@@ -5737,8 +6361,15 @@
       0.378662109375,
       0.154541015625
      ],
-     "prove_seconds": 3.82,
-     "reveal_gas": 1044908,
+     "probs_e18": [
+      "18798828125000000",
+      "136474609375000000",
+      "311523437500000000",
+      "378662109375000000",
+      "154541015625000000"
+     ],
+     "prove_seconds": 3.71,
+     "reveal_gas": 1044834,
      "forecast_source": "ezkl",
      "p_win": 0.136474609375,
      "log_score": "-1991616693564244536",
@@ -5754,8 +6385,15 @@
       0.2882597022211374,
       0.24774225042714182
      ],
-     "prove_seconds": 3.75,
-     "reveal_gas": 1044848,
+     "probs_e18": [
+      "2684891383939467",
+      "94703441542592140",
+      "366609714425189162",
+      "288259702221137417",
+      "247742250427141814"
+     ],
+     "prove_seconds": 4.07,
+     "reveal_gas": 1044906,
      "forecast_source": "ezkl",
      "p_win": 0.09470344154259214,
      "log_score": "-2357004937923597631",
@@ -5763,20 +6401,28 @@
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.08383134130146085,
-      0.14880383228988808,
-      0.21741605008537276,
-      0.13289504004886377,
-      0.41705373627441455
+      0.3151,
+      0.0673,
+      0.0621,
+      0.1016,
+      0.4539
+     ],
+     "probs_e18": [
+      "315100000000000000",
+      "67300000000000000",
+      "62100000000000000",
+      "101600000000000000",
+      "453900000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178492,
-     "forecast_source": "placeholder",
-     "p_win": 0.14880383228988808,
-     "log_score": "-1905126402278445870",
-     "log_score_float": -1.9051264022784458,
+     "reveal_gas": 178442,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.0673,
+     "log_score": "-2698595042331454915",
+     "log_score_float": -2.698595042331455,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -5792,8 +6438,8 @@
       "244557244743051613"
      ],
      "expected_var_e18": "2356961738167439779398",
-     "tx": "0x561573876107a03e06f367ffecd677a2fb9ebb2867cc1a180df9aac7fdd730ba",
-     "block": 26239285,
+     "tx": "0x9df3a281e8545650dd629539d42240eccfa9236ff75684cdd6c069c492c2266b",
+     "block": 26239279,
      "timestamp": 1792637970
     },
     "mirror": {
@@ -5883,9 +6529,9 @@
    "real_bucket": 1,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239321,
-    "settle_tx": "0xe5b1d4cd8113f19aef4a8340bc1d0881666c9e3e783f215270b85f70ecfce4d9",
-    "gas_used": 822150,
+    "settle_block": 26239315,
+    "settle_tx": "0x6bec6c94dd3c455b70ad5e61bfc4fc9262dda71fe3a119b77f31f7d2d79f4daf",
+    "gas_used": 823773,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -5895,8 +6541,8 @@
      "0",
      "0",
      "1000000000000000000",
-     "1000000000000000000",
-     "0"
+     "0",
+     "1000000000000000000"
     ],
     "erc8004_feedback_logs": 4
    },
@@ -5947,7 +6593,7 @@
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 4,
+     "bucket": 2,
      "amount_wei": "1000000000000000000",
      "payout_wei": "0"
     }
@@ -5961,14 +6607,21 @@
       0.23125763125763127,
       0.18583638583638581
      ],
-     "prove_seconds": 5.59,
-     "reveal_gas": 1045268,
+     "probs_e18": [
+      "82783882783882783",
+      "259584859584859584",
+      "240537240537240537",
+      "231257631257631257",
+      "185836385836385839"
+     ],
+     "prove_seconds": 4.09,
+     "reveal_gas": 1045206,
      "forecast_source": "ezkl",
      "p_win": 0.2595848595848596,
      "log_score": "-1348671617945221853",
      "log_score_float": -1.3486716179452218,
      "beat_baseline": true,
-     "predictor_reward_wei": "3561128054649147"
+     "predictor_reward_wei": "3561643532502085"
     },
     "agent-mlp16": {
      "probs": [
@@ -5978,14 +6631,21 @@
       0.16524286062972907,
       0.10202587258969978
      ],
-     "prove_seconds": 4.85,
-     "reveal_gas": 1045244,
+     "probs_e18": [
+      "224066390041493775",
+      "297778862582377349",
+      "210886014156700024",
+      "165242860629729070",
+      "102025872589699782"
+     ],
+     "prove_seconds": 4.49,
+     "reveal_gas": 1045350,
      "forecast_source": "ezkl",
      "p_win": 0.29777886258237735,
      "log_score": "-1211404139819568823",
      "log_score_float": -1.211404139819569,
      "beat_baseline": true,
-     "predictor_reward_wei": "5435707237907240"
+     "predictor_reward_wei": "5436494063501040"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -5995,31 +6655,46 @@
       0.260678545277032,
       0.23919941420551621
      ],
-     "prove_seconds": 5.04,
-     "reveal_gas": 1045232,
+     "probs_e18": [
+      "66878203563583109",
+      "209665608982182084",
+      "223578227971686599",
+      "260678545277031974",
+      "239199414205516234"
+     ],
+     "prove_seconds": 4.69,
+     "reveal_gas": 1045158,
      "forecast_source": "ezkl",
      "p_win": 0.2096656089821821,
      "log_score": "-1562241355562615696",
      "log_score_float": -1.5622413555626158,
      "beat_baseline": true,
-     "predictor_reward_wei": "644534920003076"
+     "predictor_reward_wei": "644628217259341"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.11533874315908663,
-      0.20532175882241935,
-      0.20002019095488177,
-      0.12257771190657751,
-      0.35674159515703474
+      0.4206,
+      0.2053,
+      0.1339,
+      0.1155,
+      0.1247
+     ],
+     "probs_e18": [
+      "420600000000000000",
+      "205300000000000000",
+      "133900000000000000",
+      "115500000000000000",
+      "124700000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178516,
-     "forecast_source": "placeholder",
-     "p_win": 0.20532175882241935,
-     "log_score": "-1583176975076874020",
-     "log_score_float": -1.583176975076874,
+     "reveal_gas": 178478,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.2053,
+     "log_score": "-1583282954957249156",
+     "log_score_float": -1.5832829549572494,
      "beat_baseline": true,
-     "predictor_reward_wei": "358629787440537"
+     "predictor_reward_wei": "357234186737534"
     }
    },
    "fee": {
@@ -6033,8 +6708,8 @@
       "214421118252564179"
      ],
      "expected_var_e18": "2070976710324435353968",
-     "tx": "0x1b086d87391b71834c5697ad1cc7a54666bebff32b3bd556841b015d09c7f90a",
-     "block": 26239319,
+     "tx": "0x4a25fdf82dacb0f24312c82126165934507238aea225551107e426ab74ddd57d",
+     "block": 26239313,
      "timestamp": 1792641570
     },
     "mirror": {
@@ -6124,9 +6799,9 @@
    "real_bucket": 1,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239352,
-    "settle_tx": "0x6e08b5d98faac73cca0a4f9e7f49c4b07be63dd5ab860bee1f9908e7f7dfed1c",
-    "gas_used": 838309,
+    "settle_block": 26239346,
+    "settle_tx": "0xa9444c2211dae85f52987bda7945c9f9bafe3fd9aec2b45c60080070b5a58c08",
+    "gas_used": 838245,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -6135,9 +6810,9 @@
     "pools_wei": [
      "0",
      "1000000000000000000",
+     "1000000000000000000",
      "0",
-     "0",
-     "1000000000000000000"
+     "0"
     ],
     "erc8004_feedback_logs": 4
    },
@@ -6184,13 +6859,13 @@
      "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
      "bucket": 1,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "0"
     },
     {
      "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 3,
+     "bucket": 2,
      "amount_wei": "1000000000000000000",
-     "payout_wei": "1000000000000000000"
+     "payout_wei": "1980000000000000000"
     }
    ],
    "agents": {
@@ -6202,14 +6877,21 @@
       0.1852575054918233,
       0.1401025140346595
      ],
-     "prove_seconds": 6.53,
-     "reveal_gas": 1045844,
+     "probs_e18": [
+      "137661703685623627",
+      "310226995362460336",
+      "226751281425433243",
+      "185257505491823285",
+      "140102514034659509"
+     ],
+     "prove_seconds": 4.32,
+     "reveal_gas": 1045914,
      "forecast_source": "ezkl",
      "p_win": 0.22675128142543324,
      "log_score": "-1483901538733032556",
      "log_score_float": -1.4839015387330325,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "3415140538631843"
     },
     "agent-mlp16": {
      "probs": [
@@ -6219,14 +6901,21 @@
       0.1884765625,
       0.1533203125
      ],
-     "prove_seconds": 4.88,
-     "reveal_gas": 1045832,
+     "probs_e18": [
+      "105468750000000000",
+      "334472656250000000",
+      "218261718750000000",
+      "188476562500000000",
+      "153320312500000000"
+     ],
+     "prove_seconds": 5.13,
+     "reveal_gas": 1045842,
      "forecast_source": "ezkl",
      "p_win": 0.21826171875,
      "log_score": "-1522060391545829564",
      "log_score_float": -1.5220603915458297,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "2377052203700432"
     },
     "agent-mlp32_abs": {
      "probs": [
@@ -6236,29 +6925,44 @@
       0.24688644688644687,
       0.19413919413919414
      ],
-     "prove_seconds": 6.14,
-     "reveal_gas": 1045868,
+     "probs_e18": [
+      "98168498168498168",
+      "227350427350427350",
+      "233455433455433455",
+      "246886446886446886",
+      "194139194139194141"
+     ],
+     "prove_seconds": 4.53,
+     "reveal_gas": 1045842,
      "forecast_source": "ezkl",
      "p_win": 0.23345543345543343,
      "log_score": "-1454764083235768508",
      "log_score_float": -1.4547640832357687,
      "beat_baseline": true,
-     "predictor_reward_wei": "0"
+     "predictor_reward_wei": "4207807257667725"
     },
-    "agent-tsfm-api": {
+    "agent-chronos-bolt": {
      "probs": [
-      0.19699217618081716,
-      0.3053341594557644,
-      0.08399434907127969,
-      0.18821770367805102,
-      0.22546161161408773
+      0.448,
+      0.1643,
+      0.131,
+      0.1405,
+      0.1162
+     ],
+     "probs_e18": [
+      "448000000000000000",
+      "164300000000000000",
+      "131000000000000000",
+      "140500000000000000",
+      "116200000000000000"
      ],
      "prove_seconds": null,
-     "reveal_gas": 178480,
-     "forecast_source": "placeholder",
-     "p_win": 0.08399434907127969,
-     "log_score": "-2477005755362706827",
-     "log_score_float": -2.4770057553627067,
+     "reveal_gas": 178466,
+     "forecast_source": "chronos-bolt",
+     "reproduced": true,
+     "p_win": 0.131,
+     "log_score": "-2032557955780985490",
+     "log_score_float": -2.0325579557809856,
      "beat_baseline": false,
      "predictor_reward_wei": "0"
     }
@@ -6274,8 +6978,8 @@
       "166482779047240107"
      ],
      "expected_var_e18": "1708617490680252133037",
-     "tx": "0xb1fac87d2140fd80af880828b1a79e1290602ec475d9638bf0c33b814c616bf7",
-     "block": 26239350,
+     "tx": "0xf45a8daed1bc0e14352e15d871141109d13c5d5bc123f8acd78d8e70d3786829",
+     "block": 26239344,
      "timestamp": 1792645170
     },
     "mirror": {
@@ -6365,9 +7069,9 @@
    "real_bucket": 2,
    "rv_matches_mainnet": true,
    "outcome": {
-    "settle_block": 26239372,
-    "settle_tx": "0x4e9b0b8d6a29156728daca6bb6b95e75b059463104548d72591dbea6fd871dc7",
-    "gas_used": 781405,
+    "settle_block": 26239366,
+    "settle_tx": "0x97e5d0f0591da82312971b645e036ad98cc2dd829cc41cc7301b8997f958a7d0",
+    "gas_used": 784547,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -6376,8 +7080,8 @@
     "pools_wei": [
      "0",
      "1000000000000000000",
-     "0",
      "1000000000000000000",
+     "0",
      "0"
     ],
     "erc8004_feedback_logs": 4
@@ -6391,9 +7095,9 @@
     "deviation_bps": 23.68
    },
    "fee_split": {
-    "fee_wei": "0",
-    "owner_wei": "0",
-    "predictors_wei": "0"
+    "fee_wei": "20000000000000000",
+    "owner_wei": "10000000000000000",
+    "predictors_wei": "10000000000000000"
    }
   }
  ],
@@ -6418,7 +7122,8 @@
     "total_log_score": -35.5059,
     "mean_log_score": -1.4794,
     "beat_baseline_rounds": 19,
-    "predictor_reward_wei": "36275851488381356",
+    "reproduced_rounds": null,
+    "predictor_reward_wei": "42387324103810072",
     "erc8004": {
      "tag1": "logScore",
      "tag2": "vol-300s-12",
@@ -6432,7 +7137,8 @@
     "total_log_score": -39.1904,
     "mean_log_score": -1.6329,
     "beat_baseline_rounds": 16,
-    "predictor_reward_wei": "42332970627332773",
+    "reproduced_rounds": null,
+    "predictor_reward_wei": "33408503226875937",
     "erc8004": {
      "tag1": "logScore",
      "tag2": "vol-300s-12",
@@ -6446,7 +7152,8 @@
     "total_log_score": -35.8165,
     "mean_log_score": -1.4924,
     "beat_baseline_rounds": 18,
-    "predictor_reward_wei": "38273269689770574",
+    "reproduced_rounds": null,
+    "predictor_reward_wei": "48927317120511160",
     "erc8004": {
      "tag1": "logScore",
      "tag2": "vol-300s-12",
@@ -6455,17 +7162,18 @@
      "summary_decimals": 18
     }
    },
-   "agent-tsfm-api": {
+   "agent-chronos-bolt": {
     "rounds_scored": 24,
-    "total_log_score": -46.6529,
-    "mean_log_score": -1.9439,
-    "beat_baseline_rounds": 8,
-    "predictor_reward_wei": "13117908194515297",
+    "total_log_score": -46.2032,
+    "mean_log_score": -1.9251,
+    "beat_baseline_rounds": 4,
+    "reproduced_rounds": 24,
+    "predictor_reward_wei": "5276855548802831",
     "erc8004": {
      "tag1": "logScore",
      "tag2": "vol-300s-12-commit",
      "count": 24,
-     "summary_value": "-1943871020833960510",
+     "summary_value": "-1925132368111821483",
      "summary_decimals": 18
     }
    }
@@ -6476,13 +7184,13 @@
    "mae_bps": {
     "fixed": 1.8373746526782098,
     "prev_hour": 2.8092449968267896,
-    "forecast": 2.396369087894781
+    "forecast": 2.30512218453788
    },
    "mean_bps": {
     "fair": 3.707121503217818,
     "fixed": 5.0,
     "prev_hour": 2.9454166666666666,
-    "forecast": 4.97125
+    "forecast": 4.81625
    },
    "mirror_matches": true,
    "equal_weight_fallback_rounds": 4

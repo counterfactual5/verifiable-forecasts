@@ -35,7 +35,7 @@ flowchart LR
     submit["commitPrediction → revealPrediction<br/>zk models: verify EZKL proof<br/>against the stored features"]
     settle["settle<br/>RV from observe() / sample()<br/>log score per forecast"]
   end
-  agents["agents/<br/>3 zk models (EZKL prove)<br/>+ 1 commit-only API agent"]
+  agents["agents/<br/>3 zk models (EZKL prove)<br/>+ 1 reproducible Chronos-Bolt agent"]
   verifier["EZKL Halo2 verifier<br/>(one per model)"]
   id["ERC-8004 Identity"]
   rep["ERC-8004 Reputation"]
@@ -87,18 +87,43 @@ The exam: realized volatility of the TWAP tick of the Uniswap V3 ETH/USDC 0.05% 
    to the owner.
 7. **ERC-8004 reputation** (opt-in via `setReputation`). Agents register an identity and the model
    operator links it with `linkAgent`. At settlement the market contract calls
-   `giveFeedback(agentId, logScore, 18, "logScore", "vol-300s-12", …)` (commit-only models:
-   `"vol-300s-12-commit"`); readers filter
+   `giveFeedback(agentId, logScore, 18, "logScore", "vol-300s-12", …)` (models without a verifier,
+   reproducible and commit-only: `"vol-300s-12-commit"`); readers filter
    `getSummary(agentId, [market], "logScore", …)` to the market as the only client. A failing registry
    write emits an event and never blocks settlement. Each registry and feed call gets at most 500k gas,
    and `settle` reverts (`InsufficientGas`) when a call failed because the caller's gas limit starved
    it, so nobody can skip a reputation write or void a round by sending `settle` with too little gas.
 
+## Verification tiers
+
+Each registered model has an onchain tier, `verificationTier(modelId)`:
+
+| Tier | Registered as | What a reveal proves |
+|---|---|---|
+| **zk** | `registerModel(verifier, operator)` | The EZKL proof is verified onchain against the contract's own stored features: this model produced these outputs. |
+| **reproducible** | `registerModel(address(0), operator, modelHash)` | No proof at reveal, but `modelHash = keccak256(sha256(weights) ‖ sha256(config.json) ‖ sha256(repro_runner.py))` pins public weights, config and runner; anyone re-runs the forecast from the onchain features and compares it with the reveal. |
+| **commit-only** | `registerModel(address(0), operator)` | Timing only: the forecast was committed before the deadline, not which model made it. |
+
+The reproducible tier is implemented and used in the replay: `agent-chronos-bolt` runs the public,
+pinned [`amazon/chronos-bolt-tiny`](https://huggingface.co/amazon/chronos-bolt-tiny) weights, and
+after every reveal the replay runs the recompute command against the fork; it matched in all 24
+rounds (`reproduced` per round in the JSON). Anyone can run the same check against a market:
+
+```bash
+cd agents && VOL_REPRO_PYTHON=<python with chronos-forecasting and torch> \
+  uv run python -m vol_agents.recompute --rpc-url <RPC> --market <MARKET> --round <ID> --model-id <ID>
+```
+
+It exits 0 only when the onchain `modelHash` equals the local snapshot's and all 5 recomputed
+buckets equal the reveal. Equality is claimed for the same software stack (CPU, float32,
+deterministic torch); see `agents/README.md` "Reproducible agent". Reproducible and commit-only
+models share the `-commit` ERC-8004 tag.
+
 ## Demo: 24 real hours on a mainnet fork
 
 ```bash
-cp .env.example .env    # optional: MAINNET_RPC_URL (defaults to the public tenderly gateway)
-make demo               # same as: HOURS=24 bash demo/run.sh; ~12 min; writes demo/out/fork_replay.json
+cp .env.example .env    # set VOL_REPRO_PYTHON; optional MAINNET_RPC_URL (default: public tenderly gateway)
+make demo               # same as: HOURS=24 bash demo/run.sh; ~15 min; writes demo/out/fork_replay.json
 python3 -m http.server 8765 --bind 127.0.0.1   # then open http://127.0.0.1:8765/dashboard/
 ```
 
@@ -110,37 +135,43 @@ the replayed hours, and then on the fork:
   (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`) and Reputation
   (`0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`) registries and the **real** Chainlink feed
   (`0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`), plus one EZKL verifier per model;
-- registers one ERC-8004 identity for each of the 3 zk agents and one commit-only agent for the whole
-  replay; the commit-only agent calls a configurable time-series model API, or, when
-  `VOL_TSFM_API_URL` is unset, a heuristic labeled `placeholder` (not a model);
+- registers one ERC-8004 identity for each of the 3 zk agents and for one reproducible agent,
+  `agent-chronos-bolt`, for the whole replay; the reproducible agent runs pinned Chronos-Bolt weights
+  under `VOL_REPRO_PYTHON` (required: the replay stops if the interpreter or weights are missing or
+  the local model hash differs from the onchain `modelHash`), and its identity's agent card is an
+  inline `data:` URI naming the model hash and the recompute command;
 - replays the pool: at every 5-minute grid time a trader swaps the forked pool to mainnet's real mean
   tick for that segment (read from mainnet's own `observe`), so every segment mean the contract reads
   equals mainnet's; every real Chainlink ETH/USD report in the range is re-sent by its transmitter at
   its original timestamp;
 - runs one round per hour: `createRound` from the replayed pool, every agent commits, then reveals
-  (zk agents with a proof), two bettors stake, `sample` stores each checkpoint, and `settle` runs the
+  (zk agents with a proof; the reproducible agent's reveal is then recomputed with
+  `python -m vol_agents.recompute`), two bettors stake, `sample` stores each checkpoint, and `settle` runs the
   Chainlink check, log scores and ERC-8004 feedback; bettors claim, forecasters above the baseline
   claim their fee share, the rest of the fee is collected. In round 0 each verifier must reject the
   honest proof with one output changed.
 
 Committed run ([`dashboard/sample-replay.json`](dashboard/sample-replay.json)): 2026-10-21 06:00 to
-10-22 06:00 UTC, mainnet blocks 26,239,037–26,246,222, about 12 minutes wall time. All 24 rounds
-settled, none voided; in every round the features and the realized vol equal the mainnet recompute,
-and each round links its real blocks and transactions on Etherscan.
+10-22 06:00 UTC, mainnet blocks 26,239,037–26,246,222, about 15 minutes (873 s) wall time. All 24
+rounds settled, none voided; in every round the features and the realized vol equal the mainnet
+recompute, the reproducible agent's reveal was recomputed and matched, and each round links its real
+blocks and transactions on Etherscan.
 
 ```text
 rounds 24: settled 24, voided 0 {}; features match mainnet True, RV matches mainnet True; winning buckets [1, 4, 6, 9, 4]
 agent                rounds  total ln p     mean  >base  reward WETH  ERC-8004 count
 uniform baseline         24     -38.627   -1.609
-agent-linear_abs         24     -35.506   -1.479     19     0.036276  24 (vol-300s-12)
-agent-mlp16              24     -39.190   -1.633     16     0.042333  24 (vol-300s-12)
-agent-mlp32_abs          24     -35.816   -1.492     18     0.038273  24 (vol-300s-12)
-agent-tsfm-api           24     -46.653   -1.944      8     0.013118  24 (vol-300s-12-commit)
-agent-linear_abs: honest proof verifies=True, tampered output verifies=False, verifyProof gas 848588
+agent-linear_abs         24     -35.506   -1.479     19     0.042387  24 (vol-300s-12)
+agent-mlp16              24     -39.190   -1.633     16     0.033409  24 (vol-300s-12)
+agent-mlp32_abs          24     -35.816   -1.492     18     0.048927  24 (vol-300s-12)
+agent-chronos-bolt       24     -46.203   -1.925      4     0.005277  24 (vol-300s-12-commit)
+agent-chronos-bolt: recompute from onchain features matched the reveal in 24/24 rounds
+agent-linear_abs: honest proof verifies=True, tampered output verifies=False, verifyProof gas 848492
 ```
 
 Over these 24 hours `linear_abs` and `mlp32_abs` beat the uniform baseline in total and `mlp16` did
-not; the commit-only placeholder was the worst. 24 hourly rounds are a demo, not evidence of skill.
+not; the zero-shot Chronos-Bolt agent (a general time-series model, not trained on this pool) was the
+worst, beating the baseline in only 4 rounds. 24 hourly rounds are a demo, not evidence of skill.
 See [`docs/DEMO.md`](docs/DEMO.md) for the step-by-step script, Etherscan links per round and the
 recording outline.
 
@@ -165,7 +196,7 @@ The dashboard's fee card compares, per replayed hour, the fair LVR fee
 | Fair LVR fee (reference) | 3.71 | – |
 | Fixed 5 bps | 5.00 | **1.84** |
 | Previous-hour realized vol | 2.95 | 2.81 |
-| Forecast, recorded on-chain | 4.97 | 2.40 |
+| Forecast, recorded on-chain | 4.82 | 2.31 |
 
 The fixed fee has the lowest error over these 24 hours, and the forecast beats the previous-hour
 rule. The fair fee is driven mostly by each hour's swap volume, which strategies that only see
@@ -193,8 +224,9 @@ buffers ahead of volatile hours.
 - `contracts/src/erc8004/`: minimal ERC-8004 v2.0.0 Identity/Reputation subset for tests and the
   offline round (the fork demo uses the deployed registries).
 - `agents/`: three structurally different models (`linear_abs`, `mlp16`, `mlp32_abs`) trained on the
-  real pool's history, EZKL build with a pinned SRS digest, a commit-only API agent, and an end-to-end
-  round on Anvil. See [`agents/MODEL_CARD.md`](agents/MODEL_CARD.md).
+  real pool's history, EZKL build with a pinned SRS digest, a reproducible Chronos-Bolt agent with its
+  public recompute command (`vol_agents.recompute`), a commit-only API agent, and an end-to-end round
+  on Anvil. See [`agents/MODEL_CARD.md`](agents/MODEL_CARD.md).
 - `analysis/`: pulls `Swap` events, recomputes RV with the contract's rules and calibrates the bucket
   bounds `[202, 474, 856, 1712]` tick² (p20/p40/p60/p80 of the training period only).
 - `demo/`: 24-hour mainnet-fork replay as above. `dashboard/`: static read-only view of the replay.
@@ -302,8 +334,9 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for data flow and trust bound
   the verifier. The proof shows which registered model produced a forecast, not that the model is good.
 - **No paying users.** The economics are an unvalidated hypothesis.
 - **The fork demo is a replay**, not live trading: the forked pool is pushed to each real 5-minute mean
-  tick by swaps and the real Chainlink reports are re-sent on the fork. The commit-only agent in the
-  demo is a placeholder heuristic unless a time-series model API is configured.
+  tick by swaps and the real Chainlink reports are re-sent on the fork. The fourth agent in the
+  demo is a zero-shot Chronos-Bolt model, not trained on this pool; its reproducibility is checked
+  on one machine and software stack, and bit-equality across CPUs or library versions is not claimed.
 - **Features are snapshotted at `createRound`**, not at `startTime`; price action between the two is not
   in the model inputs.
 - The cross-check compares one Δ-long TWAP price with one feed answer; it does not detect manipulation

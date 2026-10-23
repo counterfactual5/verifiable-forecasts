@@ -6,7 +6,7 @@
 <title>Verifiable AI Forecasts · round dashboard</title>
 <style>
   :root {
-    --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --muted: #8b949e;
+    --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --muted: #a3acb6;
     --accent: #58a6ff; --ok: #3fb950; --bad: #f85149; --warn: #d29922; --win: #a371f7;
   }
   * { box-sizing: border-box; }
@@ -26,13 +26,24 @@
   .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
   .kv dt { color: var(--muted); } .kv dd { margin: 0; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
-  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+           white-space: nowrap; }
   .badge.ok { background: rgba(63,185,80,.15); color: var(--ok); }
   .badge.bad { background: rgba(248,81,73,.15); color: var(--bad); }
   .badge.warn { background: rgba(210,153,34,.15); color: var(--warn); }
   .badge.zk { background: rgba(88,166,255,.15); color: var(--accent); }
   .badge.commit { background: rgba(139,148,158,.18); color: var(--text); }
+  .badge .en { font-size: 11px; font-weight: 500; opacity: .8; }
   table { width: 100%; border-collapse: collapse; }
+  /* Edge shadows show only while more columns are hidden on that side ("local" covers them at the ends). */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch;
+    background:
+      linear-gradient(to right, var(--panel) 40%, rgba(22,27,34,0)) left / 28px 100% no-repeat local,
+      linear-gradient(to left, var(--panel) 40%, rgba(22,27,34,0)) right / 28px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(163,172,182,.4), rgba(163,172,182,0)) left / 14px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(163,172,182,.4), rgba(163,172,182,0)) right / 14px 100% no-repeat scroll; }
+  .nowrap { white-space: nowrap; }
+  .scroll-hint { display: none; color: var(--muted); font-size: 12px; text-align: right; margin-top: 4px; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
   td.num, th.num { text-align: right; }
@@ -46,7 +57,7 @@
   .meter { height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; margin: 4px 0 10px; }
   .meter > div { height: 100%; }
   a { color: var(--accent); text-decoration: none; }
-  svg text { fill: var(--muted); font-size: 11px; }
+  svg text { fill: var(--muted); font-size: 12px; }
   footer { color: var(--muted); padding: 0 32px 24px; font-size: 12px; }
   #error { color: var(--bad); padding: 32px; }
   .fee-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
@@ -59,7 +70,11 @@
     main { padding: 12px 12px 24px; gap: 12px; }
     footer { padding: 0 16px 20px; }
     .card { padding: 12px; }
+    .badge:has(.en) { border-radius: 8px; }
+    .badge .en { display: block; white-space: nowrap; }
+    .badge .sep { display: none; }
   }
+  @media (max-width: 1000px) { .scroll-hint { display: block; } }
 </style>
 </head>
 <body>
@@ -82,6 +97,9 @@ const SCAN = "https://etherscan.io";
 const blockLink = (n) => `<a class="mono" href="${SCAN}/block/${n}" target="_blank" rel="noopener">${n.toLocaleString()}</a>`;
 const txLink = (h, text) => `<a class="mono" href="${SCAN}/tx/${h}" target="_blank" rel="noopener">${text ?? short(h)}</a>`;
 const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#a371f7", "#f778ba", "#79c0ff"];
+// The hint is shown only up to 1000 px, where a card's content box is under 900 px, so these tables always overflow.
+const scrollTable = (inner, minWidth = 0) => `<div class="table-scroll"><table${minWidth ? ` style="min-width:${minWidth}px"` : ""}>${inner}</table></div>` +
+  (minWidth >= 900 ? `<div class="scroll-hint">scroll →</div>` : "");
 
 async function load() {
   const param = new URLSearchParams(location.search).get("data");
@@ -99,7 +117,7 @@ async function load() {
 function segmentChart(fork, real) {
   const all = fork.concat(real || []);
   const lo = Math.min(...all) - 2, hi = Math.max(...all) + 2;
-  const W = 1200, H = 220, P = 64;
+  const W = Math.min(1200, chartWidth), H = 220, P = W < 600 ? 52 : 64;
   const x = (i) => P + i * (W - 2 * P) / (fork.length - 1);
   const y = (v) => H - 22 - (v - lo) * (H - 40) / (hi - lo);
   const path = (s) => s.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
@@ -175,19 +193,19 @@ function render({ data: d, src }) {
     const reward = a.predictor_reward_wei != null
       ? `<td class="num">${eth(a.predictor_reward_wei)}<div class="sub">${a.beat_baseline ? "beat baseline" : "at/below baseline"}</div></td>`
       : `<td class="num">–</td>`;
-    return `<tr><td><b>${a.agent}</b> ${typeBadge(a)}<div class="sub mono">${short(a.address)}</div></td>
+    return `<tr><td><b class="nowrap">${a.agent}</b> ${typeBadge(a)}<div class="sub mono nowrap">${short(a.address)}</div></td>
       <td><div class="probs">${bars}</div></td>
       <td class="num">${(a.p_win * 100).toFixed(1)}%</td>
       <td class="num"><b>${a.log_score_float.toFixed(3)}</b></td>
       ${reward}
       <td>${verification}</td>
-      <td>agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}
+      <td class="nowrap">agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}
         <br><span class="mono">${rep.tag1} / ${rep.tag2}</span></div></td></tr>`;
   }).join("");
-  const agentsCard = card("Agents · forecasts, scores and ERC-8004 reputation", `<table>
+  const agentsCard = card("Agents · forecasts, scores and ERC-8004 reputation", `${scrollTable(`
     <tr><th>Agent</th><th>Bucket probabilities (purple = outcome)</th><th class="num">p(outcome)</th>
     <th class="num">Log score</th><th class="num">Fee share (WETH)</th><th>Verification</th><th>ERC-8004 reputation ${link(d.contracts.erc8004_reputation)}</th></tr>
-    ${rows}</table>
+    ${rows}`, 960)}
     <div class="sub" style="margin-top:8px">Log score = max(ln p_outcome, −18), computed in VolMarket.settle and written by the
     market contract to the deployed ERC-8004 Reputation Registry (summary filtered to the market as the only client;
     commit-only scores carry tag2 <span class="mono">…-commit</span>). Every agent committed a hash before
@@ -197,10 +215,10 @@ function render({ data: d, src }) {
   const chartCard = card("Window · 12 segments of 5 minutes",
     segmentChart(d.offchain_recompute.segment_mean_ticks, d.window.real_segment_ticks), "wide");
 
-  const betRows = d.bets.map((b) => `<tr><td class="mono">${short(b.bettor)}</td><td>#${b.bucket}</td>
+  const betRows = d.bets.map((b) => `<tr><td class="mono nowrap">${short(b.bettor)}</td><td>#${b.bucket}</td>
     <td class="num">${eth(b.amount_wei)}</td><td class="num">${eth(b.payout_wei)}</td></tr>`).join("");
-  const betsCard = card("Parimutuel bets (WETH)", `<table><tr><th>Bettor</th><th>Bucket</th>
-    <th class="num">Stake</th><th class="num">Payout</th></tr>${betRows}</table>
+  const betsCard = card("Parimutuel bets (WETH)", `${scrollTable(`<tr><th>Bettor</th><th>Bucket</th>
+    <th class="num">Stake</th><th class="num">Payout</th></tr>${betRows}`)}
     <div class="sub" style="margin-top:8px">Fee ${r.fee_bps / 100}% of the pool${fs
       ? `: ${eth(fs.fee_wei)} WETH, of which ${eth(fs.owner_wei)} to the owner and ${eth(fs.predictors_wei)} to forecasters` : d.fee_collected_wei != null
       ? `: ${eth(d.fee_collected_wei)} WETH collected to the owner` : ""}${d.market_balance_after_wei != null
@@ -276,10 +294,27 @@ function renderReplay({ data: d, src }) {
   const uniform = p.baseline_log_score_float;
   const card = (title, html, cls = "", id = "") =>
     `<section${id ? ` id="${id}"` : ""} class="card ${cls}"><h2>${title}</h2>${html}</section>`;
-  const isZk = (a) => a.model_type === "zk";
-  const typeBadge = (a) => isZk(a)
-    ? `<span class="badge zk" title="each reveal carries an EZKL proof the contract verified">zk proof</span>`
-    : `<span class="badge commit" title="committed before the deadline; no proof of which model made it">commit-only · ${a.forecast_source ?? "?"}</span>`;
+  const tierOf = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
+  const isZk = (a) => tierOf(a) === "zk";
+  const dashOf = (a) => ({ zk: null, reproducible: "2 4" })[tierOf(a)] ?? "6 4";
+  const repro = (a) => {
+    const flags = rounds.map((r) => r.agents[a.agent]?.reproduced).filter((v) => v != null);
+    return { checked: flags.length, failed: flags.filter((v) => v === false).length };
+  };
+  const tierBadge = (cls, title, zh, en) =>
+    `<span class="badge ${cls}" title="${title}">${zh}<span class="en"><span class="sep"> · </span>${en}</span></span>`;
+  const typeBadge = (a) => {
+    const tier = tierOf(a);
+    if (tier === "zk") return `<span class="badge zk" title="each reveal carries an EZKL proof the contract verified">zk proof</span>`;
+    if (tier === "reproducible") {
+      const { checked, failed } = repro(a), hash = a.model_hash ? short(a.model_hash) : "?";
+      const how = `modelHash ${hash} registered onchain; every reveal re-run from the onchain features with the public weights at a pinned revision (python -m vol_agents.recompute) and matched bucket by bucket`;
+      if (checked && !failed) return tierBadge("ok", `${how} · ${checked}/${checked} rounds reproduced`, "可复现-已核验", "reproducible·verified");
+      return tierBadge("commit", how, "可复现", "reproducible") +
+        (failed ? ` <span class="badge bad" title="${failed} of ${checked} rounds did not reproduce from the onchain features">reproduce failed</span>` : "");
+    }
+    return tierBadge("commit", "committed before the deadline; no proof of which model made it", "仅承诺", `commit-only · ${a.forecast_source ?? "?"}`);
+  };
   document.querySelector("h1").textContent = `Verifiable AI Forecasts · ${rp.hours} h mainnet replay`;
   document.getElementById("subtitle").innerHTML =
     `${d.network} · fork block ${blockLink(d.fork_block)} · ${rp.start_utc} → ${rp.end_utc} · ` +
@@ -305,19 +340,20 @@ function renderReplay({ data: d, src }) {
 
   const cumulative = (vals) => { let acc = 0; return vals.map((v) => v == null ? null : (acc += v)); };
   const scoreOf = (r, a) => r.outcome.voided ? null : r.agents[a.agent]?.log_score_float ?? null;
-  const excess = agents.map((a) => ({ name: a.agent, color: a.color, dash: isZk(a) ? null : "6 4",
+  const excess = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => { const v = scoreOf(r, a); return v == null ? null : v - uniform; })) }));
   const excessCard = card("Cumulative log score minus uniform baseline (nats)",
     lineChart(excess, labels, { zero: 0 }) +
     `<div class="sub">Above the dashed zero line = the agent has, in total, put more probability on the outcome than a
-    uniform 1/5 forecast (${uniform.toFixed(3)} per round). Voided rounds are not scored.</div>`, "wide");
+    uniform 1/5 forecast (${uniform.toFixed(3)} per round). Voided rounds are not scored.
+    Agent lines: solid = zk proof, dotted = reproducible, dashed = commit-only.</div>`, "wide");
 
   const W = Math.min(6, rounds.length);
   const rolling = (vals) => vals.map((_, i) => {
     const win = vals.slice(Math.max(0, i - W + 1), i + 1).filter((v) => v != null);
     return win.length ? win.reduce((x, y) => x + y, 0) / win.length : null;
   });
-  const roll = agents.map((a) => ({ name: a.agent, color: a.color, dash: isZk(a) ? null : "6 4",
+  const roll = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: rolling(rounds.map((r) => scoreOf(r, a))) }));
   const rollCard = card(`Rolling ${W}-round mean log score`, lineChart(roll, labels, { zero: uniform, max: 0 }) +
     `<div class="sub">Dashed line: uniform baseline ln(1/5).</div>`, "wide");
@@ -358,7 +394,7 @@ function renderReplay({ data: d, src }) {
       "wide", "fee-card");
   }
 
-  const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: isZk(a) ? null : "6 4",
+  const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
   const rewardCard = card("Cumulative predictor fee share (WETH)", lineChart(rewards, labels, { min: 0 }) +
     `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters above the uniform
@@ -370,40 +406,45 @@ function renderReplay({ data: d, src }) {
     const proves = rounds.map((r) => r.agents[a.agent]?.prove_seconds).filter((v) => v != null);
     const prove = proves.length ? (proves.reduce((x, y) => x + y, 0) / proves.length).toFixed(1) + " s" : "–";
     const repVal = Number(rep.summary_value) / 10 ** rep.summary_decimals;
-    return `<tr><td><span style="color:${a.color}">●</span> <b>${a.agent}</b> ${typeBadge(a)}<div class="sub mono">${short(a.address)}</div></td>
+    return `<tr><td><span style="color:${a.color}">●</span> <b class="nowrap">${a.agent}</b> ${typeBadge(a)}<div class="sub mono nowrap">${short(a.address)}</div></td>
       <td class="num">${m.rounds_scored}</td><td class="num"><b>${m.total_log_score.toFixed(3)}</b></td>
       <td class="num">${m.mean_log_score != null ? m.mean_log_score.toFixed(3) : "–"}</td>
       <td class="num">${m.beat_baseline_rounds}</td><td class="num">${eth(m.predictor_reward_wei)}</td>
       <td>${isZk(a) ? `${t ? badge(!t.tampered_output_verifies, "tampered proof rejected", "tamper accepted!") : ""}
         <div class="sub">prove ${prove} avg${t?.verify_proof_gas ? ` · verifyProof ${t.verify_proof_gas.toLocaleString()} gas` : ""}</div>`
+        : tierOf(a) === "reproducible" ? (({ checked, failed }) => `${checked
+          ? badge(!failed, `${checked}/${checked} reveals recomputed`, `${failed} of ${checked} not reproduced`) : ""}
+        <div class="sub">no proof; public weights, model <span class="mono">${a.model_hash ? short(a.model_hash) : "?"}</span></div>`)(repro(a))
         : `<div class="sub">no proof; reveal checked against commit only</div>`}</td>
-      <td>agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}<br>
+      <td class="nowrap">agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}<br>
         <span class="mono">${rep.tag1} / ${rep.tag2}</span></div></td></tr>`;
   }).join("");
-  const agentsCard = card("Agents over the replay", `<table><tr><th>Agent</th><th class="num">Scored</th>
+  const agentsCard = card("Agents over the replay", scrollTable(`<tr><th>Agent</th><th class="num">Scored</th>
     <th class="num">Σ ln p</th><th class="num">Mean</th><th class="num">Rounds &gt; baseline</th><th class="num">Fee share (WETH)</th>
     <th>Verification</th><th>ERC-8004 ${link(d.contracts.erc8004_reputation)}</th></tr>
     <tr><td class="sub">uniform baseline</td><td class="num">${s.settled}</td><td class="num">${s.uniform_total_log_score.toFixed(3)}</td>
-    <td class="num">${uniform.toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>${agentRows}</table>`, "wide");
+    <td class="num">${uniform.toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>${agentRows}`, 980), "wide");
 
   const roundRows = rounds.map((r) => {
     const o = r.outcome, m = r.mainnet;
     const scores = agents.map((a) => {
       const v = scoreOf(r, a);
-      return `<td class="num" style="color:${v == null ? "var(--muted)" : v > uniform ? "var(--ok)" : "var(--bad)"}">${v == null ? "–" : v.toFixed(2)}</td>`;
+      const miss = r.agents[a.agent]?.reproduced === false
+        ? ` <span class="badge bad" title="this reveal did not reproduce from the onchain features">✗</span>` : "";
+      return `<td class="num" style="color:${v == null ? "var(--muted)" : v > uniform ? "var(--ok)" : "var(--bad)"}">${v == null ? "–" : v.toFixed(2)}${miss}</td>`;
     }).join("");
-    return `<tr><td>#${r.id}</td><td class="mono">${r.window_utc[0].slice(5, 16)}</td>
-      <td>${blockLink(m.block_from)}–${blockLink(m.block_to)}</td>
+    return `<tr><td>#${r.id}</td><td class="mono nowrap">${r.window_utc[0].slice(5, 16)}</td>
+      <td class="nowrap">${blockLink(m.block_from)}–${blockLink(m.block_to)}</td>
       <td class="num">${m.swap_count}${m.last_swap_tx ? `<div class="sub">last ${txLink(m.last_swap_tx)}</div>` : ""}</td>
       <td class="num">${o.realized_vol ?? r.real_realized_vol} ${badge(r.rv_matches_mainnet, "=", "≠")}</td>
       <td>${o.voided ? `<span class="badge bad" title="${o.void_reason}">void</span><div class="sub">${o.void_reason}</div>` : `#${o.winning_bucket}`}</td>
       <td class="num">${r.chainlink?.feed_age_s ?? "–"} s<div class="sub">${r.chainlink?.deviation_bps ?? "–"} bps</div></td>
       ${scores}<td class="num">${o.gas_used?.toLocaleString() ?? "–"}</td></tr>`;
   }).join("");
-  const roundsCard = card("Rounds · mainnet blocks, swaps and scores", `<table><tr><th>Round</th><th>Window (UTC)</th>
+  const roundsCard = card("Rounds · mainnet blocks, swaps and scores", `${scrollTable(`<tr><th>Round</th><th>Window (UTC)</th>
     <th>Mainnet blocks</th><th class="num">Swaps</th><th class="num">RV vs mainnet</th><th>Outcome</th><th class="num">Feed age / dev</th>
     ${agents.map((a) => `<th class="num" style="color:${a.color}">${a.agent.replace("agent-", "")}</th>`).join("")}<th class="num">Settle gas</th></tr>
-    ${roundRows}</table>
+    ${roundRows}`, 1000)}
     <div class="sub" style="margin-top:8px">Block and transaction links point at Ethereum mainnet: the window's real blocks and its
     last pool swap. The market itself lives only on the local fork. Green score = above the uniform baseline.</div>`, "wide");
 
@@ -411,8 +452,8 @@ function renderReplay({ data: d, src }) {
   const clRows = rp.chainlink_reports.map((x) => `<tr><td>${txLink(x.mainnet_tx)}</td><td>${blockLink(x.mainnet_block)}</td>
     <td class="mono">${fmtTime(x.mainnet_updated_at)}</td><td class="num">$${x.answer_usd.toFixed(2)}</td>
     <td>${badge(x.ok, "replayed", "failed")}</td></tr>`).join("");
-  const clCard = card("Chainlink ETH/USD reports replayed", `<div style="max-height:320px;overflow-y:auto"><table>
-    <tr><th>Mainnet tx</th><th>Block</th><th>Updated</th><th class="num">Answer</th><th></th></tr>${clRows}</table></div>
+  const clCard = card("Chainlink ETH/USD reports replayed", `<div class="table-scroll" style="max-height:320px;overflow-y:auto">
+    <table style="min-width:560px"><tr><th>Mainnet tx</th><th>Block</th><th>Updated</th><th class="num">Answer</th><th></th></tr>${clRows}</table></div>
     <div class="sub" style="margin-top:8px">Each real transmission is re-sent on the fork by its original transmitter at its
     original timestamp, so the feed's answer and age at every settle are mainnet's.</div>`, "wide");
   const contractsCard = card("Contracts", `<dl class="kv">
