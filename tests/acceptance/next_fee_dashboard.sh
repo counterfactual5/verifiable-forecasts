@@ -103,8 +103,15 @@ printf '%s\n' "$res" | grep -E '^(ok|not ok) - '
 
 png=docs/img/dashboard.png
 ref=$(git log -1 --format=%ct -- "$json" 2>/dev/null || echo 0)
-mt=$(stat -f %m "$png" 2>/dev/null || stat -c %Y "$png" 2>/dev/null || echo 0)
-[[ $mt -gt $ref ]] && ok "$png newer than the fee data commit" || bad "$png newer than the fee data commit ($mt <= $ref)"
+# A screenshot committed together with the data keeps an mtime older than that commit, so a clean
+# screenshot is judged by its own commit time instead.
+if git diff --quiet HEAD -- "$png" 2>/dev/null && [[ -n "$(git log -1 --format=%ct -- "$png" 2>/dev/null)" ]]; then
+    pc=$(git log -1 --format=%ct -- "$png")
+    [[ $pc -ge $ref ]] && ok "$png committed with or after the fee data" || bad "$png committed with or after the fee data ($pc < $ref)"
+else
+    mt=$(stat -f %m "$png" 2>/dev/null || stat -c %Y "$png" 2>/dev/null || echo 0)
+    [[ $mt -gt $ref ]] && ok "$png newer than the fee data commit" || bad "$png newer than the fee data commit ($mt <= $ref)"
+fi
 
 python3 - <<'EOF' && ok "README consumer section: simulated, lending collateral roadmap" || bad "README consumer section: simulated, lending collateral roadmap"
 import re, sys
