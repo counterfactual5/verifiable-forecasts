@@ -74,6 +74,32 @@ def test_reputation_mean_decoding():
     assert fs.reputation_mean(3, -15, 19) == (False, 0)
 
 
+def test_reputation_mean_decimals_bounds():
+    assert fs.reputation_mean(3, -15, 18) == (True, -15)
+    assert fs.reputation_mean(3, -15, 0) == (True, -15 * E18)
+
+
+def test_reputation_mean_count_fits_uint64():
+    assert fs.reputation_mean(2**64 - 1, -E18, 18) == (True, -E18)
+    assert fs.reputation_mean(2**64, -E18, 18) == (False, 0)
+
+
+@pytest.mark.parametrize("value,want", [
+    (2**127 - 1, (True, 2**127 - 1)),
+    (-(2**127), (True, -(2**127))),
+    (2**127, (False, 0)),
+    (-(2**127) - 1, (False, 0)),
+])
+def test_reputation_mean_value_fits_int128(value, want):
+    assert fs.reputation_mean(1, value, 18) == want
+
+
+@pytest.mark.parametrize("has_registry", [True, False])
+def test_forecast_weights_rejects_no_revealed_forecasts(has_registry):
+    with pytest.raises(ValueError, match="no revealed forecasts"):
+        fs.forecast_weights([], -E18, has_registry)
+
+
 @pytest.mark.parametrize("fee_ts", [100_000 - 30, 100_000 - 1, 100_000 - 300, 100_000 - 299])
 def test_prev_hour_window_never_passes_fee_time(fee_ts):
     origin = 100_000 - 18 * 300

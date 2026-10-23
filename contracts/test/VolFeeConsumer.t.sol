@@ -6,6 +6,7 @@ import {VolFeeConsumer, IVolMarketReader} from "../src/VolFeeConsumer.sol";
 import {ReputationRegistryLite} from "../src/erc8004/ReputationRegistryLite.sol";
 import {MockFeeMarket} from "./mocks/MockFeeMarket.sol";
 import {MockReputationTuple} from "./mocks/MockReputationTuple.sol";
+import {RawReputationRegistry} from "./mocks/RawReputationRegistry.sol";
 
 contract VolFeeConsumerTest is Test {
     uint32 constant REVEAL_LEAD = 100;
@@ -367,6 +368,61 @@ contract VolFeeConsumerTest is Test {
         market.addForecast(1, carol, true, ZK_MODEL_2, _probsB());
         market.bindAgent(ZK_MODEL_2, AGENT_C);
         _assertMix(_mixOf(1), _equalMixAB());
+    }
+
+    /// @dev Agent A gets a valid tuple summary 3e17 above the baseline; agent B gets `rawB`, so the
+    ///      mix is weighted 3:1 only if `rawB` is read as a mean 1e17 above the baseline.
+    function _rawAB(bytes memory rawB) internal returns (RawReputationRegistry raw) {
+        raw = new RawReputationRegistry();
+        market.setReputationRegistry(address(raw));
+        _addAB(0);
+        _bindAB();
+        raw.setSummary(AGENT_A, abi.encode(uint256(1), BASELINE + 3e17, uint256(18)));
+        raw.setSummary(AGENT_B, rawB);
+        _open();
+    }
+
+    function test_TupleCountPastUint64IsNoReputation() public {
+        RawReputationRegistry raw = _rawAB(abi.encode(uint256(1) << 64, BASELINE + 1e17, uint256(18)));
+        _assertMix(_mixOf(0), _equalMixAB());
+        raw.setSummary(AGENT_B, abi.encode(uint256(type(uint64).max), BASELINE + 1e17, uint256(18)));
+        _assertMix(_mixOf(0), _weightedMixAB());
+    }
+
+    function test_TupleValueOutsideInt128IsNoReputation() public {
+        RawReputationRegistry raw = _rawAB(abi.encode(uint256(1), int256(type(int128).max) + 1, uint256(18)));
+        _assertMix(_mixOf(0), _equalMixAB());
+        raw.setSummary(AGENT_B, abi.encode(uint256(1), int256(type(int128).min) - 1, uint256(18)));
+        _assertMix(_mixOf(0), _equalMixAB());
+        raw.setSummary(AGENT_B, abi.encode(uint256(1), int256(type(int128).min), uint256(18)));
+        _assertMix(_mixOf(0), _probsA());
+    }
+
+    function test_SummaryOfOtherLengthIsNoReputation() public {
+        RawReputationRegistry raw = _rawAB(abi.encode(uint256(1), BASELINE + 1e17, uint256(18), uint256(0)));
+        _assertMix(_mixOf(0), _equalMixAB());
+        raw.setSummary(AGENT_B, abi.encode(uint256(1), BASELINE + 1e17, uint256(18)));
+        _assertMix(_mixOf(0), _weightedMixAB());
+    }
+
+    function test_IntSummaryNeedsBothTagsMatching() public {
+        RawReputationRegistry raw = _rawAB(abi.encode(BASELINE + 1e17));
+        raw.setSummary(AGENT_A, abi.encode(BASELINE + 3e17));
+        raw.addRecord(AGENT_A, TAG1, TAG2_ZK);
+        raw.addRecord(AGENT_B, "otherScore", TAG2_COMMIT);
+        _assertMix(_mixOf(0), _equalMixAB());
+        raw.addRecord(AGENT_B, TAG1, TAG2_COMMIT);
+        _assertMix(_mixOf(0), _weightedMixAB());
+    }
+
+    function test_IntSummaryWithUnreadableFeedbackIsNoReputation() public {
+        RawReputationRegistry raw = _rawAB(abi.encode(BASELINE + 1e17));
+        raw.setSummary(AGENT_A, abi.encode(BASELINE + 3e17));
+        raw.addRecord(AGENT_A, TAG1, TAG2_ZK);
+        raw.addRecord(AGENT_B, TAG1, TAG2_COMMIT);
+        _assertMix(_mixOf(0), _weightedMixAB());
+        raw.setFeedbackReverts(true);
+        _assertMix(_mixOf(0), _equalMixAB());
     }
 
     function test_NoReputationFallsBackToEqual() public {
