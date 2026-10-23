@@ -1108,7 +1108,7 @@ def main():
                     continue
                 for a in agents:
                     row = rp.rounds[h]["agents"][a.name]
-                    if a.tier != "reproducible" or not isinstance(a, ApiAgent) or not row["entered"]:
+                    if not isinstance(a, ApiAgent) or a.tier != "reproducible" or not row["entered"]:
                         continue
                     t0 = time.time()
                     row.update(recompute_reveal(c, market, rp.rounds[h]["id"], a, rpc_url))
