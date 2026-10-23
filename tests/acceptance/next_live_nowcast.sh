@@ -109,7 +109,8 @@ const fs = require("fs");
     check(r.rows.length === d.agents.length, `@${width}: one provider row per agent (${r.rows.length}/${d.agents.length})`);
     const ok = d.agents.every((a) => {
       const row = r.rows.find((x) => x.agent === a.agent);
-      const prov = a.provider ? "自部署推理服务" : (a.tier ?? "zk") === "zk" ? "自建 zk" : null;
+      const prov = a.provider === "self-hosted inference" ? "自部署推理服务"
+        : a.provider === "self-built zk" || (!a.provider && (a.tier ?? "zk") === "zk") ? "自建 zk" : null;
       return row && (!prov || row.provider === prov) && row.text.includes(String(a.agent_id)) && row.text.includes(a.address.slice(0, 6))
         && (!a.model_hash || /^0x0*$/.test(a.model_hash) || row.text.includes(a.model_hash.slice(0, 6)));
     });

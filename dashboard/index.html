@@ -938,7 +938,7 @@ function renderReplay({ data: d, src }) {
     if (tier === "reproducible") {
       const { checked, failed } = repro(a), hash = a.model_hash ? short(a.model_hash) : "?";
       const how = a.recompute_command
-        ? `modelHash ${hash} registered onchain; anyone can recompute each reveal from chain data with the public weights at a pinned revision (${a.recompute_command}): every bucket within ${tolText(a)} (tolerance check; the reveal is committed before the outcome)`
+        ? `modelHash ${hash} registered onchain; anyone can recompute each reveal from the onchain features (and, for 512-point models, the pool's Swap logs) with the public weights at a pinned revision (${a.recompute_command}): every bucket within ${tolText(a)} (tolerance check; the reveal is committed before the outcome)`
         : `modelHash ${hash} registered onchain; every reveal re-run from the onchain features with the public weights at a pinned revision (python -m vol_agents.recompute) and matched bucket by bucket`;
       if (checked && !failed) return tierBadge("ok", `${how} · ${checked}/${checked} rounds reproduced`, "可复现-已核验", "reproducible·verified");
       if (!checked && a.recompute_command) return tierBadge("commit", `${how}; not re-run by this replay`, "可复现", "reproducible · offline check");

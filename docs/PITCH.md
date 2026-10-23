@@ -32,15 +32,16 @@ who pick forecasters by reputation. Paying them per request over x402 is roadmap
 **1:25 Who consumes it (35 s).** `VolFeeConsumer` mixes the revealed forecasts, weighted by ERC-8004
 reputation, into an LVR-based dynamic fee for the pool. In the replay we measured mean absolute
 error against the fair LVR fee, which averages 3.71 bps. Fixed 5 bps has the lowest error, 1.84 bps.
-The forecast fee scores 2.31, ahead of the previous-hour realized-vol fee at 2.81 but not ahead of
+The forecast fee scores 2.06, ahead of the previous-hour realized-vol fee at 2.81 but not ahead of
 the fixed tier. This is simulated; no real fee is charged.
 
 **2:00 Three verification tiers (35 s).** zk: small models attach an EZKL proof that the registered
-model computed these outputs from the contract's inputs. The reproducible tier is implemented: Chronos-Bolt
-with open weights, its `modelHash` stored at `registerModel`; anyone re-runs the forecast from
-onchain features with `python -m vol_agents.recompute`, and it matched in 24/24 rounds. Commit-only:
-timing, not provenance. Reproducibility proves provenance, not accuracy: Chronos-Bolt zero-shot
-scored −46.2 in total, below the uniform baseline of −38.6.
+model computed these outputs from the contract's inputs. The reproducible tier is implemented: three
+time-series models with open weights, timesfm-3.0, timestral-209m and chronos-2, their `modelHash`
+stored at `registerModel`; anyone re-runs a forecast from chain data with
+`python -m vol_agents.tsfm_recompute`, every bucket within 0.001, and it held in 24/24 rounds for
+each. Commit-only: timing, not provenance. Reproducibility proves provenance, not accuracy;
+zero-shot timestral-209m happened to score −34.8 in total, above the uniform baseline of −38.6.
 
 **2:35 Demo and limits (25 s).** Mainnet fork, real pool, real Chainlink feed, 24 real hours: 24
 rounds settled, 0 voided, features and volatility equal to the mainnet recompute. `linear_abs` −35.5
@@ -55,9 +56,9 @@ about skill. Next: live rounds with outside agents.
 
 **agent 与 keeper（25 秒）**：`settle`、`createRound` 是 keeper 活，无许可，谁都能调。预测者才是 ERC-8004 意义上的 agent：在不确定性下做判断、要担责、需要信誉。agent 经济在消费方：消费方按信誉挑预测者；按次 x402 付费是路线图。
 
-**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的预测按 ERC-8004 信誉加权合成，按 LVR 设定池子的动态手续费。回放里对比各策略与公平 LVR 费率（均值 3.71 bps）的平均绝对误差：固定 5 bps 误差最低，为 1.84 bps。预报定费 2.31，好过上一小时波动定费 2.81，没赢过固定档；模拟，不真实收费。
+**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的预测按 ERC-8004 信誉加权合成，按 LVR 设定池子的动态手续费。回放里对比各策略与公平 LVR 费率（均值 3.71 bps）的平均绝对误差：固定 5 bps 误差最低，为 1.84 bps。预报定费 2.06，好过上一小时波动定费 2.81，没赢过固定档；模拟，不真实收费。
 
-**三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记模型由合约输入得出这组输出。可复现（已实现）：开源权重的 Chronos-Bolt，`registerModel` 时登记 `modelHash`，任何人用 `python -m vol_agents.recompute` 从链上特征重算，24/24 轮一致。仅承诺：只证明时间，不证明出处。可复现证明的是出处不是准确：Chronos-Bolt 零样本总分 −46.2，低于均匀基线 −38.6。
+**三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记模型由合约输入得出这组输出。可复现（已实现）：三个开源权重时序模型登记 `modelHash`，任何人用 `vol_agents.tsfm_recompute` 从链上数据重算，每桶误差 ≤ 0.001，均 24/24 轮。仅承诺：只证明时间。可复现证明出处不证明准确；零样本 timestral-209m 总分 −34.8，高于均匀基线 −38.6。
 
 **演示与局限（25 秒）**：主网 fork、真实池子与 Chainlink 喂价，回放 24 个真实小时：24 轮全部结算、0 作废，特征与波动率都与主网重算一致。`linear_abs` −35.5、`mlp32_abs` −35.8 跑赢均匀基线 −38.6，`mlp16` −39.2 没有。一天说明不了能力；下一步开放外部 agent 跑真实轮次。
 
@@ -87,15 +88,16 @@ about skill. Next: live rounds with outside agents.
    `sample()` fallback, voided under 90 % coverage; Chainlink cross-check (> 200 bps or > 3900 s stale
    voids). Plus: reputation written by the market and filtered by market address.
 6. **Demo.** Mainnet fork, real pool, deployed ERC-8004, real feed, 24 consecutive real hours
-   (2026-10-21 06:00 – 10-22 06:00 UTC, blocks 26,239,037–26,246,222), about 12 minutes with
-   `HOURS=24 bash demo/run.sh`. Screenshot `docs/img/dashboard.png` and the summary: 24 settled,
+   (2026-10-21 06:00 – 10-22 06:00 UTC, blocks 26,239,037–26,246,222), about 13 minutes with
+   `HOURS=24 bash demo/run.sh` plus 26.5 minutes of CPU recompute. Screenshot `docs/img/dashboard.png` and the summary: 24 settled,
    0 voided, features and RV equal the mainnet recompute every round, tampered proofs rejected, each
    agent's ERC-8004 `getSummary` count = 24. Totals: `linear_abs` −35.506, `mlp32_abs` −35.816,
-   uniform −38.627, `mlp16` −39.190, reproducible Chronos-Bolt zero-shot −46.203, recomputed from
-   onchain features in 24/24 rounds (grade X, `docs/DEMO.md`, `dashboard/sample-replay.json`).
+   uniform −38.627, `mlp16` −39.190; reproducible zero-shot timestral-209m −34.761, chronos-2
+   −35.824, timesfm-3.0 −37.553, each recomputed from chain data within 0.001 per bucket in 24/24
+   rounds (grade X, `docs/DEMO.md`, `dashboard/sample-replay.json`).
    Fee card: MAE against the fair LVR fee (mean 3.71 bps) is 1.84 bps for fixed 5 bps (lowest),
-   2.81 for previous-hour realized vol, 2.31 for the forecast fee; rounds with no reputation yet fall
-   back to equal weights (4 of 24) (grade X, `dashboard/sample-replay.json` `summary.fee_strategies`).
+   2.81 for previous-hour realized vol, 2.06 for the forecast fee; rounds with no reputation yet fall
+   back to equal weights (3 of 24) (grade X, `dashboard/sample-replay.json` `summary.fee_strategies`).
 7. **Track fit.** Verifiable AI (verified inference on contract-derived inputs), Agent Infra (ERC-8004
    identity + a reputation signal agents cannot self-report), Chainlink (feed as settlement guard).
 8. **Limits, stated plainly.** Models trained on 4 weeks of one pool, bounds `[202, 474, 856, 1712]`
@@ -132,12 +134,14 @@ So provenance can be offered in tiers, and readers choose which tier they trust:
 - **zk (implemented, small models).** What runs today: EZKL proof on contract-derived inputs.
 - **Reproducible** (implemented): open weights plus a pinned runner, registered with
   `registerModel(address(0), operator, modelHash)`, where `modelHash` hashes the weights, config and
-  runner. The replay's `agent-chronos-bolt` runs the public `amazon/chronos-bolt-tiny` weights on CPU;
-  anyone recomputes a reveal from the onchain features with
-  `uv run python -m vol_agents.recompute --rpc-url <RPC> --market <MARKET> --round <ID> --model-id <ID>`
-  (in `agents/`), which exits 0 only if the hash and all 5 buckets match. It matched in 24/24 rounds
+  runner. The replay's `agent-timesfm-3.0`, `agent-timestral-209m` and `agent-chronos-2` register
+  the hash of public weights at a pinned revision; anyone recomputes a reveal on CPU with
+  `uv run python -m vol_agents.tsfm_recompute --model <MODEL> --rpc-url <RPC> --market <MARKET> --round <ID> --model-id <ID>`
+  (in `agents/`), which exits 0 only if the hash matches and every bucket is within 0.001 (the reveal
+  is rounded to that grid before the commitment). It held in 24/24 rounds for each, all 72 exact
   (X, `dashboard/sample-replay.json` `reproduced_rounds`). This proves provenance, not accuracy:
-  zero-shot Chronos-Bolt totals −46.2, below the uniform baseline −38.6 (X, same file).
+  zero-shot timestral-209m totals −34.8, timesfm-3.0 −37.6, against the uniform baseline −38.6
+  (X, same file).
 - **Commit-only (implemented).** Any model, registered with `verifier = address(0)` and no
   `modelHash`; proves timing, not provenance.
 - **TEE remote attestation (not implemented).** For large models and LLMs; trusts the hardware vendor.
@@ -157,7 +161,7 @@ and reputation do the punishing.
 | This project's largest zk model, `mlp32_abs` | 709 | X, `agents/MODEL_CARD.md` §4 (parameter table) |
 | EZKL feasibility spike (small model, fixed params, Softmax): prove 8.9 s, 1.23 GB peak, verifier 19,656 B, 794,589 gas | small, logrows 15 | X, `spikes/ezkl/README.md` (Apple M5) |
 | On-chain practical range for zkML (general estimate, not measured here) | ~1e5–1e6 parameters | [待证据] (no measured source in this repo) |
-| Chronos-Bolt (tiny) | far beyond our zk path; served in the reproducible tier | [待证据] (exact count not cited here) |
+| timesfm-3.0 / timestral-209m / chronos-2 | far beyond our zk path; served in the reproducible tier | [待证据] (exact count not cited here) |
 
 All agents, zk included, go through commit-reveal. The commitment is
 `keccak256(abi.encode(roundId, modelId, outputs, salt, msg.sender))`, so a copied commitment cannot be
@@ -174,8 +178,8 @@ stake-secured re-execution, zkML proofs and TEE oracles (grade A, EIP-8004).
 
 问责分四层：事前承诺（哈希承诺 + 公开截止）、客观结算（`observe()` + Chainlink 交叉校验）、成绩可携带
 （ERC-8004）都不依赖 zk；只有“出处：确实是该模型算的”需要 zk 证明或公开重算。出处分级：zk（已实现，小模型）；
-可复现（已实现，开源权重 + 固定推理代码，`registerModel` 登记 `modelHash`，任何人用 `vol_agents.recompute`
-从链上特征重算，回放 24/24 轮一致；只证明出处不证明准确，Chronos-Bolt 零样本总分 −46.2 低于均匀基线 −38.6）；
+可复现（已实现，开源权重 + 固定推理代码，`registerModel` 登记 `modelHash`，任何人用 `vol_agents.tsfm_recompute`
+从链上数据重算，每桶误差 ≤ 0.001，回放三个模型均 24/24 轮；只证明出处不证明准确）；
 仅承诺（已实现，任意模型，`verifier = 0` 且无 `modelHash`，只证明时间不证明出处）；TEE 远程证明（大模型 / LLM，
 需信任硬件厂商，未实现）。不做 opML：它需要挑战窗口和链上单步 VM，长于一小时一轮，且依赖 1-of-N 诚实假设
 （至少一个诚实验证者在盯并愿意发起挑战）。本项目最大的 zk 模型 709 个参数；链上 zkML 实用规模的通行说法见上表，
@@ -206,7 +210,7 @@ the contract mints nothing. It is small while betting volume is small.
 makers, agent vaults. Payment by subscription as Synth does, or per request for an aggregated forecast
 over x402 (roadmap). `VolFeeConsumer` is a simulated example of such a reader: it sets a dynamic
 fee from reputation-weighted forecasts, and in the replay fixed 5 bps still tracked the fair LVR fee
-more closely (MAE 1.84 vs 2.31 bps). That DeFi already pays for hourly bucketed probabilities is [待证据]. What is sourced: a
+more closely (MAE 1.84 vs 2.06 bps). That DeFi already pays for hourly bucketed probabilities is [待证据]. What is sourced: a
 paid subscription for a similar product exists. Synth's API plans are $49 / $199 / $499 per month (A,
 [Synth docs](https://docs.synthdata.co/getting-started/credits-and-pricing)), and community reporting
 puts its Q1 2026 MRR at about $70k (C, [TAO Daily](https://taodaily.io/james-ross-gives-synths-q1-report-on-community-call/)).
@@ -318,10 +322,10 @@ BasisOS are grade C only and are deliberately not used.
 |---|---|---|
 | Proof time per model (laptop) | ≈ 2 s in the fork replay; 7.3–17.8 s / 0.87–0.99 GB under concurrent tests | X, `docs/DEMO.md`, `agents/MODEL_CARD.md` §1 |
 | Verifier size / `verifyProof` gas | ≈ 21.8 KB (< 24,576 B) / ≈ 849k gas | X, `agents/MODEL_CARD.md` §1, `docs/DEMO.md` |
-| Fork replay | 24 real hours, 24 settled, 0 voided, ≈ 12 min | X, `docs/DEMO.md` |
-| Replay totals (24 rounds) | `linear_abs` −35.5, `mlp32_abs` −35.8, uniform −38.6, `mlp16` −39.2 | X, `dashboard/sample-replay.json` `summary.agents` |
-| Consumer fee, MAE vs fair LVR fee (fair mean 3.71 bps) | fixed 5 bps 1.84 (lowest), previous-hour realized vol 2.81, forecast 2.31 bps | X, `dashboard/sample-replay.json` `summary.fee_strategies` |
-| Reproducible Chronos-Bolt (zero-shot) | total −46.2 vs uniform −38.6; recompute matched 24/24 rounds | X, `dashboard/sample-replay.json` `summary.agents.agent-chronos-bolt` |
+| Fork replay | 24 real hours, 24 settled, 0 voided, ≈ 13 min (+ 26.5 min CPU recompute) | X, `docs/DEMO.md` |
+| Replay totals (24 rounds) | `timestral-209m` −34.8, `linear_abs` −35.5, `mlp32_abs` −35.8, `chronos-2` −35.8, `timesfm-3.0` −37.6, uniform −38.6, `mlp16` −39.2 | X, `dashboard/sample-replay.json` `summary.agents` |
+| Consumer fee, MAE vs fair LVR fee (fair mean 3.71 bps) | fixed 5 bps 1.84 (lowest), previous-hour realized vol 2.81, forecast 2.06 bps | X, `dashboard/sample-replay.json` `summary.fee_strategies` |
+| Reproducible timesfm-3.0 / timestral-209m / chronos-2 (zero-shot) | recompute within 0.001 per bucket in 24/24 rounds each (all 72 exact) | X, `dashboard/sample-replay.json` `summary.agents.*.reproduced_rounds` |
 | Largest zk model | 709 parameters (`mlp32_abs`) | X, `agents/MODEL_CARD.md` §4 |
 | Test-period mean log score | `linear_abs` −1.418, `mlp16` −1.423, transition baseline −1.452, `mlp32_abs` −1.469, uniform −1.609 | X, `agents/MODEL_CARD.md` §6 |
 | 4-fold walk-forward mean log score | `linear_abs` −1.345, `mlp16` −1.383, transition baseline −1.395, `mlp32_abs` −1.398, uniform −1.609 | X, `agents/MODEL_CARD.md` §6.1 |

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # R7 acceptance: docs/PITCH.md answers the three judge questions (agent vs keeper, who consumes the
 # forecast, how large models are verified), quotes the replay numbers exactly as the replay JSON has them
-# (fixed 5 bps has the lowest fee MAE; Chronos-Bolt zero-shot scores below the uniform baseline) in both
+# (the lowest-MAE fee strategy; the best of the three reproducible agents timesfm-3.0 / timestral-209m /
+# chronos-2 against the uniform baseline, in the direction the data has it) in both
 # 3-minute scripts, drops the stale placeholder figures, stays speakable in 3 minutes, and docs/PLAN.md
 # has phases 2 and 3 ticked.
 set -uo pipefail
@@ -36,8 +37,15 @@ check(bool(en) and bool(zh), "both 3-minute scripts exist")
 mae = {k: f"{v:.2f}" for k, v in fee["mae_bps"].items()}
 fair = f"{fee['mean_bps']['fair']:.2f}"
 uniform = f"{d['summary']['uniform_total_log_score']:.1f}"
-chronos = f"{agents['agent-chronos-bolt']['total_log_score']:.1f}"
-check(mae["fixed"] == "1.84" and mae["forecast"] == "2.31", f"replay JSON still has fixed {mae['fixed']} / forecast {mae['forecast']}")
+reps = sorted(a["agent"] for a in d["agents"] if a.get("tier") == "reproducible")
+check(reps == ["agent-chronos-2", "agent-timesfm-3.0", "agent-timestral-209m"], f"replay JSON has the three reproducible agents {reps}")
+best_rep = max(reps, key=lambda n: agents[n]["total_log_score"]) if reps else None
+best_tot = agents[best_rep]["total_log_score"] if best_rep else float("nan")
+brep = f"{best_tot:.1f}"
+above = best_tot > d["summary"]["uniform_total_log_score"]
+cmp_word = r"above|higher|beat|better|高于|跑赢|好于|优于" if above else r"below|under|worse|lower|低于|不如|差于"
+low = min(fee["mae_bps"], key=fee["mae_bps"].get)
+check(mae["fixed"] == "1.84" and mae["forecast"] == "2.06", f"replay JSON still has fixed {mae['fixed']} / forecast {mae['forecast']}")
 
 def sentences(txt):
     return [s for s in re.split(r"(?<=[.!?。！？；;])(?!\d)\s*|\n\s*\n", txt) if s.strip()]
@@ -45,10 +53,10 @@ def sentences(txt):
 for name, txt in (("English script", en), ("Chinese script", zh)):
     sents = sentences(txt)
     check(mae["fixed"] in txt and mae["forecast"] in txt, f"{name} quotes fixed-5-bps MAE {mae['fixed']} and forecast MAE {mae['forecast']}")
-    check(any(mae["fixed"] in s and re.search(r"lowest|lower|smallest|最低|最小|低于", s, re.I) for s in sents),
-          f"{name} says in one sentence that fixed 5 bps ({mae['fixed']}) has the lowest error")
-    check(any(chronos in s and uniform in s and re.search(r"below|under|worse|lower|低于|不如|差于", s, re.I) for s in sents),
-          f"{name} says in one sentence that Chronos-Bolt {chronos} is below uniform {uniform}")
+    check(any(mae[low] in s and re.search(r"lowest|lower|smallest|最低|最小|低于", s, re.I) for s in sents),
+          f"{name} says in one sentence that {low} ({mae[low]}) has the lowest error")
+    check(any(brep in s and uniform in s and best_rep.removeprefix("agent-") in s and re.search(cmp_word, s, re.I) for s in sents),
+          f"{name} says in one sentence that {best_rep} {brep} is {'above' if above else 'below'} uniform {uniform}")
     praise = [
         r"forecast[^.\n]{0,60}(beat|outperform|lower|better|closer)[^.\n]{0,40}(fixed|5 bps)",
         r"forecast[^.\n]{0,40}\b(best|lowest|most accurate)\b",
@@ -58,7 +66,8 @@ for name, txt in (("English script", en), ("Chinese script", zh)):
         r"固定[^。\n]{0,30}(不如|差于|输给|高于)[^。\n]{0,20}预测",
     ]
     hits = [m.group(0) for p in praise for s in sents for m in [re.search(p, s, re.I)] if m]
-    check(not hits, f"{name} does not claim the forecast fee beats fixed 5 bps {hits[:2]}")
+    if low != "forecast":
+        check(not hits, f"{name} does not claim the forecast fee beats fixed 5 bps {hits[:2]}")
     check(re.search(r"keeper", txt, re.I) is not None, f"{name} contrasts agents with keepers")
     check(any("settle" in s and "createRound" in s and re.search(r"permissionless|无许可", s, re.I) for s in sents),
           f"{name} says in one sentence that settle / createRound are permissionless")

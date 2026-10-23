@@ -32,8 +32,9 @@ check(any(l.startswith("|") and re.search(r"registerModel\([^)]*modelHash", l) a
 check(any(l.startswith("| `registerModel(") and "modelHash" in l for l in arch.splitlines()),
       "ARCHITECTURE interface table row for registerModel carries modelHash")
 demo = arch.split("## 8.", 1)[1].split("\n## ", 1)[0] if "## 8." in arch else ""
-check(bool(demo) and "演示比离线回合多一个仅承诺 agent（`api_agent.py`" not in demo and re.search(r"Chronos-Bolt|可复现", demo) is not None,
-      "ARCHITECTURE demo section names the reproducible Chronos-Bolt agent, not the API placeholder")
+check(bool(demo) and "演示比离线回合多一个仅承诺 agent（`api_agent.py`" not in demo and "可复现" in demo
+      and all(n in demo for n in ("agent-timesfm-3.0", "agent-timestral-209m", "agent-chronos-2")),
+      "ARCHITECTURE demo section names the three reproducible model agents, not the API placeholder")
 trust = arch.split("## 10.", 1)[1].split("\n## ", 1)[0] if "## 10." in arch else ""
 check(bool(trust) and "modelHash" in trust, "ARCHITECTURE trust boundary covers the reproducible tier")
 check(not any("大模型" in s and "出处" in s and "TEE" in s and "可复现" not in s for s in re.split(r"[。\n]", arch)),

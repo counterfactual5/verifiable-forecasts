@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# R6 acceptance: the 24-hour replay runs the reproducible Chronos-Bolt agent in place of the
-# placeholder, records tier / model_hash / per-round probs_e18 and the real recompute verdict, the
+# R6 acceptance: the 24-hour replay runs the three reproducible time-series model agents
+# (timesfm-3.0, timestral-209m, chronos-2), records tier / model_hash / per-round probs_e18 and the
+# real tolerance recompute verdict (every bucket within the recorded tolerance), the
 # dashboard shows zk / 可复现-已核验 / 仅承诺 badges (and a visible failure badge), and README / DEMO
 # numbers follow the new run; the R2 / R3 acceptance keeps passing.
 set -uo pipefail
@@ -26,10 +27,13 @@ if len(rounds) != 24: errs.append(f"{len(rounds)} rounds")
 ag = d["agents"]
 zk = [a for a in ag if a.get("tier") == "zk"]
 rep = [a for a in ag if a.get("tier") == "reproducible"]
-if len(zk) != 3 or len(rep) != 1: errs.append(f"tiers {[a.get('tier') for a in ag]}")
+want = ["agent-chronos-2", "agent-timesfm-3.0", "agent-timestral-209m"]
+if len(zk) != 3 or sorted(a["agent"] for a in rep) != want: errs.append(f"tiers {[(a['agent'], a.get('tier')) for a in ag]}")
 if any(a.get("model_type") is None for a in ag): errs.append("model_type dropped")
-if rep:
-    a = rep[0]
+for a in rep:
+    tol = int(a.get("recompute_tolerance") or 0)
+    if not 0 < tol <= 10**15: errs.append(f"{a['agent']} recompute_tolerance {a.get('recompute_tolerance')}")
+    if "vol_agents.tsfm_recompute" not in (a.get("recompute_command") or ""): errs.append(f"{a['agent']} recompute_command")
     if not re.fullmatch(r"0x[0-9a-fA-F]{64}", a.get("model_hash") or "") or int(a["model_hash"], 16) == 0:
         errs.append(f"model_hash {a.get('model_hash')}")
     e = d["summary"]["agents"][a["agent"]]["erc8004"]
@@ -41,7 +45,9 @@ if rep:
                 and sum(int(v) for v in pe) == 10**18):
             errs.append(f"round {r['h']} probs_e18 {pe}"); break
         if ra.get("reproduced") is not True:
-            errs.append(f"round {r['h']} reproduced {ra.get('reproduced')}"); break
+            errs.append(f"{a['agent']} round {r['h']} reproduced {ra.get('reproduced')}"); break
+        if ra.get("recompute_verdict") not in ("exact", "tolerant") or not 0 <= int(ra.get("recompute_max_abs_diff", -1)) <= tol:
+            errs.append(f"{a['agent']} round {r['h']} verdict {ra.get('recompute_verdict')} diff {ra.get('recompute_max_abs_diff')}"); break
         if ra.get("forecast_source") == "placeholder":
             errs.append(f"round {r['h']} placeholder source"); break
 for a in zk:
@@ -53,21 +59,22 @@ if "fee_strategies" not in s or any("fee" not in r for r in rounds): errs.append
 print("\n".join(errs)); sys.exit(1 if errs else 0)
 EOF
 
-# independent offline recompute of three rounds from their recorded features
+# independent offline recompute of three rounds from their recorded features: timesfm-3.0 reads
+# only the 16 features, so it is recomputable from the JSON alone, within the recorded tolerance
 mkdir -p "$root/docs/.local"
 python3 - "$json" > "$root/docs/.local/tmp_repro_rounds.tsv" <<'EOF'
 import json, sys
 d = json.load(open(sys.argv[1]))
-name = next(a["agent"] for a in d["agents"] if a.get("tier") == "reproducible")
+a = next(a for a in d["agents"] if a["agent"] == "agent-timesfm-3.0")
 b = ",".join(map(str, d["params"]["bounds"]))
 for h in (0, 11, 23):
     r = d["rounds"][h]
-    print(h, ",".join(map(str, r["features"])), b, json.dumps([int(v) for v in r["agents"][name]["probs_e18"]]), sep="\t")
+    print(h, ",".join(map(str, r["features"])), b, json.dumps([int(v) for v in r["agents"][a["agent"]]["probs_e18"]]), int(a["recompute_tolerance"]), sep="\t")
 EOF
 if [[ -s "$root/docs/.local/tmp_repro_rounds.tsv" ]]; then
-    while IFS=$'\t' read -r h f b want; do
-        got=$(cd agents && uv run python -m vol_agents.recompute --features="$f" --bounds="$b" 2>/dev/null)
-        python3 -c "import json,sys; g=json.loads(sys.argv[1]); w=json.loads(sys.argv[2]); sys.exit(0 if g==w and sum(g)==10**18 else 1)" "$got" "$want" 2>/dev/null \
+    while IFS=$'\t' read -r h f b want tol; do
+        got=$(cd agents && uv run python -m vol_agents.tsfm_recompute --model timesfm-3.0 --features="$f" --bounds="$b" 2>/dev/null)
+        python3 -c "import json,sys; g=json.loads(sys.argv[1]); w=json.loads(sys.argv[2]); t=int(sys.argv[3]); sys.exit(0 if len(g)==5 and all(abs(x-y)<=t for x,y in zip(g,w)) and sum(g)==10**18 else 1)" "$got" "$want" "$tol" 2>/dev/null \
             && ok "round $h offline recompute equals probs_e18" || bad "round $h offline recompute equals probs_e18 (got ${got:-nothing})"
     done < "$root/docs/.local/tmp_repro_rounds.tsv"
 else bad "round features for offline recompute"; fi
@@ -78,7 +85,7 @@ mkdir -p "$tmp"
 python3 - "$json" "$tmp/failed.json" <<'EOF'
 import json, sys
 d = json.load(open(sys.argv[1]))
-name = next(a["agent"] for a in d["agents"] if a.get("tier") == "reproducible")
+name = "agent-timesfm-3.0"
 d["rounds"][5]["agents"][name]["reproduced"] = False
 json.dump(d, open(sys.argv[2], "w"))
 EOF
@@ -110,18 +117,18 @@ const check = (cond, msg) => { console.log(`${cond ? "ok" : "not ok"} - ${msg}`)
     await page.waitForSelector("#app section.card", { timeout: 15000 });
     return { page, pageErrors };
   };
-  const rep = d.agents.find((a) => a.tier === "reproducible");
+  const reps = d.agents.filter((a) => a.tier === "reproducible"), rep = reps[0];
   const { page, pageErrors } = await open("sample-replay.json", 1280);
   const text = await page.locator("#app").innerText();
   const zkBadges = await page.locator(".badge.zk").count();
   check(zkBadges >= 3, `at least 3 zk badges (found ${zkBadges})`);
   const repBadge = page.locator(".badge", { hasText: "可复现-已核验" });
-  check(await repBadge.count() >= 1, "reproducible agent shows a 可复现-已核验 badge");
+  check(reps.length === 3 && await repBadge.count() >= reps.length, `every reproducible agent shows a 可复现-已核验 badge (${await repBadge.count()}/${reps.length})`);
   check(/reproducible/i.test(text), "badge or legend names reproducible");
   const tips = await page.locator(".badge[title]").evaluateAll((els) => els.map((e) => e.title).join(" | "));
   check(/public weights|公开权重/i.test(tips) && /on-?chain features|链上特征/i.test(tips),
         "reproducible badge tooltip says it is recomputed from onchain features with public weights");
-  check(rep && text.includes(rep.agent), `reproducible agent ${rep?.agent} listed`);
+  check(reps.length === 3 && reps.every((a) => text.includes(a.agent)), `reproducible agents ${reps.map((a) => a.agent)} listed`);
   check(!/reproduce failed/i.test(text), "no failure badge when every round reproduced");
   check(!/placeholder/i.test(text), "no placeholder label in the replay view");
   check(pageErrors.length === 0, `no page errors (${pageErrors.join("; ")})`);
@@ -157,8 +164,8 @@ demo = open("docs/DEMO.md", encoding="utf-8").read()
 errs = []
 secs = re.split(r"(?m)^## ", readme)
 tiers = next((s for s in secs if "verification tiers" in s.split("\n", 1)[0].lower()), None)
-if not tiers or "reproducible" not in tiers.lower() or "vol_agents.recompute" not in tiers:
-    errs.append("README Verification tiers section (reproducible + recompute command)")
+if not tiers or "reproducible" not in tiers.lower() or "vol_agents.tsfm_recompute" not in tiers:
+    errs.append("README Verification tiers section (reproducible + tsfm_recompute command)")
 for name, s in d["summary"]["agents"].items():
     tot = f"{s['total_log_score']:.3f}"
     for doc, t in (("README", readme), ("DEMO", demo)):

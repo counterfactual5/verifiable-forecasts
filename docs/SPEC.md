@@ -9,11 +9,11 @@
 
 ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 
-**状态**：已完成核心链路（`VolMarket` 合约 + EZKL 验证合约 + 3 个预测 agent，本地 anvil 端到端跑通）、ERC-8004 信誉、Chainlink 交叉校验、先承诺后公开 / 仅承诺模型 / 预测者分成（R4）、可复现等级（登记 `modelHash`，Chronos-Bolt 开源权重可重算）、区间校准、按训练期边界在真实池子历史上重训 3 个模型并重建验证合约（R5）、主网 fork 连续 24 小时回放演示与看板。
+**状态**：已完成核心链路（`VolMarket` 合约 + EZKL 验证合约 + 3 个预测 agent，本地 anvil 端到端跑通）、ERC-8004 信誉、Chainlink 交叉校验、先承诺后公开 / 仅承诺模型 / 预测者分成（R4）、可复现等级（登记 `modelHash`，timesfm-3.0 / timestral-209m / chronos-2 开源权重可重算，容差复核）、区间校准、按训练期边界在真实池子历史上重训 3 个模型并重建验证合约（R5）、主网 fork 连续 24 小时回放演示与看板。
 
 **问题**：AI 预测者可以事后挑选好看的结果来宣传，评委和用户无法核实「这个预测确实是这个模型在事前、对这些输入算出来的」，也没有公开、不可篡改的成绩记录。
 
-**做什么**：一个链上考场。考题是 Uniswap V3 ETH/USDC 0.05% 池（`0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`）未来 1 小时的 TWAP 已实现波动率（Δ = 300 s、N = 12 段，单位 tick²），按 5 个区间彩池（parimutuel）下注。AI 预测 agent 先提交预测的哈希承诺，承诺截止后、结果窗口开始前再公开预测；zk 模型用 EZKL 为小模型推理生成 zk 证明，公开时链上验证，公开输入（16 个特征）由合约在开轮时自己从链上 `observe()` 算出；开源权重的大模型（如 Chronos-Bolt）登记 `modelHash` 以「可复现」等级参赛，任何人可从链上特征重算；第三方时序大模型 API 这类既无证明又无公开权重的模型以「仅承诺」等级参赛。结算时用 `observe()` 算实际波动率（`sample()` 检查点兜底），按对数评分给每个公开的预测打分，分数由市场合约写入 ERC-8004 v2.0.0 信誉注册表（可复现与仅承诺模型用单独的 tag2，靠链上 `modelHash` 区分）；跑赢均匀分布基线的预测者按超额分数分得手续费的 `predictorShareBps`；结算时可用 Chainlink ETH/USD 喂价交叉校验池子价格。
+**做什么**：一个链上考场。考题是 Uniswap V3 ETH/USDC 0.05% 池（`0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`）未来 1 小时的 TWAP 已实现波动率（Δ = 300 s、N = 12 段，单位 tick²），按 5 个区间彩池（parimutuel）下注。AI 预测 agent 先提交预测的哈希承诺，承诺截止后、结果窗口开始前再公开预测；zk 模型用 EZKL 为小模型推理生成 zk 证明，公开时链上验证，公开输入（16 个特征）由合约在开轮时自己从链上 `observe()` 算出；开源权重的时序大模型（timesfm-3.0、timestral-209m、chronos-2）登记 `modelHash` 以「可复现」等级参赛，任何人可从链上数据重算（每桶误差 ≤ 0.001 的容差复核）；第三方时序大模型 API 这类既无证明又无公开权重的模型以「仅承诺」等级参赛。结算时用 `observe()` 算实际波动率（`sample()` 检查点兜底），按对数评分给每个公开的预测打分，分数由市场合约写入 ERC-8004 v2.0.0 信誉注册表（可复现与仅承诺模型用单独的 tag2，靠链上 `modelHash` 区分）；跑赢均匀分布基线的预测者按超额分数分得手续费的 `predictorShareBps`；结算时可用 Chainlink ETH/USD 喂价交叉校验池子价格。
 
 **不做**（写入 README「Known limitations / Future work」）：LMSR 做市、blob 费用市场（`BLOBBASEFEE`）、FHE / commit-reveal 密封下注（预测已是先承诺后公开，下注仍公开）、提交质押与罚没、x402 付费、真实资金与真实网络部署（只归用户）、ERC-8004 Validation 注册表（规范仍在变）、Chainlink CRE / Automation（本阶段不做）。
 
@@ -26,7 +26,7 @@ ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 | zk 证明校验：每个模型一份 EZKL 生成的验证合约；`registerModel(verifier, operator, modelHash)`（`modelHash` 可为 0，两参数重载等同 0）；公开时证明通过才记录 | 已完成 | `contracts/src/verifier/`、`VolMarket.revealPrediction` |
 | 先承诺后公开：`commitPrediction` 在 `startTime − commitLead` 前提交承诺，`revealPrediction` 在 `startTime − revealLead` 前公开；未公开的不计分不分钱 | 已完成（R4） | `VolMarket.commitPrediction` / `revealPrediction` |
 | 仅承诺模型：`registerModel(address(0), operator)`，公开时不验证证明，ERC-8004 tag2 加 `-commit`；agents 的 TSFM API 适配器 | 已完成（R4） | `VolMarket`、`agents/vol_agents/api_agent.py` |
-| 可复现等级：`registerModel(verifier, operator, modelHash)` 以 `verifier = 0` 和非零 `modelHash`（权重、配置、运行代码的哈希）登记，`verificationTier` 返回 1；公开权重的 Chronos-Bolt agent，任何人用 `python -m vol_agents.recompute` 从链上特征重算比对，主网 fork 回放 24/24 轮一致 | 已完成 | `contracts/src/VolMarket.sol`、`agents/vol_agents/repro_agent.py`、`agents/vol_agents/recompute.py` |
+| 可复现等级：`registerModel(verifier, operator, modelHash)` 以 `verifier = 0` 和非零 `modelHash`（权重、配置、运行代码的哈希）登记，`verificationTier` 返回 1；公开权重的 timesfm-3.0、timestral-209m、chronos-2 三个 agent，任何人用 `python -m vol_agents.tsfm_recompute` 从链上数据重算比对，每桶误差 ≤ 0.001；主网 fork 回放 三个 agent 各 24/24 轮在容差内（72 次均完全一致） | 已完成 | `contracts/src/VolMarket.sol`、`agents/vol_agents/api_agent.py`、`agents/vol_agents/tsfm_recompute.py` |
 | 预测者分成：手续费的 `predictorShareBps` 按超过均匀基线的对数分比例分给预测者，`claimPredictorReward` 自取 | 已完成（R4） | `VolMarket.settle` / `claimPredictorReward` / `collectFee` |
 | 预测 agent：3 个模型（`linear_abs` / `mlp16` / `mlp32_abs`）训练、EZKL 构建、读特征→证明→提交→结算→比较链上分数 | 已完成（本地 anvil + MockPool） | `agents/` |
 | 合约 / agents 共享口径 fixture（tickCumulative → 段均值 → RV → 桶） | 已完成 | `contracts/test/fixtures/vol_rv_cases.json` |

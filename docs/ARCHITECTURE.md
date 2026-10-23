@@ -126,7 +126,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 
 ## 8. 演示与看板
 
-- 演示比离线回合多一个可复现 agent（`repro_agent.py`，`agent-chronos-bolt`）：在 `VOL_REPRO_PYTHON` 指定的解释器中运行公开、固定版本的 Chronos-Bolt 权重（`amazon/chronos-bolt-tiny`），以 `registerModel(address(0), operator, modelHash)` 登记；每轮公开后回放脚本对 fork 运行 `python -m vol_agents.recompute` 从链上特征重算并与公开值比对（JSON 中的 `reproduced`）；解释器或权重缺失、本地哈希与链上 `modelHash` 不符时在第一轮前退出，没有兜底预测。仅承诺的 `api_agent.py`（外部时序模型 API 适配器）是可选组件，不参与回放。手续费 1% 中 50% 分给高于基线的预测者；承诺提前 90 s、公开提前 30 s 截止。
+- 演示比离线回合多三个可复现 agent：`agent-timesfm-3.0`、`agent-timestral-209m`、`agent-chronos-2`，经自部署推理服务预测（`api_agent.tsfm_agents`，`VOL_TSFM_*`），各自以 `registerModel(address(0), operator, modelHash)` 登记（档位与 `modelHash` 由 agent 对象给出，`modelHash` 固定公开权重版本、上下文、推理与后处理参数及运行代码）。timesfm-3.0 读本轮 16 个链上特征，timestral-209m 与 chronos-2 读由主网 Swap 日志重建的 512 点（约 42.7 h）。揭示先量化到 1e-3 网格再承诺；设置 `VOL_REPRO_PYTHON`（可用 `VOL_REPRO_PYTHON_<MODEL>` 按模型指定）时，回放在最后一轮之后对 fork 逐个运行 `python -m vol_agents.tsfm_recompute`，用公开权重重算，每桶误差 ≤ 0.001 记为一致（JSON 中的 `reproduced`、`recompute_verdict`、`recompute_max_abs_diff`）。推理失败时该 agent 本轮不参赛（替身预测不是登记的模型），其余 agent 与本轮照常。手续费 1% 中 50% 分给高于基线的预测者；承诺提前 90 s、公开提前 30 s 截止。
 - `demo/run.sh`（薄入口）→ `demo/fork_round.py`：读 `MAINNET_RPC_URL`（缺省为公共 tenderly gateway），用独立的 Foundry 输出目录编译，以 `PYTHONPATH=agents` 复用 `vol_agents` 的 `Agent`、`build`、`Anvil`、`contract_math`。
 - 连续回放 `HOURS`（默认 24）个真实小时，起点 `REPLAY_START`（默认 2026-10-21 06:00 UTC，位于模型测试期内）；一次 fork、一次部署，ERC-8004 信誉跨轮累计。fork 区块在回放网格开始前 10 分钟。
 - fork 上的准备：清掉 anvil 公共测试账户在主网上的 EIP-7702 委托代码（否则无法接收 ERC-721 身份），给交易账户发 ETH 并包成 WETH，USDC 直接写入其余额存储槽（只存在于 fork 上）。
@@ -156,8 +156,8 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 因此“出处”可以分级提供，由读取方选择信任哪一级：
 
 - **zk**（已实现，仅小模型）：即本文第 2–4 节的 EZKL 路径。
-- **可复现**（已实现）：`registerModel(address(0), operator, modelHash)` 登记，适用于权重公开的模型，大小不受电路限制。`modelHash = keccak256(sha256(model.safetensors) ‖ sha256(config.json) ‖ sha256(repro_runner.py))` 固定权重、配置与运行代码；公开时不验证证明，任何人可用 `python -m vol_agents.recompute` 从链上特征重算并与公开值逐桶比对，哈希不符、缺公开或任一桶不同即非零退出。演示中的 `agent-chronos-bolt`（`amazon/chronos-bolt-tiny`）在 24 轮回放中 24/24 轮重算一致。它证明的是出处（确实是这组权重对这些输入算的），不证明预测准确；逐位一致只在同一机器与软件栈上成立。
-- **仅承诺**（已实现）：`verifier = 0` 且不带 `modelHash` 登记，任意模型，只证明预测在事前定下，不保证是哪个模型算的。`agents/vol_agents/api_agent.py` 是这类 agent 的外部时序模型 API 适配器，不参与回放。
+- **可复现**（已实现）：`registerModel(address(0), operator, modelHash)` 登记，适用于权重公开的模型，大小不受电路限制。`modelHash` 是 `tsfm_forecast.model_hash_preimage` 规范 JSON 的 keccak256（权重 `repo@revision`、上下文长度、推理与后处理参数、揭示网格与容差、运行代码的 sha256），固定权重、配置与运行代码；公开时不验证证明，任何人可用 `python -m vol_agents.tsfm_recompute` 从链上数据（16 个特征；512 点模型另用池子 Swap 日志重建上下文）重算并与公开值逐桶比对，每桶误差 ≤ 0.001 为一致（容差复核；揭示先量化到 1e-3 网格并在结果出现前承诺），哈希不符、缺公开或任一桶超差即非零退出。演示中的 `agent-timesfm-3.0`、`agent-timestral-209m`、`agent-chronos-2` 在 24 轮回放中 三个 agent 各 24/24 轮重算在容差内（72 次均完全一致）。它证明的是出处（确实是这组权重对这些输入算的），不证明预测准确；容差覆盖不同机器与软件栈之间的浮点差异。
+- **仅承诺**（已实现）：`verifier = 0` 且不带 `modelHash` 登记，任意模型，只证明预测在事前定下，不保证是哪个模型算的。`agents/vol_agents/api_agent.py` 中无法在 CPU 上复现的模型（以及通用预测 API）走这一档；回放里的三个时序模型均可复现，不走此档。
 - **TEE 远程证明**（未实现）：适用于权重不公开的闭源大模型 / LLM，需要信任硬件厂商及其证明服务。
 - **opML**（乐观验证 + 欺诈证明，不做）：它需要挑战窗口和链上单步 VM，长于一小时一轮，且依赖 1-of-N 诚实假设（至少一个诚实验证者在盯并愿意发起挑战）。
 
@@ -173,7 +173,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 |---|---|
 | 特征（模型输入）由合约从池子 `observe()` 算出，agent 无法自选输入 | 池子价格本身可被操纵；Chainlink 交叉校验只比较最近一个 Δ 的 TWAP 与一个喂价点 |
 | 预测在承诺截止前以绑定发送者的哈希定下；zk 模型公开时附带对已登记模型、对这些输入的有效推理证明 | 已登记的模型是否「好」、训练数据是否真实（仓库可复现训练，但链上不证明）；仅承诺模型的预测由谁、用什么模型算出 |
-| 可复现模型登记的 `modelHash` 不可更改，其承诺与公开值上链 | 合约不重算可复现模型的预测，也不检查公开值与 `modelHash` 对应的权重是否一致；任何人可链下用 `vol_agents.recompute` 重算，逐位一致只在同一机器与软件栈上成立 |
+| 可复现模型登记的 `modelHash` 不可更改，其承诺与公开值上链 | 合约不重算可复现模型的预测，也不检查公开值与 `modelHash` 对应的权重是否一致；任何人可链下用 `vol_agents.tsfm_recompute` 重算，每桶误差 ≤ 0.001 为一致（容差复核；承诺先于结果） |
 | 只有模型 operator 能用该模型承诺，复制证明或承诺无效 | owner 决定登记哪些模型（`registerModel` 仅 owner） |
 | 结算 RV、获胜桶、对数评分、赔付全部在合约内整数计算 | 区间边界由开轮方传入（演示用训练期校准值） |
 | 观测缺失或喂价不符时作废并全额退款 | 验证合约的可信度依赖 EZKL 与 KZG SRS（构建时校验固定摘要） |
