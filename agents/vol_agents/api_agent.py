@@ -1,11 +1,13 @@
-"""Agents backed by a third-party time-series forecasting (TSFM) HTTP API.
+"""Agents backed by a time-series forecasting (TSFM) model on the operator's self-hosted inference
+service.
 
-The API gets the same onchain inputs the zk agents use: the round's 16 contract features, i.e.
-differences of 5-minute mean ticks. The agent commits and reveals like the zk agents but without a
+The service gets the same onchain inputs the zk agents use: the round's 16 contract features, i.e.
+differences of 5-minute mean ticks (or, for long-context models, history.round_context's longer
+series of the same differences). The agent commits and reveals like the zk agents but without a
 proof (verifier address(0)).
 
 Two wire formats (VOL_TSFM_API_SCHEMA):
-- "inference" (default): inference `POST {url}/forecast`, one agent per model (tsfm_agents); request
+- "tsfm-forecast" (default): `POST {url}/forecast`, one agent per model (tsfm_agents); request
   and post-processing in tsfm_forecast. A model whose public weights recompute the revealed
   vector on CPU has tier "reproducible" and registers tsfm_forecast.model_hash; the others are
   commit-only, so their score only shows the forecast was made in time, not which model made it.
@@ -13,9 +15,9 @@ Two wire formats (VOL_TSFM_API_SCHEMA):
   probabilities or quantiles of realized vol in tick^2; always commit-only.
 
 Configuration (environment): VOL_TSFM_API_URL (unset: a deterministic local placeholder forecast;
-for inference the base URL, e.g. <inference-endpoint>), VOL_TSFM_API_KEY (sent as
-"Authorization: Bearer <key>", or raw under VOL_TSFM_API_KEY_HEADER), VOL_TSFM_MODEL (one inference
-model, default remote-model), VOL_TSFM_MODELS (comma-separated models for tsfm_agents, default
+for tsfm-forecast the service's base URL, e.g. https://<host>/v1), VOL_TSFM_API_KEY (sent as
+"Authorization: Bearer <key>", or raw under VOL_TSFM_API_KEY_HEADER), VOL_TSFM_MODEL (one model,
+default remote-model), VOL_TSFM_MODELS (comma-separated models for tsfm_agents, default
 timesfm-3.0,timestral-209m,chronos-2), VOL_TSFM_TIMEOUT_S (default 30). Formats: agents/README.md.
 """
 
@@ -44,7 +46,7 @@ PLACEHOLDER_LEVELS = (0.1, 0.5, 0.9)
 PLACEHOLDER_SCALE = (0.24, 0.94, 4.63)
 ROUND_SIG = "getRound(uint256)(uint64,bool,bool,uint256,uint256,uint256,uint256[5],uint256[])"
 
-INFERENCE = "inference"
+TSFM = "tsfm-forecast"
 TSFM_DEFAULT_MODEL = "remote-model"
 
 
@@ -54,7 +56,7 @@ class ApiConfig:
     key: str | None = None
     key_header: str | None = None
     timeout_s: float = 30.0
-    schema: str = INFERENCE
+    schema: str = TSFM
     model: str = TSFM_DEFAULT_MODEL
 
     @classmethod
@@ -63,9 +65,9 @@ class ApiConfig:
         url = (env.get("VOL_TSFM_API_URL") or "").strip()
         if not url:
             return None
-        schema = (env.get("VOL_TSFM_API_SCHEMA") or INFERENCE).strip()
-        if schema not in (INFERENCE, REQUEST_SCHEMA):
-            raise ValueError(f"VOL_TSFM_API_SCHEMA must be {INFERENCE} or {REQUEST_SCHEMA}")
+        schema = (env.get("VOL_TSFM_API_SCHEMA") or TSFM).strip()
+        if schema not in (TSFM, REQUEST_SCHEMA):
+            raise ValueError(f"VOL_TSFM_API_SCHEMA must be {TSFM} or {REQUEST_SCHEMA}")
         return cls(url=url, key=env.get("VOL_TSFM_API_KEY") or None,
                    key_header=env.get("VOL_TSFM_API_KEY_HEADER") or None,
                    timeout_s=float(env.get("VOL_TSFM_TIMEOUT_S") or 30), schema=schema,
@@ -213,18 +215,18 @@ class ApiAgent(Forecaster):
     kind = "commit-only"
 
     @property
-    def inference(self) -> bool:
-        return bool(self.config) and self.config.schema == INFERENCE
+    def tsfm(self) -> bool:
+        return bool(self.config) and self.config.schema == TSFM
 
     @property
     def source(self):
         if not self.config:
             return "placeholder"
-        return f"inference:{self.config.model}" if self.inference else "tsfm-api"
+        return f"tsfm:{self.config.model}" if self.tsfm else "tsfm-api"
 
     @property
     def tier(self) -> str:
-        return sf.spec(self.config.model).tier if self.inference else sf.COMMIT_ONLY
+        return sf.spec(self.config.model).tier if self.tsfm else sf.COMMIT_ONLY
 
     @property
     def model_hash(self) -> str | None:
@@ -234,14 +236,19 @@ class ApiAgent(Forecaster):
     def context(self, feats, info) -> history.Context:
         """The series sent to the model: the long off-chain one when the model takes it (and
         $VOL_HISTORY_CACHE provides it), else the 16 onchain differences."""
-        if self.inference and sf.spec(self.config.model).long_context:
-            return history.round_context(feats, info["start"], info["delta_s"])
-        reason = "reproducible tier reads onchain features only" if self.inference else None
+        s = sf.spec(self.config.model) if self.tsfm else None
+        if s and s.long_context:
+            env = os.environ
+            if s.tier == sf.REPRODUCIBLE:
+                # the registered model_hash fixes the context length
+                env = {**os.environ, history.CONTEXT_ENV: str(history.DEFAULT_CONTEXT)}
+            return history.round_context(feats, info["start"], info["delta_s"], env)
+        reason = "model reads the onchain features only" if s else None
         return history.Context(sf.context(feats), sf.ONCHAIN, reason)
 
     def api_probs(self, feats, bounds, info, ctx: history.Context | None = None) -> list[float]:
         cfg = self.config
-        if self.inference:
+        if self.tsfm:
             ctx = ctx or self.context(feats, info)
             resp = call_api(cfg, sf.build_request(ctx.diffs, info, cfg.model),
                             url=cfg.url.rstrip("/") + "/forecast")
@@ -263,17 +270,18 @@ class ApiAgent(Forecaster):
             probs = self.api_probs(feats, bounds, info, ctx)
         else:
             probs = probs_from_quantiles(*placeholder_quantiles(feats), bounds)
-        return {"features": feats, "outputs": quantize(probs), "proof": "0x",
+        outputs = sf.quantize_reveal(probs) if self.tsfm else quantize(probs)
+        return {"features": feats, "outputs": outputs, "proof": "0x",
                 "source": self.source, "api_probs": probs, "context_source": ctx.source,
                 "context_points": len(ctx.diffs), "context_reason": ctx.reason}
 
 
 def tsfm_agents(config: ApiConfig, keys, models=None) -> list[ApiAgent]:
-    """One independent agent per inference model (own name, key and address, so own modelId), all
+    """One independent agent per model (own name, key and address, so own modelId), all
     sharing the endpoint and API key of config; models default to VOL_TSFM_MODELS."""
     models = list(models or models_from_env())
     if len(keys) < len(models):
         raise ValueError(f"{len(models)} models need {len(models)} keys, got {len(keys)}")
     return [ApiAgent(name=sf.spec(m).agent_name, key=k, address=address_of(k),
-                     config=ApiConfig(**{**config.__dict__, "schema": INFERENCE, "model": m}))
+                     config=ApiConfig(**{**config.__dict__, "schema": TSFM, "model": m}))
             for m, k in zip(models, keys, strict=False)]

@@ -26,8 +26,8 @@ INFO = {"market": "0x0", "id": 7, "start": 1792562400, "delta_s": cm.DELTA,
         "n_segments": cm.N_SEGMENTS}
 
 
-def _tsfm_reply(centers, width=0.05):
-    """A inference /forecast answer whose step k has every quantile within width of centers[k],
+def _forecast_reply(centers, width=0.05):
+    """A /forecast answer whose step k has every quantile within width of centers[k],
     rows deliberately out of time order."""
     rows = []
     for k, c in enumerate(centers):
@@ -69,7 +69,7 @@ def server():
                                      {"level": 0.5, "value": 1200.0},
                                      {"level": 0.9, "value": 2000.0}]},
         # 11 window differences of 20 ticks at remote-model's spread 0.5: RV ~ 11 * 10^2 = 1100
-        "/v1/forecast": _tsfm_reply([500.0, 500.0] + [20.0] * 11),
+        "/v1/forecast": _forecast_reply([500.0, 500.0] + [20.0] * 11),
     }
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv
@@ -146,7 +146,7 @@ def test_config_from_env():
     cfg = api.ApiConfig.from_env({"VOL_TSFM_API_URL": "http://x/y", "VOL_TSFM_API_KEY": "k",
                                   "VOL_TSFM_TIMEOUT_S": "5"})
     assert cfg == api.ApiConfig(url="http://x/y", key="k", timeout_s=5.0)
-    assert cfg.schema == api.INFERENCE and cfg.model == "remote-model"
+    assert cfg.schema == api.TSFM and cfg.model == "remote-model"
     cfg = api.ApiConfig.from_env({"VOL_TSFM_API_URL": "http://x/v1", "VOL_TSFM_MODEL": "chronos-2",
                                   "VOL_TSFM_API_SCHEMA": api.REQUEST_SCHEMA})
     assert cfg.model == "chronos-2" and cfg.schema == api.REQUEST_SCHEMA
@@ -154,9 +154,9 @@ def test_config_from_env():
         api.ApiConfig.from_env({"VOL_TSFM_API_URL": "http://x", "VOL_TSFM_API_SCHEMA": "nope"})
 
 
-# ---------------------------------------------------------------- inference format
+# ---------------------------------------------------------------- tsfm-forecast format
 
-def test_tsfm_request_puts_the_features_on_the_round_grid():
+def test_forecast_request_puts_the_features_on_the_round_grid():
     body = sf.build_request(sf.context(FEATURES), INFO, "chronos-2")
     assert body["model"] == "chronos-2" and body["freq"] == "5min"
     assert body["options"] == {"cleaning": {"preset": "raw"}}
@@ -168,8 +168,8 @@ def test_tsfm_request_puts_the_features_on_the_round_grid():
     assert pts[-1]["ds"] == "2026-10-21T05:55:00Z" and pts[0]["ds"] == "2026-10-21T04:40:00Z"
 
 
-def test_tsfm_quantiles_parse_in_time_order():
-    levels, steps = sf.step_quantiles(_tsfm_reply([1.0, 2.0, 3.0]))
+def test_forecast_quantiles_parse_in_time_order():
+    levels, steps = sf.step_quantiles(_forecast_reply([1.0, 2.0, 3.0]))
     assert levels[0] == pytest.approx(0.01) and levels[-1] == pytest.approx(0.99)
     assert len(levels) == 21 and 0.5 in levels
     assert [s[levels.index(0.5)] for s in steps] == [1.0, 2.0, 3.0]
@@ -190,7 +190,7 @@ def test_sampled_quantiles_follow_the_cdf_and_exponential_tails():
 
 
 def test_step_samples_sum_into_the_right_bucket_and_skip_the_lead_steps():
-    levels, steps = sf.step_quantiles(_tsfm_reply([500.0, 500.0] + [8.0] * 11))
+    levels, steps = sf.step_quantiles(_forecast_reply([500.0, 500.0] + [8.0] * 11))
     # RV ~ 11 * 8^2 = 704: bucket 2; the two huge lead steps must not count
     p = sf.probs_from_step_quantiles(levels, steps, BOUNDS, cm.N_SEGMENTS - 1)
     assert sum(p) == pytest.approx(1.0) and p[2] > 0.99
@@ -207,7 +207,7 @@ def test_tsfm_agent_over_http(server):
     cfg = api.ApiConfig(url=_url(server, "/v1/"), key=SECRET, model="remote-model")
     agent = api.ApiAgent(name="agent-tsfm", key=DEV_KEYS[1], address=address_of(DEV_KEYS[1]),
                          config=cfg)
-    assert agent.source == "inference:remote-model"
+    assert agent.source == "tsfm:remote-model"
     probs = agent.api_probs(FEATURES, BOUNDS, INFO)
     req = server.requests[-1]
     assert req["path"] == "/v1/forecast"
@@ -224,15 +224,19 @@ def test_three_model_agents_are_independent_with_honest_tiers(server):
     cfg = api.ApiConfig(url=_url(server, "/v1"), key=SECRET)
     keys = OTHER_KEYS
     agents = api.tsfm_agents(cfg, keys)
-    assert [a.name for a in agents] == ["agent-timesfm3", "agent-timestral", "agent-chronos"]
+    assert [a.name for a in agents] == ["agent-timesfm-3.0", "agent-timestral-209m",
+                                        "agent-chronos-2"]
     assert [a.config.model for a in agents] == ["timesfm-3.0", "timestral-209m", "chronos-2"]
     assert len({a.address for a in agents}) == 3
     assert [a.address for a in agents] == [address_of(k) for k in keys]
-    assert [a.tier for a in agents] == [sf.REPRODUCIBLE, sf.COMMIT_ONLY, sf.COMMIT_ONLY]
+    assert [a.tier for a in agents] == [sf.REPRODUCIBLE] * 3
     assert all(a.kind == "commit-only" for a in agents)
-    h = agents[0].model_hash
-    assert h.startswith("0x") and len(h) == 66 and h == sf.model_hash("timesfm-3.0")
-    assert agents[1].model_hash is None and agents[2].model_hash is None
+    for a in agents:
+        h = a.model_hash
+        assert h.startswith("0x") and len(h) == 66 and h == sf.model_hash(a.config.model)
+    assert len({a.model_hash for a in agents}) == 3
+    remote = api.tsfm_agents(cfg, keys[:1], ["remote-model"])[0]
+    assert remote.name == "agent-remote-model" and remote.tier == sf.COMMIT_ONLY and remote.model_hash is None
     # one run, three forecasts, each request naming its own model
     for a in agents:
         a.api_probs(FEATURES, BOUNDS, INFO)
@@ -255,21 +259,25 @@ def test_calibration_follows_the_context_source():
         assert sf.calibration(m, sf.SWAPS)[1] >= 0.2
 
 
-def test_long_context_goes_to_commit_only_models_only(server, monkeypatch):
-    long_diffs = list(range(-250, 250)) + sf.context(FEATURES)
+def test_long_context_goes_to_long_context_models_only(server, monkeypatch):
+    long_diffs = list(range(-248, 248)) + sf.context(FEATURES)
     calls = []
 
     def fake_round_context(features, start, delta, env=None):
-        calls.append((features, start, delta))
+        calls.append((features, start, delta, (env or {}).get(history.CONTEXT_ENV)))
         return history.Context(long_diffs, sf.SWAPS, None)
 
     monkeypatch.setattr(api.history, "round_context", fake_round_context)
     cfg = api.ApiConfig(url=_url(server, "/v1"), key=SECRET)
-    timesfm, timestral, _ = api.tsfm_agents(cfg, OTHER_KEYS)
+    timesfm, timestral, chronos = api.tsfm_agents(cfg, OTHER_KEYS)
+    remote = api.tsfm_agents(cfg, OTHER_KEYS[:1], ["remote-model"])[0]
     levels, steps = sf.step_quantiles(server.replies["/v1/forecast"])
 
+    monkeypatch.setenv(history.CONTEXT_ENV, "64")
     probs = timestral.api_probs(FEATURES, BOUNDS, INFO)
-    assert calls == [(FEATURES, INFO["start"], INFO["delta_s"])]
+    # a reproducible long-context model sends the length its model_hash registers, whatever
+    # $VOL_HISTORY_CONTEXT says
+    assert calls == [(FEATURES, INFO["start"], INFO["delta_s"], str(history.DEFAULT_CONTEXT))]
     pts = server.requests[-1]["body"]["series"]
     assert [p["y"] for p in pts] == long_diffs
     # the long series ends on the same createRound segment as the 16 features
@@ -278,10 +286,15 @@ def test_long_context_goes_to_commit_only_models_only(server, monkeypatch):
     assert probs != sf.probs(levels, steps, BOUNDS, cm.N_SEGMENTS, "timestral-209m")
 
     ctx = timesfm.context(FEATURES, INFO)
-    assert len(calls) == 1 and ctx.source == sf.ONCHAIN and "reproducible" in ctx.reason
+    assert len(calls) == 1 and ctx.source == sf.ONCHAIN and "onchain features" in ctx.reason
     timesfm.api_probs(FEATURES, BOUNDS, INFO)
     assert len(calls) == 1
     assert [p["y"] * cm.MULT for p in server.requests[-1]["body"]["series"]] == FEATURES
+
+    chronos.context(FEATURES, INFO)
+    assert calls[-1][3] == str(history.DEFAULT_CONTEXT)
+    remote.context(FEATURES, INFO)
+    assert calls[-1][3] == "64"
 
 
 def test_model_hash_binds_public_weights_parameters_and_code():
@@ -290,9 +303,46 @@ def test_model_hash_binds_public_weights_parameters_and_code():
     assert pre["postprocess"]["uniform_mix"] == sf.UNIFORM_MIX
     assert pre["postprocess"]["spread"] == sf.MODELS["timesfm-3.0"].spread
     assert len(pre["code_sha256"]) == 64
-    for m in ("timestral-209m", "chronos-2", "remote-model", "unknown-model"):
+    assert pre["inference"]["context"]["points"] == 16
+    assert pre["postprocess"]["tolerance"] == sf.RECOMPUTE_TOLERANCE == 10**15
+    long = sf.model_hash_preimage("chronos-2")
+    assert long["inference"]["context"]["points"] == history.DEFAULT_CONTEXT
+    assert len(long["inference"]["context"]["history_sha256"]) == 64
+    assert long["postprocess"]["long_calibration"] == list(sf.calibration("chronos-2", sf.SWAPS))
+    assert len(long["local_runner_sha256"]) == 64
+    for m in ("remote-model", "unknown-model"):
         with pytest.raises(ValueError):
             sf.model_hash_preimage(m)
+
+
+def test_reveal_quantization_sums_exactly_on_the_grid():
+    for probs in ([0.2] * 5, [1, 0, 0, 0, 0], [0.1, 0.2, 0.3, 0.15, 0.25], [1e-30, 1, 1, 1, 3],
+                  [0.0005, 0.0015, 0.2485, 0.3, 0.4495], [1 / 3, 1 / 3, 1 / 3, 0, 0]):
+        ints = sf.quantize_reveal(probs)
+        assert sum(ints) == cm.PROB_SCALE
+        assert all(v % sf.PROB_QUANTUM == 0 and v >= sf.PROB_QUANTUM for v in ints)
+        assert cm.probs_from_outputs(ints) == ints
+        # under one step of rounding; up to BUCKETS - 1 steps where the floor lifts empty buckets
+        share = [v / sum(probs) for v in probs]
+        bound = sf.PROB_QUANTUM if min(share) * cm.PROB_SCALE >= sf.PROB_QUANTUM else (
+            (cm.BUCKETS - 1) * sf.PROB_QUANTUM)
+        assert all(abs(v - s * cm.PROB_SCALE) <= bound for v, s in zip(ints, share, strict=True))
+    assert sf.quantize_reveal([0.2] * 5) == [cm.PROB_SCALE // 5] * 5
+    for bad in ([0.2] * 4, [0.5, 0.5, -0.1, 0.1, 0], [math.nan, 1, 1, 1, 1], [0] * 5):
+        with pytest.raises(ValueError):
+            sf.quantize_reveal(bad)
+
+
+def test_recompute_tolerance_accepts_one_grid_step_and_rejects_beyond():
+    reveal = [10**17, 2 * 10**17, 3 * 10**17, 2 * 10**17, 2 * 10**17]
+    eps = sf.RECOMPUTE_TOLERANCE
+    assert sf.compare_reveal(reveal, reveal) == (0, sf.EXACT)
+    assert sf.compare_reveal(reveal, [reveal[0] + eps, reveal[1] - eps] + reveal[2:]) == (
+        eps, sf.TOLERANT)
+    assert sf.compare_reveal(reveal, [reveal[0] + eps + 1, reveal[1] - eps - 1] + reveal[2:]) == (
+        eps + 1, sf.FAIL)
+    with pytest.raises(ValueError):
+        sf.compare_reveal(reveal, reveal[:4])
 
 
 def test_local_recompute_repeats_the_api_forecast(server, tmp_path, monkeypatch):
@@ -305,12 +355,37 @@ def test_local_recompute_repeats_the_api_forecast(server, tmp_path, monkeypatch)
                       + json.dumps({"levels": levels, "steps": steps}) + "'\n")
     runner.chmod(0o755)
     agent = api.tsfm_agents(api.ApiConfig(url=_url(server, "/v1"), key=SECRET),
-                               OTHER_KEYS[:1], ["timesfm-3.0"])[0]
-    revealed = api.quantize(agent.api_probs(FEATURES, BOUNDS, INFO))
-    assert sr.recompute_outputs("timesfm-3.0", FEATURES, BOUNDS, python=str(runner)) == revealed
+                            OTHER_KEYS[:1], ["timesfm-3.0"])[0]
+    revealed = sf.quantize_reveal(agent.api_probs(FEATURES, BOUNDS, INFO))
+    onchain = history.Context(sf.context(FEATURES), sf.ONCHAIN)
+    assert sr.recompute_outputs("timesfm-3.0", onchain, BOUNDS, python=str(runner)) == revealed
+    got = sr.verify("timesfm-3.0", revealed, [onchain], BOUNDS, cm.N_SEGMENTS, str(runner))
+    assert got["verdict"] == sf.EXACT and got["maxAbsDiff"] == 0
+    off = [revealed[0] + sf.RECOMPUTE_TOLERANCE + 1, revealed[1] - sf.RECOMPUTE_TOLERANCE - 1]
+    got = sr.verify("timesfm-3.0", off + revealed[2:], [onchain], BOUNDS, cm.N_SEGMENTS,
+                    str(runner))
+    assert got["verdict"] == sf.FAIL and got["maxAbsDiff"] == sf.RECOMPUTE_TOLERANCE + 1
     monkeypatch.delenv("VOL_REPRO_PYTHON", raising=False)
     with pytest.raises(RuntimeError):
-        sr.local_step_quantiles("timesfm-3.0", FEATURES, cm.N_SEGMENTS)
+        sr.local_step_quantiles("timesfm-3.0", sf.context(FEATURES), cm.N_SEGMENTS)
+
+
+def test_recompute_falls_back_to_the_onchain_context_the_agent_may_have_used(tmp_path):
+    """A long-context agent whose cache was stale revealed from the 16 features: the rebuilt
+    512-point context misses, the onchain one matches."""
+    reply = _forecast_reply([500.0, 500.0] + [20.0] * 11)
+    levels, steps = sf.step_quantiles(reply)
+    runner = tmp_path / "python"
+    runner.write_text("#!/bin/sh\ncat > /dev/null\necho '"
+                      + json.dumps({"levels": levels, "steps": steps}) + "'\n")
+    runner.chmod(0o755)
+    revealed = sf.quantize_reveal(sf.probs(levels, steps, BOUNDS, cm.N_SEGMENTS, "chronos-2"))
+    rebuilt = history.Context([0] * 496 + sf.context(FEATURES), sf.SWAPS)
+    onchain = history.Context(sf.context(FEATURES), sf.ONCHAIN)
+    got = sr.verify("chronos-2", revealed, [rebuilt, onchain], BOUNDS, cm.N_SEGMENTS,
+                    str(runner))
+    assert got["contextSource"] == sf.ONCHAIN and got["verdict"] == sf.EXACT
+    assert [t["verdict"] for t in got["tried"]] == [sf.FAIL, sf.EXACT]
 
 
 # ---------------------------------------------------------------- HTTP adapter
@@ -390,7 +465,7 @@ def test_commit_only_agent_round_and_predictor_share(server):
             c.send(k, market, "bet(uint256,uint256,uint256)", 0, bucket, amount)
 
         forecast = agent.commit(c, market, 0)
-        assert forecast["source"] == "inference:remote-model" and forecast["proof"] == "0x"
+        assert forecast["source"] == "tsfm:remote-model" and forecast["proof"] == "0x"
         # no $VOL_HISTORY_CACHE: the long-context model falls back to the onchain features
         assert forecast["context_source"] == sf.ONCHAIN and forecast["context_points"] == 16
         assert history.CACHE_ENV in forecast["context_reason"]

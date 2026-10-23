@@ -1,14 +1,19 @@
-"""Recompute a reproducible inference agent's reveal from onchain data and the public weights, on CPU,
-without the API.
+"""Recompute a reproducible agent's reveal from chain data and the public weights, on CPU, without
+the inference service.
 
-Online:  uv run python -m vol_agents.tsfm_recompute --model timesfm-3.0 --rpc-url URL
-           --market ADDR --round N --model-id M
-  checks the onchain modelHash(M) against tsfm_forecast.model_hash(model), runs the public
-  weights (tsfm_local.py under VOL_REPRO_PYTHON) on the round's onchain features, applies the
-  same post-processing and compares the 5 outputs with the reveal of modelOperator(M). Prints a
-  JSON summary; exit 0 only when every bucket matches.
+Online:  uv run python -m vol_agents.tsfm_recompute --model chronos-2 --rpc-url URL
+           --market ADDR --round N --model-id M [--logs-rpc-url MAINNET_URL]
+  checks the onchain modelHash(M) against tsfm_forecast.model_hash(model), rebuilds the model's
+  context from chain data (the round's 16 features; for a long-context model the 512-point series
+  from the pool's Swap logs, read from --logs-rpc-url, default $MAINNET_RPC_URL or the public
+  gateway), runs the public weights (tsfm_local.py under VOL_REPRO_PYTHON), applies the same
+  post-processing and quantization and compares the 5 outputs with the reveal of
+  modelOperator(M). Prints a JSON summary with the largest per-bucket difference and a verdict:
+  "exact" (same integers), "tolerant" (every bucket within tsfm_forecast.RECOMPUTE_TOLERANCE) or
+  "fail"; exit 0 unless "fail".
 Offline: uv run python -m vol_agents.tsfm_recompute --model timesfm-3.0
-           --features=f1,...,f16 --bounds=b1,...,b4   prints the 1e18 vector.
+           --features=f1,...,f16 --bounds=b1,...,b4   prints the 1e18 vector of the 16-feature
+  context.
 """
 
 import argparse
@@ -19,21 +24,24 @@ import sys
 from pathlib import Path
 
 from . import contract_math as cm
+from . import history
 from . import tsfm_forecast as sf
-from .api_agent import ROUND_SIG, quantize
+from .api_agent import ROUND_SIG
 from .chain import Rpc, as_int
+from .swap_logs import SwapLogs, round_context_from_chain
 
 LOCAL_RUNNER = Path(__file__).resolve().parent / "tsfm_local.py"
 PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)"
 EXIT_MISMATCH, EXIT_ERROR = 1, 2
+DEFAULT_LOGS_RPC = "https://mainnet.gateway.tenderly.co"
 
 
-def local_step_quantiles(model: str, features, n_segments: int, python=None) -> dict:
+def local_step_quantiles(model: str, diffs, n_segments: int, python=None) -> dict:
     python = python or os.environ.get("VOL_REPRO_PYTHON")
     if not python:
         raise RuntimeError("VOL_REPRO_PYTHON is unset: it must name an interpreter with torch "
                            "and the model's runtime")
-    req = {"model": model, "weights": sf.spec(model).weights, "context": sf.context(features),
+    req = {"model": model, "weights": sf.spec(model).weights, "context": list(diffs),
            "h": sf.horizon(n_segments)}
     r = subprocess.run([python, str(LOCAL_RUNNER)], input=json.dumps(req), capture_output=True,
                        text=True, timeout=600)
@@ -42,12 +50,41 @@ def local_step_quantiles(model: str, features, n_segments: int, python=None) -> 
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
-def recompute_outputs(model: str, features, bounds, n_segments=cm.N_SEGMENTS, python=None):
-    q = local_step_quantiles(model, features, n_segments, python)
-    return quantize(sf.probs(q["levels"], q["steps"], bounds, n_segments, model))
+def recompute_outputs(model: str, ctx: history.Context, bounds, n_segments=cm.N_SEGMENTS,
+                      python=None) -> list[int]:
+    q = local_step_quantiles(model, ctx.diffs, n_segments, python)
+    return sf.quantize_reveal(sf.probs(q["levels"], q["steps"], bounds, n_segments, model,
+                                       ctx.source))
 
 
-def recompute_online(model, rpc_url, market, round_id, model_id) -> int:
+def candidate_contexts(model: str, features, start: int, delta: int, logs: SwapLogs | None,
+                       pool: str | None) -> list[history.Context]:
+    """What the agent may have sent, in order: for a long-context model the series rebuilt from
+    the pool's Swap logs, then the 16 onchain differences it falls back to when its own cache
+    could not provide that series; otherwise only the 16. Both are functions of chain data."""
+    onchain = history.Context(sf.context(features), sf.ONCHAIN)
+    if not sf.spec(model).long_context:
+        return [onchain]
+    rebuilt = round_context_from_chain(logs, pool, features, start, delta)
+    return [rebuilt, onchain] if rebuilt.source == sf.SWAPS else [onchain]
+
+
+def verify(model, revealed, contexts, bounds, n_segments, python=None) -> dict:
+    """The first context whose recompute matches the reveal within tolerance, else the closest."""
+    tried = []
+    for ctx in contexts:
+        out = recompute_outputs(model, ctx, bounds, n_segments, python)
+        diff, verdict = sf.compare_reveal(revealed, out)
+        tried.append({"contextSource": ctx.source, "contextPoints": len(ctx.diffs),
+                      "recomputed": out, "maxAbsDiff": diff, "verdict": verdict})
+        if verdict != sf.FAIL:
+            break
+    best = min(tried, key=lambda t: t["maxAbsDiff"])
+    return {**best, "tried": [{k: t[k] for k in ("contextSource", "maxAbsDiff", "verdict")}
+                              for t in tried]}
+
+
+def recompute_online(model, rpc_url, market, round_id, model_id, logs_rpc_url=None) -> int:
     chain = Rpc(rpc_url)
     onchain = chain.call(market, "modelHash(uint256)(bytes32)", model_id)[0]
     local = sf.model_hash(model)
@@ -62,15 +99,18 @@ def recompute_online(model, rpc_url, market, round_id, model_id) -> int:
     revealed = [as_int(v) for v in rec[2]]
     feats = [as_int(v) for v in chain.call(market, "getFeatures(uint256)(int256[16])",
                                            round_id)[0]]
-    bounds = [as_int(b) for b in chain.call(market, ROUND_SIG, round_id)[7]]
+    r = chain.call(market, ROUND_SIG, round_id)
+    start, bounds = as_int(r[0]), [as_int(b) for b in r[7]]
     n = as_int(chain.call(market, "nSegments()(uint8)")[0])
-    recomputed = recompute_outputs(model, feats, bounds, n)
-    differ = [i for i, (a, b) in enumerate(zip(revealed, recomputed, strict=True)) if a != b]
+    delta = as_int(chain.call(market, "delta()(uint32)")[0])
+    pool = chain.call(market, "pool()(address)")[0]
+    logs = SwapLogs(logs_rpc_url or os.environ.get("MAINNET_RPC_URL") or DEFAULT_LOGS_RPC)
+    result = verify(model, revealed, candidate_contexts(model, feats, start, delta, logs, pool),
+                    bounds, n)
     print(json.dumps({"model": model, "weights": sf.spec(model).weights, "market": market,
                       "round": round_id, "modelId": model_id, "modelHash": onchain,
-                      "revealed": revealed, "recomputed": recomputed,
-                      "mismatchedBuckets": differ, "match": not differ}))
-    return 0 if not differ else EXIT_MISMATCH
+                      "revealed": revealed, "tolerance": sf.RECOMPUTE_TOLERANCE, **result}))
+    return 0 if result["verdict"] != sf.FAIL else EXIT_MISMATCH
 
 
 def main(argv=None) -> int:
@@ -78,6 +118,7 @@ def main(argv=None) -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--model", required=True)
     p.add_argument("--rpc-url")
+    p.add_argument("--logs-rpc-url")
     p.add_argument("--market")
     p.add_argument("--round", type=int)
     p.add_argument("--model-id", type=int)
@@ -88,10 +129,12 @@ def main(argv=None) -> int:
         if a.rpc_url:
             if a.market is None or a.round is None or a.model_id is None:
                 p.error("online mode needs --market, --round and --model-id")
-            return recompute_online(a.model, a.rpc_url, a.market, a.round, a.model_id)
+            return recompute_online(a.model, a.rpc_url, a.market, a.round, a.model_id,
+                                    a.logs_rpc_url)
         if a.features is None or a.bounds is None:
             p.error("offline mode needs --features and --bounds")
-        print(json.dumps(recompute_outputs(a.model, a.features, a.bounds)))
+        ctx = history.Context(sf.context(a.features), sf.ONCHAIN)
+        print(json.dumps(recompute_outputs(a.model, ctx, a.bounds)))
         return 0
     except (RuntimeError, ValueError, subprocess.TimeoutExpired) as e:
         print(f"tsfm_recompute: {e}", file=sys.stderr)

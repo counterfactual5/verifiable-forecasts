@@ -1,6 +1,7 @@
-"""Local CPU inference with the public weights behind a inference model, for recomputing a reveal.
+"""Local CPU inference with the public weights of a self-hosted model, for recomputing a reveal.
 Run as a script by the interpreter in VOL_REPRO_PYTHON (torch, timesfm 3.0.2, chronos-forecasting
-2.x), not by the agents environment; weights are read offline from the Hugging Face cache.
+2.x, timestral 1.0), not by the agents environment; weights are read offline from the Hugging
+Face cache.
 
 Protocol: one JSON request on stdin ({"model": id, "weights": "repo@rev", "context": [ticks],
 "h": steps}), one JSON line
@@ -51,6 +52,13 @@ def predict(model: str, weights: str, ctx: list[float], h: int) -> dict:
                                           prediction_length=h, quantile_levels=CHRONOS2_LEVELS)
         q = q[0] if isinstance(q, list) else q
         return {"levels": CHRONOS2_LEVELS, "steps": q.reshape(h, len(CHRONOS2_LEVELS)).tolist()}
+    if model == "timestral-209m":
+        from timestral import TimestralForecaster
+
+        fc = TimestralForecaster.from_pretrained(str(snapshot(weights)), device="cpu")
+        # the inference service averages with the mirrored forecast; without it reveals differ
+        out = fc.forecast(np.asarray(ctx, np.float32), h, symmetric_averaging=True)
+        return {"levels": list(fc.quantile_levels), "steps": out.quantiles[0, 0].tolist()}
     raise ValueError(f"no local runtime for {model}")
 
 

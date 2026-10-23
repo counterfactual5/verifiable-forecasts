@@ -1,7 +1,8 @@
-"""Long off-chain context for the commit-only agents: 5-minute segment-mean tick differences.
+"""Long context for the time-series model agents: 5-minute segment-mean tick differences.
 
 Input is the rolling Swap cache that analysis/ keeps (`fetch_swaps.py --tail`), read as files;
-agents/ never imports analysis/:
+agents/ never imports analysis/ (swap_logs writes the same format from a node's Swap logs, so a
+recompute rebuilds the series from chain data alone):
 - `<cache>`: CSV `block,tick,timestamp`, ascending in block, the rows of a block in log order;
 - `<cache>.coverage.json`: `{"pool", "to_block", "to_timestamp"}`, every Swap up to `to_block`
   (timestamp `to_timestamp`) is in the CSV.
@@ -9,9 +10,9 @@ agents/ never imports analysis/:
 Series for a round created at T = start - delta (demo/fork_round.py opens a round one segment
 before its start): checkpoints c_k = T - (n + 1 - k) * delta for k = 0 .. n + 1, segment means
 m_j = floorDiv(C(c_{j+1}) - C(c_j), delta), differences d_j = m_{j+1} - m_j for j = 0 .. n - 1,
-unclamped. The last point is the createRound segment, as in api_agent.build_tsfm_request, and
+unclamped. The last point is the createRound segment, as in tsfm_forecast.build_request, and
 clamping the last 16 by cm.CLAMP gives the round's onchain features / cm.MULT. This is the c512
-context of the offline inference evaluation (long_diffs over the analysis tick-cumulative grid).
+context of the offline evaluation (MODEL_CARD 6.2), equal to it on all 339 evaluated rounds.
 
 C(t) integrates the tick from the first cached Swap: the tick of a block is the one its last Swap
 leaves, held until the next Swap block, as the pool oracle charges it. The constant offset to the
@@ -35,9 +36,9 @@ from . import contract_math as cm
 DEFAULT_CONTEXT = 512  # ~42.7 h of 5-minute differences, the evaluated long context
 CACHE_ENV = "VOL_HISTORY_CACHE"
 CONTEXT_ENV = "VOL_HISTORY_CONTEXT"
-# (spread, uniform mix) of the inference sampling post-process per model for the long context,
-# chosen on the validation period 2026-10-08 .. 10-15 with c512 (.local/inference-eval REPORT);
-# the 16-point calibration in api_agent does not transfer.
+# (spread, uniform mix) of the tsfm_forecast sampling post-process per model for the long context,
+# chosen on the validation period 2026-10-08 .. 10-15 with c512 only (MODEL_CARD 6.2); the
+# 16-point spreads in tsfm_forecast.MODELS do not transfer.
 LONG_CONTEXT_CALIBRATION = {
     "remote-model": (0.9, 0.3),
     "chronos-2": (0.8, 0.3),
