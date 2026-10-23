@@ -165,10 +165,37 @@
     .stage { grid-template-columns: 1fr; }
     .stage .headline { grid-template-columns: auto minmax(0, 1fr); }
   }
+  /* ---------- round player ---------- */
+  .player { margin-top: 22px; background: var(--panel); border: 1px solid var(--ink); border-radius: 16px; padding: 14px 16px 16px;
+            box-shadow: 5px 5px 0 var(--ink); }
+  .pl-stages { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .pl-stage { position: relative; border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px 12px; background: var(--bg);
+              font-size: 13px; transition: opacity .35s, filter .35s, border-color .35s, box-shadow .35s; min-width: 0; }
+  .pl-stage.now { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(29, 63, 196, .18); }
+  .pl-stage.locked { opacity: .38; filter: grayscale(1); }
+  .pl-stage.locked .pl-b { visibility: hidden; }
+  .pl-stage.locked::after { content: "🔒"; position: absolute; inset: 40px 0 0; display: grid; place-items: center; font-size: 26px; }
+  .pl-h { display: flex; align-items: baseline; gap: 6px; font: 700 15px/1.3 var(--display); margin-bottom: 6px; }
+  .pl-h .n { color: var(--vermil); }
+  .pl-h .en { font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+  .pl-b p { margin: 4px 0; }
+  .pl-b ul { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 5px; }
+  .pl-b li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+  .pl-b .badge { font-size: 11px; padding: 2px 8px; }
+  .pl-b .who { display: inline-flex; align-items: center; gap: 5px; font: 600 12px/1.2 var(--mono); min-width: 92px; }
+  .pl-b .who i { width: 9px; height: 9px; border-radius: 50%; outline: 1px solid var(--ink); }
+  .pl-b .mono { font-size: 11.5px; white-space: nowrap; }
+  .pl-b .dim, .pl-src.dim { color: var(--muted); font-size: 11.5px; }
+  .pl-b .up { color: var(--ok); } .pl-b .down { color: var(--bad); }
+  .pl-big { font: 700 26px/1.1 var(--display); margin: 2px 0 4px; }
+  .pl-big span { font: 500 13px/1.3 var(--sans); color: var(--muted); }
+  .pl-big .win { color: #6b3fc4; background: rgba(163, 113, 247, .16); border: 1px solid var(--win); border-radius: 6px; padding: 0 5px; font-family: var(--mono); }
+  @media (max-width: 1100px) { .pl-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 760px) {
     .stage .headline { order: -1; grid-template-columns: 1fr; }
     #flow { height: 300px; }
     .rc { margin-left: 0; }
+    .pl-stages { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -627,7 +654,7 @@ function heroHtml(d, isZk) {
         即它给真实结果的联合概率是瞎猜的 <b>${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)} 倍</b>。
         <div class="sub">${b.beat}/${b.of} 个${b.zk ? " zk" : ""} agent 跑赢瞎猜 · nats = 自然对数单位，得分 = ln(给真实结果的概率)</div></div>
       <div class="spark-wrap">${sparkline(d, b.name)}</div></div></div>
-    <ol class="steps">${s1}${s2}${s3}</ol>`;
+    <ol class="steps">${s1}${s2}${s3}</ol>${playerCard(d)}`;
 }
 
 const ICONS = {
@@ -870,6 +897,7 @@ function renderReplay({ data: d, src }) {
   document.getElementById("kpis").innerHTML = summaryLine(d);
   const mb = rounds.map((r) => r.mainnet).filter(Boolean);
   document.getElementById("asof").innerHTML = mb.length ? `Ethereum mainnet · blocks <b>${mb[0].block_from.toLocaleString()}–${mb[mb.length - 1].block_to.toLocaleString()}</b> · ${rp.start_utc.slice(0, 10)} → ${rp.end_utc.slice(5, 10)} · replayed on a fork` : "";
+  STATE.data = d;
   if (!STATE.model) STATE.model = flowModel(d, (a) => agents.find((x) => x.agent === a.agent).color);
   document.getElementById("hero").innerHTML = heroHtml(d, isZk);
   roundListeners.forEach((f) => f());
@@ -948,6 +976,85 @@ function flowCard(d) {
     <div class="flow-cap">左：agent（圆大小 = 截至本轮累计得分，粒子数 ∝ ERC-8004 声誉权重）→ 中：按各自揭示的概率流向 5 个波动率档位（tick²），
     <i style="background:var(--win)"></i>紫色 = 本轮真实落档 → 右：VolFeeConsumer 本轮设定的手续费。</div></section>`;
 }
+
+const STAGE_SECONDS = ROUND_SECONDS / 4.5;
+const stagesShown = () => (!STATE.playing || calm ? 4 : Math.min(4, 1 + Math.floor(STATE.elapsed / STAGE_SECONDS)));
+
+// Fork transactions (settle, setFee) live only on the local anvil fork, so they are shown without an explorer link.
+function playerBody(d) {
+  const r = d.rounds[STATE.round], p = d.params, names = BUCKET_NAMES(p.bounds), u = p.baseline_log_score_float;
+  const tier = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
+  const tc = Object.fromEntries((d.tamper_checks ?? []).map((t) => [t.agent, t]));
+  const color = (i) => PALETTE[i % PALETTE.length];
+  const who = (a, i) => `<span class="who"><i style="background:${color(i)}"></i>${a.agent.replace("agent-", "")}</span>`;
+  const ok = (t) => `<span class="badge ok">${t}</span>`, bad = (t) => `<span class="badge bad">${t}</span>`;
+  const mute = (t) => `<span class="badge">${t}</span>`;
+  const o = r.outcome, mn = r.mainnet, f = r.fee;
+  const hms = (s) => new Date(s * 1000).toISOString().slice(11, 19) + " UTC";
+
+  const commit = d.agents.map((a, i) => {
+    const ra = r.agents[a.agent];
+    return `<li>${who(a, i)}${ra ? `<span class="mono">reveal ${(ra.reveal_gas / 1000).toFixed(0)}k gas</span>` : mute("未提交")}</li>`;
+  }).join("");
+  const prove = d.agents.map((a, i) => {
+    const ra = r.agents[a.agent] ?? {}, t = tc[a.agent], k = tier(a);
+    let b;
+    if (k === "zk") b = ok("zk ✓") + (t ? ` <span class="mono">verifyProof ${(t.verify_proof_gas / 1000).toFixed(0)}k gas</span>` : "") +
+      (t && t.tampered_output_verifies === false ? ` ${bad("篡改 ✗ revert")}` : "") +
+      (ra.prove_seconds != null ? ` <span class="mono dim">证明 ${ra.prove_seconds}s</span>` : "");
+    else if (k === "reproducible") b = ra.reproduced === true ? ok("可复现 ✓ 链下重算一致")
+      : ra.reproduced === false ? bad("可复现 ✗ 重算不一致") : mute("可复现 · 本轮未核验");
+    else b = mute("无证明 · 仅承诺");
+    return `<li>${who(a, i)}<span>${b}</span></li>`;
+  }).join("");
+  const settle = o.voided ? `<p>本轮作废：${o.void_reason ?? "—"}</p>` : `
+    <div class="pl-big">RV ${o.realized_vol} <span>→ 档位 #${o.winning_bucket} <b class="win">${names[o.winning_bucket]}</b></span></div>
+    <p class="pl-src">${r.rv_matches_mainnet ? ok("= 主网逐笔重算") : bad("≠ 主网")}
+      ${mn ? ` 主网区块 ${blockLink(mn.block_from)}–${blockLink(mn.block_to)} · ${mn.swap_count} 笔 swap${mn.last_swap_tx ? ` · 末笔 ${txLink(mn.last_swap_tx)}` : ""}` : ""}</p>
+    <ul>${d.agents.map((a, i) => {
+      const s = r.agents[a.agent]?.log_score_float;
+      return `<li>${who(a, i)}${s == null ? mute("—") : `<span class="mono">ln p = ${s.toFixed(3)}</span>
+        <span class="mono ${s > u ? "up" : "down"}">${s > u ? "▲" : "▼"} ${(s - u >= 0 ? "+" : "") + (s - u).toFixed(3)}</span>`}</li>`;
+    }).join("")}</ul>
+    <p class="pl-src dim">settle gas ${o.gas_used?.toLocaleString() ?? "—"} · 区块 ${o.settle_block ?? "—"}（fork，无浏览器链接）</p>`;
+  const use = f?.forecast_bps == null ? `<p>这份回放没有记录消费方（动态手续费）数据。</p>` : (() => {
+    const e = Math.abs(f.forecast_bps - f.fair_bps), ef = Math.abs(f.fixed_bps - f.fair_bps);
+    return `<div class="pl-big">${f.forecast_bps.toFixed(2)} <span>bps 手续费</span></div>
+      <p>事后公允费率 ${f.fair_bps.toFixed(2)} bps · 误差 <b>${e.toFixed(2)}</b> vs 固定 ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
+        ${e <= ef ? ok("本轮优于固定") : mute("本轮固定更近")}</p>
+      <p class="pl-src dim">${f.mirror?.equal_weight_fallback ? "声誉权重尚未形成 → 等权混合" : `声誉权重 ${f.mirror?.weights?.join(" : ") ?? "—"}`}
+        · setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>`;
+  })();
+  const stage = (k, n, zh, en, body) => `<li class="pl-stage" data-stage="${k}"><div class="pl-h"><span class="n">${n}</span>${zh}<span class="en">${en}</span></div><div class="pl-b">${body}</div></li>`;
+  return `<ol class="pl-stages">
+    ${stage(1, "①", "承诺", "commit", `<p class="dim">哈希承诺截止 ${hms(r.start - p.commit_lead_s)}（开窗前 ${p.commit_lead_s}s），揭示截止开窗前 ${p.reveal_lead_s}s</p><ul>${commit}</ul>
+      <p class="pl-src dim">回放 JSON 未记录 commit 哈希与揭示区块</p>`)}
+    ${stage(2, "②", "证明", "prove", `<ul>${prove}</ul>${d.tamper_checks?.length ? `<p class="pl-src dim">verifyProof gas 与篡改检查为回放第 0 轮实测</p>` : ""}`)}
+    ${stage(3, "③", "结算", "settle", settle)}
+    ${stage(4, "④", "被使用", "use", use)}</ol>`;
+}
+
+function playerCard(d) {
+  return `<section class="player" aria-labelledby="pl-title"><div class="flow-head"><span class="eyebrow">round player · 单轮回放</span>
+    <h3 id="pl-title">一轮从承诺到被使用 · <b id="pl-round"></b></h3>${roundButtons()}</div>
+    <div id="pl-body" aria-live="polite"></div></section>`;
+}
+
+roundListeners.push((tick) => {
+  const d = STATE.data, body = document.getElementById("pl-body");
+  if (!d || !body) return;
+  if (!tick || !body.firstChild) {
+    body.innerHTML = playerBody(d);
+    const r = d.rounds[STATE.round];
+    document.getElementById("pl-round").textContent = `#${r.h ?? r.id} ${r.window_utc[0].slice(11, 16)}–${r.window_utc[1].slice(11, 16)} UTC`;
+  }
+  const n = stagesShown();
+  body.querySelectorAll(".pl-stage").forEach((el) => {
+    const k = Number(el.dataset.stage);
+    el.classList.toggle("locked", k > n);
+    el.classList.toggle("now", STATE.playing && !calm && k === n);
+  });
+});
 
 const FLOW = { parts: [], canvas: null, ctx: null, w: 0, h: 0, raf: 0, last: 0, acc: 0, pulse: 0, radii: [] };
 const FONT_MONO = '"SF Mono", ui-monospace, Menlo, Consolas, monospace';
