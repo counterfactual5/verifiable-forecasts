@@ -867,6 +867,18 @@ contract VolMarketTest is Test {
 
     // -------- commit-reveal ----------------------------------------------
 
+    function test_PredictorAtListsCommittersInOrder() public {
+        _deploy(0);
+        uint256 id = _create();
+        _commitOnly(id, alice, _probs(0, 0.5e18));
+        _commitOnly(id, bob, _probs(1, 0.5e18));
+        assertEq(market.predictorCount(id), 2);
+        assertEq(market.predictorAt(id, 0), alice);
+        assertEq(market.predictorAt(id, 1), bob);
+        vm.expectRevert();
+        market.predictorAt(id, 2);
+    }
+
     function test_ForecastHiddenUntilRevealWindow() public {
         _deploy(0);
         uint256 id = _create();
