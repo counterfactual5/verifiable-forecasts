@@ -6,10 +6,10 @@
 # agent (tier, median / interval), plus the shared-operator disclaimer. Each agent's provider, address,
 # ERC-8004 agentId and modelHash live once, in the #/agents table.
 # A one-hot forecast fixes the interpolated quantiles, so the method is checked, not just drawn.
-# Past rounds carry each agent's forecast median / intervals next to the realized line, on an axis
-# labelled up to it, drawn with the same glyph as the current hour (faint 90% band, 50% band, median tick, same colour).
-# The overview hides the nowcast and shows the compact case snapshot above its KPIs. With more than 8 past hours
-# the wide chart keeps one hour's glyphs side by side and the narrow one overlays them on the hour.
+# Past rounds draw the consensus fan, each agent's median line in its current-hour colour and the realized
+# line on an axis labelled up to it (fan details: next_live_fan.sh); the current hour keeps one glyph per
+# agent (faint 90% band, 50% band, median tick).
+# The overview hides the nowcast and shows the compact case snapshot above its KPIs.
 # Per-agent tooltips and the fee share legend rank high to low. Without pending_round the section is absent. No overflow at 390 px,
 # no page errors.
 set -uo pipefail
@@ -105,7 +105,8 @@ const fs = require("fs");
         bands: [...el.querySelectorAll("svg g[data-agent]")].map((g) => ({ agent: g.dataset.agent, q: ["q05", "q25", "q50", "q75", "q95"].map((k) => Number(g.dataset[k])) })),
         cd: document.querySelector("#nowcast-cd")?.textContent ?? "",
         compact: [...el.querySelectorAll("tr[data-agent]")].map((tr) => ({ agent: tr.dataset.agent, cells: tr.cells.length, text: tr.textContent.replace(/\s+/g, " ") })),
-        past: [...el.querySelectorAll("svg g.nc-past")].map((g) => ({ agent: g.dataset.forecaster, round: g.dataset.round, q50: Number(g.dataset.q50), ...glyph(g) })),
+        lines: [...el.querySelectorAll("svg [data-agent-line]")].map((p) => ({ agent: p.dataset.agentLine, stroke: p.getAttribute("stroke"), pts: (p.getAttribute("d").match(/[ML]/g) || []).length })),
+        fan: !!el.querySelector("svg [data-fan] .nc-band-wide") && !!el.querySelector("svg [data-fan] .nc-cmed"), dots: el.querySelectorAll("svg circle").length,
         now: [...el.querySelectorAll("svg g[data-agent]")].map((g) => ({ agent: g.dataset.agent, ...glyph(g) })),
         ticks: [...el.querySelectorAll("svg text.ax")].map((t) => Number(t.textContent)).filter((v) => Number.isFinite(v) && v > 0),
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
@@ -127,20 +128,14 @@ const fs = require("fs");
     check(one && near(one.q[2], Math.sqrt(b[0] * b[1])) && near(one.q[1], b[0] * (b[1] / b[0]) ** 0.25) && near(one.q[4], b[0] * (b[1] / b[0]) ** 0.95),
       `@${width}: one-hot bucket #1 -> log-linear quantiles inside [${b[0]}, ${b[1]}] (${one && one.q.map((v) => v.toFixed(1))})`);
     const shown = d.rounds.slice(-24).filter((x) => (x.outcome?.realized_vol ?? x.real_realized_vol) != null);
-    const want = shown.flatMap((x) => d.agents.filter((a) => x.agents[a.agent]?.probs && x.agents[a.agent].entered !== false).map((a) => `${x.id}/${a.agent}`));
-    const got = r.past.map((m) => `${m.round}/${m.agent}`);
-    check(want.length > 0 && JSON.stringify(got.slice().sort()) === JSON.stringify(want.slice().sort()),
-      `@${width}: past rounds show one forecast marker per agent per settled round (${got.length}/${want.length})`);
+    const want = d.agents.filter((a) => shown.some((x) => x.agents[a.agent]?.probs && x.agents[a.agent].entered !== false)).map((a) => a.agent);
+    check(r.fan && r.dots === shown.length && want.length > 0 && JSON.stringify(r.lines.map((l) => l.agent).sort()) === JSON.stringify(want.slice().sort()),
+      `@${width}: past hours: consensus fan, ${shown.length} realized points, one median line per agent (${r.lines.length}/${want.length})`);
     const nowFill = Object.fromEntries(r.now.map((g) => [g.agent, g.fill]));
-    check(r.now.length > 0 && r.now.every((g) => g.ok) && r.past.length > 0 && r.past.every((g) => g.ok),
-      `@${width}: past and current-hour forecasts share one glyph: faint 90% band, 50% band, median tick (past ${r.past.filter((g) => g.ok).length}/${r.past.length}, now ${r.now.filter((g) => g.ok).length}/${r.now.length})`);
-    check(r.past.every((m) => Number.isFinite(m.q50) && m.q50 > 0 && (!nowFill[m.agent] || m.fill === nowFill[m.agent])),
-      `@${width}: past glyphs carry the agent's current-hour colour and a finite median`);
-    const byRound = Object.values(r.past.reduce((o, m) => ((o[m.round] ??= []).push(m), o), {}));
-    const sideBySide = byRound.every((g) => g.every((m, i) => i === 0 || m.cx - g[i - 1].cx >= m.w));
-    const stacked = byRound.every((g) => new Set(g.map((m) => m.cx)).size === 1);
-    if (width < 600 && shown.length > 8) check(stacked, `@${width}: ${shown.length} past hours stay readable: each hour's glyphs overlay on the hour`);
-    else check(sideBySide && r.past.every((m) => m.w >= 2), `@${width}: past glyphs of one hour sit side by side without overlap, each at least 2 units wide`);
+    check(r.now.length > 0 && r.now.every((g) => g.ok),
+      `@${width}: current-hour forecasts: faint 90% band, 50% band, median tick (now ${r.now.filter((g) => g.ok).length}/${r.now.length})`);
+    check(r.lines.every((l) => l.pts >= 2 && (!nowFill[l.agent] || l.stroke === nowFill[l.agent])),
+      `@${width}: past median lines carry the agent's current-hour colour`);
     check(/预测中位数/.test(r.text) && /90% 区间/.test(r.text) && /50% 区间/.test(r.text) && /median/i.test(r.text) && /90% interval/.test(r.text)
       && /真实 RV/.test(r.text) && !/小点|dots/i.test(r.text), `@${width}: caption describes the one glyph (90% / 50% bands, median tick) vs the realized line`);
     const maxRv = Math.max(...shown.map((x) => x.outcome?.realized_vol ?? x.real_realized_vol));
