@@ -525,8 +525,52 @@ contract ERC8004Test is Test {
         (,,, int256 score) = market.getPrediction(id, alice);
         assertEq(int256(values[0]), score);
         assertEq(reputation.getSummary(zkAgent, _clients(address(market)), "pinball", "vol-300s-12-commit"), 0);
-        (int128[] memory silent,,,) = reputation.readFeedback(silentAgent, address(market));
-        assertEq(silent.length, 0, "unrevealed forecast leaves no record");
+        (int128[] memory silent,,, string[] memory silentTags) = reputation.readFeedback(silentAgent, address(market));
+        assertEq(silent.length, 1, "unrevealed forecast is recorded");
+        assertEq(int256(silent[0]), -int256(_worstLoss(id)), "at the worst revealable loss");
+        assertEq(silentTags[0], "vol-300s-12-commit");
+    }
+
+    function test_UnrevealedBoundForecastWrittenAtWorstScore() public {
+        _deployMarket();
+        market.setReputation(address(identity), address(reputation));
+        uint256 agentId = _registerAgent();
+        uint256 modelId = market.registerModel(_verifier(), agentOwner);
+        vm.prank(agentOwner);
+        market.linkAgent(modelId, agentId);
+        uint256 unboundModel = market.registerModel(address(0), bob);
+
+        uint256 id = _create();
+        _commit(id, modelId, agentOwner);
+        _commit(id, unboundModel, bob);
+        vm.warp(END + 10);
+        market.settle(id);
+
+        (int128[] memory values,,, string[] memory tags) = reputation.readFeedback(agentId, address(market));
+        assertEq(values.length, 1);
+        assertEq(int256(values[0]), -int256(_worstLoss(id)));
+        assertLt(int256(values[0]), -int256(_baselineLoss(id)), "worse than the baseline");
+        assertEq(tags[0], "vol-300s-12");
+        (bool recorded,,, int256 score) = market.getPrediction(id, agentOwner);
+        assertFalse(recorded, "still unrevealed");
+        assertEq(score, 0, "market-side score untouched, earns no share");
+    }
+
+    function test_UnrevealedForecastInVoidedRoundNotWritten() public {
+        _deployMarket();
+        market.setReputation(address(identity), address(reputation));
+        uint256 agentId = _registerAgent();
+        uint256 modelId = market.registerModel(_verifier(), agentOwner);
+        vm.prank(agentOwner);
+        market.linkAgent(modelId, agentId);
+        uint256 id = _create();
+        _commit(id, modelId, agentOwner);
+        vm.warp(END + 10 + uint256(type(uint32).max));
+        market.settle(id);
+        (bool voided,,) = _round(id);
+        assertTrue(voided);
+        (int128[] memory values,,,) = reputation.readFeedback(agentId, address(market));
+        assertEq(values.length, 0);
     }
 
     function test_ReputationFailureDoesNotBlockSettleOrClaim() public {
@@ -739,6 +783,23 @@ contract ERC8004Test is Test {
     }
 
     /// @dev Winning bucket and realized volatility of a settled round.
+    /// @dev Worse of all quantiles at Q_MIN and all at Q_MAX, by the contract's floor-per-term rule.
+    function _worstLoss(uint256 id) internal view returns (uint256) {
+        (int256 y,,) = market.getRoundScoring(id);
+        uint256[] memory tau = market.quantileLevels();
+        uint256 lo;
+        uint256 hi;
+        for (uint256 k = 0; k < tau.length; ++k) {
+            lo += (tau[k] * uint256(y - market.Q_MIN())) / 1e18;
+            hi += ((1e18 - tau[k]) * uint256(market.Q_MAX() - y)) / 1e18;
+        }
+        return lo > hi ? lo / tau.length : hi / tau.length;
+    }
+
+    function _baselineLoss(uint256 id) internal view returns (uint256 loss) {
+        (, loss,) = market.getRoundScoring(id);
+    }
+
     function _round(uint256 id) internal view returns (bool voided, uint256 bucket, uint256 rv) {
         (, bool settled, bool v, uint256 b, uint256 r,,,) = market.getRound(id);
         assertTrue(settled, "settled");

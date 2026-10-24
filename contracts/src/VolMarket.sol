@@ -685,24 +685,43 @@ contract VolMarket {
         return p.loss < base ? base - p.loss : 0;
     }
 
-    /// @dev Writes the score (-pinball loss) of every revealed predictor with a bound agent to the
-    ///      ERC-8004 reputation registry. The registry is untrusted here: a rejected write is
-    ///      reported as an event and never blocks settlement or the claims that follow it.
+    /// @dev Largest pinball loss any acceptable reveal can score at y: every quantile within
+    ///      [Q_MIN, Q_MAX], and the loss of each level is maximized at an end of that range, so the
+    ///      worse of all-at-Q_MIN and all-at-Q_MAX bounds every revealable forecast (1e18 ln units).
+    function _worstLoss(int256 y) internal view returns (uint256) {
+        uint256 n = levels.length;
+        int256[] memory lo = new int256[](n);
+        int256[] memory hi = new int256[](n);
+        for (uint256 k = 0; k < n; ++k) {
+            lo[k] = MarketMath.Q_MIN;
+            hi[k] = MarketMath.Q_MAX;
+        }
+        uint256 a = MarketMath.pinball(y, lo, levels);
+        uint256 b = MarketMath.pinball(y, hi, levels);
+        return a > b ? a : b;
+    }
+
+    /// @dev Writes the score (-pinball loss) of every committed predictor with a bound agent to the
+    ///      ERC-8004 reputation registry; a commit never revealed is written at the round's worst
+    ///      revealable loss (_worstLoss), so revealing only the rounds expected to score well costs
+    ///      reputation. The registry is untrusted here: a rejected write is reported as an event and
+    ///      never blocks settlement or the claims that follow it.
     function _writeReputation(Round storage r, uint256 id) internal {
         if (address(reputationRegistry) == address(0)) return;
         uint256 predictorsLen = r.predictors.length;
         string memory zkTag = _reputationTag();
         string memory commitTag = string.concat(zkTag, "-commit");
+        uint256 worst = _worstLoss(r.lnRv);
         for (uint256 i = 0; i < predictorsLen; ++i) {
             address who = r.predictors[i];
             Prediction storage p = r.predictions[who];
-            if (!p.recorded) continue;
             uint256 modelId = p.modelId;
             if (!agentBound[modelId]) continue;
             uint256 agentId = agentOfModel[modelId];
             if (agentId == 0) continue; // binding without an agent: nothing to attribute
             string memory tag2 = models[modelId] == address(0) ? commitTag : zkTag;
-            _giveFeedback(id, who, agentId, _toInt128(-int256(p.loss)), tag2);
+            uint256 loss = p.recorded ? p.loss : worst;
+            _giveFeedback(id, who, agentId, _toInt128(-int256(loss)), tag2);
         }
     }
 
