@@ -1238,7 +1238,12 @@ def main():
             if hook_pool:
                 for rec in rp.rounds.values():
                     if rec["start"] == g:
-                        rec["hook"] = hook_pool.probe()
+                        # A failed hook probe must not cost the hour's replay.
+                        try:
+                            rec["hook"] = hook_pool.probe()
+                        except (RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as e:
+                            rec["hook_error"] = str(e)[:300]
+                            log(f"round {rec['h']}: V4 hook probe failed: {e}")
 
         tiers = {a.name: model_tier(c, market, a.model_id) for a in agents}
         hashes = {a.name: model_hash_of(c, market, a.model_id) for a in agents}
