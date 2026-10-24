@@ -55,7 +55,7 @@ mainnet history and already over. Measured in the committed run: 24 h in 2363 s 
 1590 s was the CPU recompute after the last round (timesfm-3.0 3–6 s per round, timestral-209m and
 chronos-2 30–37 s each, since they rebuild 512 points from Swap logs); the rest is reading mainnet
 `observe()` on 307 grid points, the fee calibration, three EZKL proofs per round and the
-inference-service calls. (These timings are from the earlier 5-bucket run. The frozen quantile live run took 411 s: the
+inference-service calls. (These timings are from the earlier 5-bucket run. The frozen quantile live run took 392 s: the
 server caches zk proofs and does not recompute; the 72 recomputes were run afterwards.)
 
 Steps, as printed with `[demo]`:
@@ -97,12 +97,12 @@ first successful 24-hour quantile live run from the demo server.
 
 ## Expected output (frozen 24-hour quantile live run)
 
-Frozen run: 2026-10-23 06:00 – 10-24 06:00 UTC, 24 of 24 rounds settled, every agent scored in all
-24, climatological baseline mean pinball loss 0.289. Mean pinball loss per agent: `linear_abs` 0.270,
-`mlp16` 0.264, `mlp32_abs` 0.263, timesfm-3.0 0.304, timestral-209m 0.261, chronos-2 0.311; four of
+Frozen run: 2026-10-23 07:00 – 10-24 07:00 UTC, 24 of 24 rounds settled, every agent scored in all
+24, climatological baseline mean pinball loss 0.298. Mean pinball loss per agent: `linear_abs` 0.273,
+`mlp16` 0.264, `mlp32_abs` 0.265, timesfm-3.0 0.304, timestral-209m 0.265, chronos-2 0.316; four of
 six below the baseline, timesfm-3.0 and chronos-2 above it. Recompute: 72 of 72 within tolerance
-(70 `exact`, 2 `tolerant`). Tampered proofs: 3 of 3 rejected, `verifyProof` ≈ 552k gas. Fee MAE vs
-the reference (mean 4.06 bps): forecast 2.16, fixed 5 bps 2.36, previous-hour 3.52.
+(70 `exact`, 2 `tolerant`). Tampered proofs: 3 of 3 rejected, `verifyProof` ≈ 553k gas. Fee MAE vs
+the reference (mean 3.94 bps): forecast 2.08, fixed 5 bps 2.47, previous-hour 3.48.
 
 The summary table of the frozen run: per agent rounds scored, mean pinball loss, the
 round-matched climatological baseline loss, excess, 50 % / 80 % coverage, rounds beating the

@@ -173,26 +173,26 @@ the replayed hours, and then on the fork:
   honest proof with one output changed.
 
 Frozen run ([`dashboard/sample-replay.json`](dashboard/sample-replay.json)): a 24-hour quantile
-live run on the demo server, window 2026-10-23 06:00 – 10-24 06:00 UTC, fork block 26,252,894,
-411 s wall time. 24 of 24 rounds settled, 0 voided; features and realized vol equal the mainnet
+live run on the demo server, window 2026-10-23 07:00 – 10-24 07:00 UTC, fork block 26,253,193,
+392 s wall time. 24 of 24 rounds settled, 0 voided; features and realized vol equal the mainnet
 recompute in every round (the onchain ln RV differs from the Python mirror by at most 19 wei on the
 1e18 scale, rounding only). Every honest proof verified and every tampered one was rejected (3 of 3,
-`verifyProof` ≈ 552k gas). The reproducible recompute matched 72 of 72 reveals within 1e15 per
+`verifyProof` ≈ 553k gas). The reproducible recompute matched 72 of 72 reveals within 1e15 per
 quantile (70 exact, 2 tolerant, largest difference 2.44e14). Each agent's ERC-8004 count is 24.
 
 Per agent the JSON reports the mean pinball loss, the round-matched climatological baseline loss, the
 excess (baseline − agent), 50 % / 80 % interval coverage, rounds beating the baseline, the fee share
 and the ERC-8004 count (tag1 `pinball`). Mean pinball loss (lower is better) against the
-climatological baseline's 0.289 (50 % / 80 % coverage 0.63 / 0.88):
+climatological baseline's 0.298 (50 % / 80 % coverage 0.58 / 0.88):
 
 | Agent | Tier | Mean pinball loss | Excess vs baseline | Rounds below baseline | Coverage 50 % / 80 % |
 |---|---|---:|---:|---:|---:|
-| `linear_abs` | zk | 0.270 | +0.018 | 19 / 24 | 0.63 / 0.83 |
-| `mlp16` | zk | 0.264 | +0.024 | 20 / 24 | 0.71 / 0.88 |
-| `mlp32_abs` | zk | 0.263 | +0.026 | 19 / 24 | 0.54 / 0.79 |
-| timesfm-3.0 | reproducible | 0.304 | −0.015 | 15 / 24 | 0.42 / 0.54 |
-| timestral-209m | reproducible | 0.261 | +0.028 | 18 / 24 | 0.46 / 0.79 |
-| chronos-2 | reproducible | 0.311 | −0.022 | 16 / 24 | 0.38 / 0.63 |
+| `linear_abs` | zk | 0.273 | +0.026 | 19 / 24 | 0.63 / 0.83 |
+| `mlp16` | zk | 0.264 | +0.034 | 20 / 24 | 0.71 / 0.88 |
+| `mlp32_abs` | zk | 0.265 | +0.033 | 19 / 24 | 0.54 / 0.79 |
+| timesfm-3.0 | reproducible | 0.304 | −0.006 | 15 / 24 | 0.42 / 0.54 |
+| timestral-209m | reproducible | 0.265 | +0.034 | 18 / 24 | 0.42 / 0.79 |
+| chronos-2 | reproducible | 0.316 | −0.018 | 16 / 24 | 0.33 / 0.63 |
 
 Four of six agents have a lower mean loss than the baseline; timesfm-3.0 and chronos-2 do not.
 24 hourly rounds are a small sample; no
@@ -272,13 +272,13 @@ a strategy; closer is better) with three strategies
 
 | Strategy | Mean fee (bps) | MAE vs reference (bps) |
 |---|---:|---:|
-| Hindsight fair LVR fee (reference) | 4.06 | – |
-| Fixed 5 bps | 5.00 | 2.36 |
-| Previous-hour realized vol | 4.00 | 3.52 |
-| Forecast, recorded on-chain | 3.13 | 2.16 |
+| Hindsight fair LVR fee (reference) | 3.94 | – |
+| Fixed 5 bps | 5.00 | 2.47 |
+| Previous-hour realized vol | 4.01 | 3.48 |
+| Forecast, recorded on-chain | 3.12 | 2.08 |
 
-The forecast fee has the lowest MAE in this run but sits below the reference on average (3.13 vs
-4.06 bps). 24 rounds is a small sample and no significance test was run. The reference is driven mostly by each hour's swap volume, which strategies that only see
+The forecast fee has the lowest MAE in this run but sits below the reference on average (3.12 vs
+3.94 bps). 24 rounds is a small sample and no significance test was run. The reference is driven mostly by each hour's swap volume, which strategies that only see
 variance cannot track. It assumes volume is unaffected by the fee and only measures LP break-even
 against LVR; 24 hours is a demo, not evidence either way.
 
