@@ -2196,7 +2196,8 @@ function usesCard() {
         "决定批量提交时机、给用户报 gas 价", "换一个指标也能用；数据源就是区块本身，不需要预言机", idea)}
     </ul>
     <p class="uses-key">换一个结算数据源和一个消费合约，同一套协议（提交 → 公开并证明 → 合约结算打分 → ERC-8004 信誉 → 按信誉加权使用）就能预测别的指标。</p>
-    <p class="uses-more">更多方向（尚未实现）：期权与波动率金库、保险与协议国库、永续资金费率、LP 区间管理。</p></section>`;
+    <p class="uses-more">更多方向（尚未实现）：期权与波动率金库、保险与协议国库、永续资金费率、LP 区间管理。</p>
+    <p class="sub uses-more">链下使用：交易机器人、AI agent 可以通过 x402 按次付费读取信誉加权预测，收入按信誉分给预测者（设想，未实现）。</p></section>`;
 }
 
 function tiersCard(agents, tierOf) {
