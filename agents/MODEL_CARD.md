@@ -22,8 +22,8 @@
 - 证明耗时：每次 `prove` 约 4–7 s，峰值内存约 0.38–0.41 GB（4 个证明并行时，
   `agents/out/<model>/timing.jsonl`，git 忽略）；`setup` 约 1 s / 0.31 GB；proving key 138 MB。
 - 链上验证成本：三个验证合约运行时均为 13,440 B（低于 EIP-170 的 24,576 B，`forge build --sizes`）；
-  证明 3,072 B；单独调用 `verifyProof` 约 552,7xx gas（`cast estimate`，含 21k 基础费：linear_abs 552,682、
-  mlp16 552,670、mlp32_abs 552,658；改动一个输出即被拒绝）。
+  证明 3,072 B；单独调用 `verifyProof` 约 55.1–55.3 万 gas（`cast estimate`，含 21k 基础费，随证明的
+  calldata 字节略有浮动，6 个真实证明实测 550,870–552,682；改动一个输出即被拒绝）。
 
 ## 2. 输入特征（16 个）
 
@@ -392,7 +392,7 @@ Prediction, and Estimation*, JASA 102(477):359–378, DOI 10.1198/01621450600000
 
 **Q10：证明要多久、多贵？**
 本机（Apple M5 16 GB）每次证明约 4–7 s、峰值约 0.4 GB 内存；proving key 138 MB（`agents/out/<model>/`）。
-三个验证合约单独调用 `verifyProof` 约 552,7xx gas（含 21k 基础费），证明 3,072 B。
+三个验证合约单独调用 `verifyProof` 约 55.1–55.3 万 gas（含 21k 基础费），证明 3,072 B。
 
 **Q11：模型在真实市场上表现如何？**
 按时间切分的 7 天测试期上平均 pinball 比气候基线低 0.041–0.047，比「上一小时 y + 残差」基线低 0.034–0.040
