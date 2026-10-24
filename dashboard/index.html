@@ -840,15 +840,20 @@ function nowcastHtml(d, agents, tierOf) {
     <text class="ax" x="${L - 6}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
   const grid = b.map((v) => tick(v, true)).join("") + extra.map((v) => tick(v, false)).join("");
   const gap = past.length < 2 ? 40 : (split - L - 26) / (past.length - 1);
-  // Past this many hours the 90% whiskers (wide) or the per-agent spread (narrow) turn into noise.
-  const dense = past.length > 8;
-  const dx = narrow && dense ? 0 : Math.min(narrow ? 3 : 7, gap * 0.8 / Math.max(1, agents.length));
-  const marks = past.map((x, i) => x.fc.map(({ a, k, q: [q05, q25, q50, q75, q95] }) => {
-    const cx = (px(i) + (k - (agents.length - 1) / 2) * dx).toFixed(1), w = Math.max(2, dx * 0.6);
+  // One glyph on both sides: faint 90% band, 50% band, median tick wider than the bands.
+  const glyph = (cx, bw, tw, [q05, q25, q50, q75, q95], color, op90, op50, sw) => {
+    const box = (cls, top, bot, op) => `<rect class="${cls}" x="${(cx - bw / 2).toFixed(1)}" y="${y(top).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y(bot) - y(top)).toFixed(1)}" rx="${Math.min(3, bw / 3).toFixed(1)}" fill="${color}" opacity="${op}"/>`;
+    return box("nc-q90", q95, q05, op90) + box("nc-q50", q75, q25, op50) +
+      `<line class="nc-med" x1="${(cx - tw / 2).toFixed(1)}" x2="${(cx + tw / 2).toFixed(1)}" y1="${y(q50).toFixed(1)}" y2="${y(q50).toFixed(1)}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`;
+  };
+  // Below ~2.5 units per agent side by side glyphs turn into noise: each hour's agents overlay on the hour instead.
+  const stack = gap * 0.7 / Math.max(1, agents.length) < 2.5;
+  const dx = stack ? 0 : Math.min(narrow ? 4 : 8, gap * 0.7 / Math.max(1, agents.length));
+  const pbw = stack ? Math.max(3, gap * 0.5) : dx * 0.72, ptw = stack ? Math.max(4, gap * 0.75) : dx * 0.95;
+  const marks = past.map((x, i) => x.fc.map(({ a, k, q }) => {
+    const cx = px(i) + (k - (agents.length - 1) / 2) * dx, [q05, q25, q50, q75, q95] = q;
     return `<g class="nc-past" data-forecaster="${a.agent}" data-round="${x.id}" data-q50="${q50}"><title>${a.agent} · ${x.t} UTC: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, 90% ${fmt(q05)}–${fmt(q95)} tick² · realized ${x.v}</title>` +
-      (narrow ? "" : (dense ? "" : `<line x1="${cx}" x2="${cx}" y1="${y(q95).toFixed(1)}" y2="${y(q05).toFixed(1)}" stroke="${a.color}" stroke-width="1" opacity=".3"/>`) +
-        `<rect x="${(cx - w / 2).toFixed(1)}" y="${y(q75).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(1, y(q25) - y(q75)).toFixed(1)}" rx="1" fill="${a.color}" opacity="${dense ? ".35" : ".45"}"/>`) +
-      `<circle cx="${cx}" cy="${y(q50).toFixed(1)}" r="${narrow ? (dense ? 1.6 : 1.8) : dense ? 2 : 2.4}" fill="${a.color}"${narrow && dense ? ` opacity=".75"` : ""}/></g>`;
+      glyph(cx, pbw, ptw, q, a.color, stack ? ".05" : ".14", stack ? ".14" : ".45", stack ? 1.4 : 2) + `</g>`;
   }).join("")).join("");
   const line = past.map((x, i) => `${i ? "L" : "M"}${px(i).toFixed(1)},${y(x.v).toFixed(1)}`).join("");
   const step = Math.ceil(past.length / Math.max(2, Math.floor((split - L) / 46)));
@@ -857,10 +862,9 @@ function nowcastHtml(d, agents, tierOf) {
   const colW = (W - R - split - 8) / Math.max(1, fc.length), bw = Math.max(6, Math.min(26, colW * 0.6));
   const bands = fc.map((a, k) => {
     const cx = split + 4 + (k + 0.5) * colW, [q05, q25, q50, q75, q95] = a.q;
-    const box = (top, bot, op) => `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(top).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y(bot) - y(top)).toFixed(1)}" rx="3" fill="${a.color}" opacity="${op}"/>`;
     return `<g data-agent="${a.agent}" ${QS.map((q, i) => `data-q${String(Math.round(q * 100)).padStart(2, "0")}="${a.q[i]}"`).join(" ")}>
       <title>${a.agent}: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, 90% ${fmt(q05)}–${fmt(q95)} tick²</title>
-      ${box(q95, q05, 0.2)}${box(q75, q25, 0.5)}<line x1="${(cx - bw / 2 - 3).toFixed(1)}" x2="${(cx + bw / 2 + 3).toFixed(1)}" y1="${y(q50).toFixed(1)}" y2="${y(q50).toFixed(1)}" stroke="${a.color}" stroke-width="3" stroke-linecap="round"/></g>`;
+      ${glyph(cx, bw, bw + 6, a.q, a.color, ".2", ".5", 3)}</g>`;
   }).join("");
   const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
   const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(`Realized volatility of the last ${past.length} hours and, for the hour ${hour} (pending), each agent's median with 50% and 90% intervals, log scale`)}">
@@ -885,9 +889,10 @@ function nowcastHtml(d, agents, tierOf) {
     ${svg}
     <div class="sub nc-legend"><span class="nowrap">${swatch("#1b1a17")} 真实 RV · realized</span>
       ${agents.map((a) => `<span class="nowrap"><i style="background:${a.color}"></i>${a.agent.replace("agent-", "")}</span>`).join("")}</div>
-    <div class="sub">左侧：黑线 = 过去各小时链上结算的真实 RV（tick²，对数轴，虚线为档位边界）；彩色小点 = 各 agent 在该小时开窗前揭示的预测中位数${narrow ? "" : dense ? "，竖条 = 50% 区间" : "，竖条 = 50% 区间（淡线 90%）"}，点越贴近黑线越准。
-      右侧：每个 agent 对当前小时揭示的 5 档概率，档内按 log(RV) 线性插值（两端开放档各外延一个边界倍数）得到中位数、50% 与 90% 区间。
-      Coloured dots: each agent's revealed forecast median for that hour; black line: realized RV settled on-chain.</div>
+    <div class="sub">左右两侧是同一种图形：每个 agent 一个色块，淡色 = 90% 区间，深色 = 50% 区间，横线 = 预测中位数（tick²，对数轴，虚线为档位边界）。
+      左侧是各 agent 在过去每小时开窗前揭示的预测${stack ? "（同一小时的 agent 叠放在该小时上）" : ""}，黑线 = 链上结算的真实 RV，中位数横线越贴近黑线越准；右侧是当前小时的预测，尚未结算。
+      区间由每个 agent 揭示的 5 档概率按档内 log(RV) 线性插值得到（两端开放档各外延一个边界倍数）。
+      Same glyph on both sides, one per agent: faint band = 90% interval, darker band = 50% interval, tick = forecast median. Left: forecasts revealed before each past hour${stack ? " (overlaid on the hour)" : ""}, black line = realized RV settled on-chain; right: the current hour, not yet settled.</div>
     ${scrollTable(`<tr><th>Agent</th><th>档位</th><th class="num">中位数 · 区间 (tick²)</th></tr>${rows}`, 420)}
     <div class="sub"><b>演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（无许可）。</b></div></section>`;
 }

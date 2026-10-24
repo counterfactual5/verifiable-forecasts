@@ -7,8 +7,9 @@
 # ERC-8004 agentId and modelHash live once, in the #/agents table.
 # A one-hot forecast fixes the interpolated quantiles, so the method is checked, not just drawn.
 # Past rounds carry each agent's forecast median / intervals next to the realized line, on an axis
-# labelled up to it. The overview hides the nowcast and shows the compact case snapshot above its KPIs. With more than 8 past hours the
-# wide chart drops the 90% whiskers and the narrow one stacks each hour's medians on the hour.
+# labelled up to it, drawn with the same glyph as the current hour (faint 90% band, 50% band, median tick, same colour).
+# The overview hides the nowcast and shows the compact case snapshot above its KPIs. With more than 8 past hours
+# the wide chart keeps one hour's glyphs side by side and the narrow one overlays them on the hour.
 # Per-agent tooltips and the fee share legend rank high to low. Without pending_round the section is absent. No overflow at 390 px,
 # no page errors.
 set -uo pipefail
@@ -83,6 +84,17 @@ const fs = require("fs");
     await page.goto(`${base}/dashboard/?data=../docs/.local/tmp/live_nowcast/pending.json#/live`);
     await page.waitForSelector("#nowcast svg", { timeout: 15000 });
     const read = () => page.evaluate(() => {
+      // A forecast glyph: faint 90% band, 50% band inside it, horizontal median tick inside the 50% band.
+      const glyph = (g) => {
+        const box = (r) => r && { x: +r.getAttribute("x"), y: +r.getAttribute("y"), w: +r.getAttribute("width"), h: +r.getAttribute("height"),
+          fill: r.getAttribute("fill"), op: +r.getAttribute("opacity") };
+        const q90 = box(g.querySelector("rect.nc-q90")), q50 = box(g.querySelector("rect.nc-q50")), t = g.querySelector("line.nc-med");
+        const tick = t && { x1: +t.getAttribute("x1"), x2: +t.getAttribute("x2"), y1: +t.getAttribute("y1"), y2: +t.getAttribute("y2"), stroke: t.getAttribute("stroke") };
+        const ok = !!(q90 && q50 && tick && !g.querySelector("circle") && q90.fill === q50.fill && q50.fill === tick.stroke && q90.op < q50.op
+          && q90.y <= q50.y + 0.11 && q90.y + q90.h >= q50.y + q50.h - 0.11 && tick.y1 === tick.y2 && tick.y1 >= q50.y - 0.11 && tick.y1 <= q50.y + q50.h + 0.11
+          && tick.x2 - tick.x1 > q50.w && Math.abs((tick.x1 + tick.x2) / 2 - (q50.x + q50.w / 2)) < 0.11 && q90.x === q50.x && q90.w === q50.w);
+        return { ok, fill: q50?.fill, cx: tick && (tick.x1 + tick.x2) / 2, w: q50?.w, op: q90 && q50 && [q90.op, q50.op] };
+      };
       const el = document.querySelector("#nowcast");
       if (!el) return null;
       const svg = el.querySelector("svg[role=img]");
@@ -91,10 +103,8 @@ const fs = require("fs");
         bands: [...el.querySelectorAll("svg g[data-agent]")].map((g) => ({ agent: g.dataset.agent, q: ["q05", "q25", "q50", "q75", "q95"].map((k) => Number(g.dataset[k])) })),
         cd: document.querySelector("#nowcast-cd")?.textContent ?? "",
         compact: [...el.querySelectorAll("tr[data-agent]")].map((tr) => ({ agent: tr.dataset.agent, cells: tr.cells.length, text: tr.textContent.replace(/\s+/g, " ") })),
-        past: [...el.querySelectorAll("svg g.nc-past")].map((g) => ({ agent: g.dataset.forecaster, round: g.dataset.round, q50: Number(g.dataset.q50),
-          fill: g.querySelector("circle")?.getAttribute("fill"), cx: g.querySelector("circle")?.getAttribute("cx"),
-          bar: !!g.querySelector("rect"), whisker: !!g.querySelector("line") })),
-        bandFill: Object.fromEntries([...el.querySelectorAll("svg g[data-agent]")].map((g) => [g.dataset.agent, g.querySelector("rect")?.getAttribute("fill")])),
+        past: [...el.querySelectorAll("svg g.nc-past")].map((g) => ({ agent: g.dataset.forecaster, round: g.dataset.round, q50: Number(g.dataset.q50), ...glyph(g) })),
+        now: [...el.querySelectorAll("svg g[data-agent]")].map((g) => ({ agent: g.dataset.agent, ...glyph(g) })),
         ticks: [...el.querySelectorAll("svg text.ax")].map((t) => Number(t.textContent)).filter((v) => Number.isFinite(v) && v > 0),
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
@@ -117,15 +127,18 @@ const fs = require("fs");
     const got = r.past.map((m) => `${m.round}/${m.agent}`);
     check(want.length > 0 && JSON.stringify(got.slice().sort()) === JSON.stringify(want.slice().sort()),
       `@${width}: past rounds show one forecast marker per agent per settled round (${got.length}/${want.length})`);
-    if (shown.length > 8) {
-      const byRound = Object.values(r.past.reduce((o, m) => ((o[m.round] ??= new Set()).add(m.cx), o), {}));
-      check(width < 600 ? byRound.every((x) => x.size === 1) && r.past.every((m) => !m.bar && !m.whisker)
-        : r.past.every((m) => m.bar && !m.whisker),
-        `@${width}: ${shown.length} past hours stay readable: ${width < 600 ? "medians stacked on the hour, no bars" : "50% bars, no 90% whiskers"}`);
-    }
-    check(r.past.every((m) => Number.isFinite(m.q50) && m.q50 > 0 && (!r.bandFill[m.agent] || m.fill === r.bandFill[m.agent])),
-      `@${width}: past markers carry the agent's pending-bar colour and a finite median`);
-    check(/预测中位数/.test(r.text) && /median/i.test(r.text) && /真实 RV/.test(r.text), `@${width}: legend explains forecast markers vs realized line`);
+    const nowFill = Object.fromEntries(r.now.map((g) => [g.agent, g.fill]));
+    check(r.now.length > 0 && r.now.every((g) => g.ok) && r.past.length > 0 && r.past.every((g) => g.ok),
+      `@${width}: past and current-hour forecasts share one glyph: faint 90% band, 50% band, median tick (past ${r.past.filter((g) => g.ok).length}/${r.past.length}, now ${r.now.filter((g) => g.ok).length}/${r.now.length})`);
+    check(r.past.every((m) => Number.isFinite(m.q50) && m.q50 > 0 && (!nowFill[m.agent] || m.fill === nowFill[m.agent])),
+      `@${width}: past glyphs carry the agent's current-hour colour and a finite median`);
+    const byRound = Object.values(r.past.reduce((o, m) => ((o[m.round] ??= []).push(m), o), {}));
+    const sideBySide = byRound.every((g) => g.every((m, i) => i === 0 || m.cx - g[i - 1].cx >= m.w));
+    const stacked = byRound.every((g) => new Set(g.map((m) => m.cx)).size === 1);
+    if (width < 600 && shown.length > 8) check(stacked, `@${width}: ${shown.length} past hours stay readable: each hour's glyphs overlay on the hour`);
+    else check(sideBySide && r.past.every((m) => m.w >= 2), `@${width}: past glyphs of one hour sit side by side without overlap, each at least 2 units wide`);
+    check(/预测中位数/.test(r.text) && /90% 区间/.test(r.text) && /50% 区间/.test(r.text) && /median/i.test(r.text) && /90% interval/.test(r.text)
+      && /真实 RV/.test(r.text) && !/小点|dots/i.test(r.text), `@${width}: caption describes the one glyph (90% / 50% bands, median tick) vs the realized line`);
     const maxRv = Math.max(...shown.map((x) => x.outcome?.realized_vol ?? x.real_realized_vol));
     check(Math.max(...r.ticks) * 2 >= maxRv, `@${width}: y axis is labelled up to the realized line (top tick ${Math.max(...r.ticks)}, max RV ${maxRv})`);
     check(/\d+:\d\d/.test(r.cd), `@${width}: countdown shown (${r.cd})`);
