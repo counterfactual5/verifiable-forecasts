@@ -12,8 +12,8 @@
 - [x] 读取已揭示预测需要 `VolMarket.predictorAt(id, i)` 只读 getter：`contracts/test/VolMarket.t.sol` 里已有先写的失败测试 `test_PredictorAtListsCommittersInOrder`（未提交），实现 getter 让它通过。
 - [x] ERC-8004：主网信誉合约 `getSummary` 返回 `(uint64 count, int128 value, uint8 decimals)`，仓库本地精简版返回单个 `int256`，读取逻辑两种都要处理。
 - [x] 测试 `contracts/test/VolFeeConsumer.t.sol`：加权、合成后总和守恒 1e18（允许取整误差）、费率随波动单调、上下限夹取、揭示窗口未结束时 revert、未揭示模型被忽略；关键测试先证明能失败。
-- [x] 接入 24 小时主网分叉回放（`demo/run.sh`、`demo/fork_round.py`）：每轮链上记录消费方费率；按实际波动换算「LVR 意义下该收的费率」，对比三种策略：固定 5 bps（池子真实档位）、按上一小时实际波动定费、按预测定费；给出简单指标（对公平费率的平均绝对误差，和/或 LP 的 LVR 覆盖率）。重跑一次回放，更新 `dashboard/sample-replay.json`。
-- [x] 看板 `dashboard/index.html` 加一个三种策略 vs 公平费率的逐轮对比图；注意 UI 质量（布局、配色、图例、移动端不破版、和现有面板风格一致），更新 `docs/img/dashboard.png`。
+- [x] 接入 24 小时主网分叉回放（`demo/run.sh`、`demo/fork_round.py`）：每轮链上记录消费方费率；按实际波动换算「LVR 意义下该收的费率」，对比三种策略：固定 5 bps（池子真实档位）、按上一小时实际波动定费、按预测定费；给出简单指标（对事后最优费率（参照）的平均绝对误差，和/或 LP 的 LVR 覆盖率）。重跑一次回放，更新 `dashboard/sample-replay.json`。
+- [x] 看板 `dashboard/index.html` 加一个三种策略 vs 事后最优费率（参照）的逐轮对比图；注意 UI 质量（布局、配色、图例、移动端不破版、和现有面板风格一致），更新 `docs/img/dashboard.png`。
 - [x] 文档：README 加消费方一节；如实说明是模拟、没有真实收费；借贷抵押率写进路线图（需要更长窗口，窗口长度本就是构造参数；宏观事件更适合能读外部信息的大模型 agent）。
 
 ## 阶段 2 可复现档（reproducible tier）

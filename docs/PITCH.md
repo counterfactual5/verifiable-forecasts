@@ -31,7 +31,8 @@ who pick forecasters by reputation. Paying them per request over x402 is roadmap
 
 **1:25 Who consumes it (35 s).** `VolFeeConsumer` mixes the revealed forecasts, weighted by ERC-8004
 reputation, into an LVR-based dynamic fee for the pool. In the replay we measured mean absolute
-error against the fair LVR fee, which averages 3.71 bps. Fixed 5 bps has the lowest error, 1.84 bps.
+error against the hindsight fair LVR fee (reference), which averages 3.71 bps and is only computable
+after the hour. Fixed 5 bps has the lowest error, 1.84 bps.
 The forecast fee scores 2.06, ahead of the previous-hour realized-vol fee at 2.81 but not ahead of
 the fixed tier. This is simulated; no real fee is charged.
 
@@ -56,7 +57,7 @@ about skill. Next: live rounds with outside agents.
 
 **agent 与 keeper（25 秒）**：`settle`、`createRound` 是 keeper 活，无许可，谁都能调。预测者才是 ERC-8004 意义上的 agent：在不确定性下做判断、要担责、需要信誉。agent 经济在消费方：消费方按信誉挑预测者；按次 x402 付费是路线图。
 
-**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的预测按 ERC-8004 信誉加权合成，按 LVR 设定池子的动态手续费。回放里对比各策略与公平 LVR 费率（均值 3.71 bps）的平均绝对误差：固定 5 bps 误差最低，为 1.84 bps。预报定费 2.06，好过上一小时波动定费 2.81，没赢过固定档；模拟，不真实收费。
+**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的预测按 ERC-8004 信誉加权合成，按 LVR 设定池子的动态手续费。回放里对比各策略与事后最优费率（参照，均值 3.71 bps）的平均绝对误差：固定 5 bps 误差最低，1.84 bps。预报定费 2.06，好过上一小时波动定费 2.81，没赢过固定档；模拟，不真实收费。
 
 **三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记模型由合约输入得出这组输出。可复现（已实现）：三个开源权重时序模型登记 `modelHash`，任何人用 `vol_agents.tsfm_recompute` 从链上数据重算，每桶误差 ≤ 0.001，均 24/24 轮。仅提交：只证明时间。可复现证明出处不证明准确；零样本 timestral-209m 总分 −34.8，高于均匀基线 −38.6。
 
@@ -95,7 +96,8 @@ about skill. Next: live rounds with outside agents.
    uniform −38.627, `mlp16` −39.190; reproducible zero-shot timestral-209m −34.761, chronos-2
    −35.824, timesfm-3.0 −37.553, each recomputed from chain data within 0.001 per bucket in 24/24
    rounds (grade X, `docs/DEMO.md`, `dashboard/sample-replay.json`).
-   Fee card: MAE against the fair LVR fee (mean 3.71 bps) is 1.84 bps for fixed 5 bps (lowest),
+   Fee card: MAE against the hindsight fair LVR fee (reference; mean 3.71 bps, computable only after
+   the hour, assumes volume is unaffected by the fee) is 1.84 bps for fixed 5 bps (lowest),
    2.81 for previous-hour realized vol, 2.06 for the forecast fee; rounds with no reputation yet fall
    back to equal weights (3 of 24) (grade X, `dashboard/sample-replay.json` `summary.fee_strategies`).
 7. **Why "verifiable AI".** Verified inference on contract-derived inputs, onchain scoring, a
@@ -113,8 +115,8 @@ about skill. Next: live rounds with outside agents.
    snapshotted at `createRound`. Bets are public; forecasts are public after reveal, which ends before
    the window opens. No Automation / CRE, no paying users. Only small models fit the zk path; larger
    models join as reproducible (open weights, recomputable) or commit-only (timing, not provenance);
-   a TEE tier is roadmap only. The consumer fee is simulated, and fixed 5 bps tracks the fair fee
-   more closely than the forecast fee in the replay.
+   a TEE tier is roadmap only. The consumer fee is simulated, and fixed 5 bps tracks the hindsight fair LVR fee
+   (reference) more closely than the forecast fee in the replay.
 9. **Next.** Deploying rolling retrained models (new verifier + `modelId`); open model registration
    to outside agents; Chainlink Automation for `settle`; x402 per-request payment by consumers;
    ERC-8004 Validation Registry once the spec settles; a TEE tier and submission stake (roadmap, not
@@ -213,8 +215,8 @@ the contract mints nothing. It is small while betting volume is small.
 **Later payers (hypothesis).** LP range management, Uniswap v4 dynamic-fee hooks, options market
 makers, agent vaults. Payment by subscription as Synth does, or per request for an aggregated forecast
 over x402 (roadmap). `VolFeeConsumer` is a simulated example of such a reader: it sets a dynamic
-fee from reputation-weighted forecasts, and in the replay fixed 5 bps still tracked the fair LVR fee
-more closely (MAE 1.84 vs 2.06 bps). That DeFi already pays for hourly bucketed probabilities is [待证据]. What is sourced: a
+fee from reputation-weighted forecasts, and in the replay fixed 5 bps still tracked the hindsight fair LVR fee
+(reference) more closely (MAE 1.84 vs 2.06 bps). That DeFi already pays for hourly bucketed probabilities is [待证据]. What is sourced: a
 paid subscription for a similar product exists. Synth's API plans are $49 / $199 / $499 per month (A,
 [Synth docs](https://docs.synthdata.co/getting-started/credits-and-pricing)), and community reporting
 puts its Q1 2026 MRR at about $70k (C, [TAO Daily](https://taodaily.io/james-ross-gives-synths-q1-report-on-community-call/)).
@@ -328,7 +330,7 @@ BasisOS are grade C only and are deliberately not used.
 | Verifier size / `verifyProof` gas | ≈ 21.8 KB (< 24,576 B) / ≈ 849k gas | X, `agents/MODEL_CARD.md` §1, `docs/DEMO.md` |
 | Fork replay | 24 real hours, 24 settled, 0 voided, ≈ 13 min (+ 26.5 min CPU recompute) | X, `docs/DEMO.md` |
 | Replay totals (24 rounds) | `timestral-209m` −34.8, `linear_abs` −35.5, `mlp32_abs` −35.8, `chronos-2` −35.8, `timesfm-3.0` −37.6, uniform −38.6, `mlp16` −39.2 | X, `dashboard/sample-replay.json` `summary.agents` |
-| Consumer fee, MAE vs fair LVR fee (fair mean 3.71 bps) | fixed 5 bps 1.84 (lowest), previous-hour realized vol 2.81, forecast 2.06 bps | X, `dashboard/sample-replay.json` `summary.fee_strategies` |
+| Consumer fee, MAE vs hindsight fair LVR fee (reference; mean 3.71 bps) | fixed 5 bps 1.84 (lowest), previous-hour realized vol 2.81, forecast 2.06 bps | X, `dashboard/sample-replay.json` `summary.fee_strategies` |
 | Reproducible timesfm-3.0 / timestral-209m / chronos-2 (zero-shot) | recompute within 0.001 per bucket in 24/24 rounds each (all 72 exact) | X, `dashboard/sample-replay.json` `summary.agents.*.reproduced_rounds` |
 | Largest zk model | 709 parameters (`mlp32_abs`) | X, `agents/MODEL_CARD.md` §4 |
 | Test-period mean log score | `linear_abs` −1.418, `mlp16` −1.423, transition baseline −1.452, `mlp32_abs` −1.469, uniform −1.609 | X, `agents/MODEL_CARD.md` §6 |

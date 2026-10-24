@@ -245,21 +245,23 @@ calibrated on the 24 hours before the replay against the LVR break-even fee. In 
 stores that fee on the fork once per round, before the window opens. This is **simulated**: the fee
 is computed and recorded on the fork only; no real pool fee is charged or changed.
 
-The dashboard's fee card compares, per replayed hour, the fair LVR fee
-(σ²/8 × 2L√P ÷ the hour's real mainnet volume) with three strategies
+The dashboard's fee card compares, per replayed hour, the hindsight fair LVR fee (reference)
+(σ²/8 × 2L√P ÷ the hour's real mainnet volume; computable only after the hour, so a yardstick, not
+a strategy; closer is better) with three strategies
 (`summary.fee_strategies` in [`dashboard/sample-replay.json`](dashboard/sample-replay.json),
 24 rounds, 3 of them on the equal-weight fallback):
 
-| Strategy | Mean fee (bps) | MAE vs fair (bps) |
+| Strategy | Mean fee (bps) | MAE vs reference (bps) |
 |---|---:|---:|
-| Fair LVR fee (reference) | 3.71 | – |
+| Hindsight fair LVR fee (reference) | 3.71 | – |
 | Fixed 5 bps | 5.00 | **1.84** |
 | Previous-hour realized vol | 2.95 | 2.81 |
 | Forecast, recorded on-chain | 3.98 | 2.06 |
 
 The fixed fee has the lowest error over these 24 hours, and the forecast beats the previous-hour
-rule. The fair fee is driven mostly by each hour's swap volume, which strategies that only see
-variance cannot track; 24 hours is a demo, not evidence either way.
+rule. The reference is driven mostly by each hour's swap volume, which strategies that only see
+variance cannot track. It assumes volume is unaffected by the fee and only measures LP break-even
+against LVR; 24 hours is a demo, not evidence either way.
 
 Roadmap: the same reputation-weighted variance forecast could set lending collateral ratios / LTV
 buffers ahead of volatile hours.
