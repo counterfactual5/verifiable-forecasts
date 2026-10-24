@@ -167,12 +167,13 @@ tiers = next((s for s in secs if "verification tiers" in s.split("\n", 1)[0].low
 if not tiers or "reproducible" not in tiers.lower() or "vol_agents.tsfm_recompute" not in tiers:
     errs.append("README Verification tiers section (reproducible + tsfm_recompute command)")
 for name, s in d["summary"]["agents"].items():
-    tot = f"{s['total_log_score']:.3f}"
+    tot = f"{s['mean_pinball_loss']:.3f}"
     for doc, t in (("README", readme), ("DEMO", demo)):
-        if tot not in t: errs.append(f"{doc} lacks {name} total {tot}")
+        if tot not in t: errs.append(f"{doc} lacks {name} mean pinball loss {tot}")
 for k, v in d["summary"]["fee_strategies"]["mae_bps"].items():
     if f"{v:.2f}" not in readme: errs.append(f"README lacks MAE {k} {v:.2f}")
 for doc, t in (("README", readme), ("DEMO", demo)):
+    if "【待冻结" in t: errs.append(f"{doc} still has a 【待冻结数字】 placeholder")
     if "agent-tsfm-api" in t: errs.append(f"{doc} still lists agent-tsfm-api")
     for line in t.splitlines():
         l = line.lower()
