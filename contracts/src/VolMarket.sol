@@ -20,7 +20,9 @@ import {TickPriceMath} from "./lib/TickPriceMath.sol";
 ///         EZKL proof whose public inputs are features the contract derived from `observe()` at
 ///         round creation; a commit-only model (no verifier) proves timing, not provenance.
 ///         Forecasts are scored by the pinball loss; those with a lower loss than the round's
-///         baseline quantiles share `predictorShareBps` of the round's fee pro rata to the gap.
+///         baseline quantiles add the gap to their model's cumulative excess, losers subtract it;
+///         `predictorShareBps` of each round's fee goes to the round's committed models pro rata to
+///         their positive cumulative excess after that round.
 /// @dev Round lifecycle: Commit (bets, commits until startTime - commitLead) -> Reveal (bets,
 ///      reveals until startTime - revealLead) -> bets until startTime -> Sampling (until
 ///      startTime + nSegments * delta) -> Settled (claims). Voided (full refund) when fewer than
@@ -111,8 +113,8 @@ contract VolMarket {
         int256[] baselineQuantiles; // K quantiles of ln RV, 1e18 ln units, strictly increasing
         int256 lnRv; // ln(max(realizedVol, 1)) * 1e18, set at settlement
         uint256 baselineLoss; // pinball loss of baselineQuantiles at lnRv, 1e18
-        uint256 totalExcess; // sum of revealed forecasts' loss below baselineLoss (1e18 scale)
-        uint256 claimedExcess; // excess of the forecasters that claimed their share so far
+        uint256 totalWeight; // sum of the round's predictor weights (Prediction.weight, 1e18 scale)
+        uint256 claimedWeight; // weight of the forecasters that claimed their share so far
         uint256 predictorPaid; // tokens paid to forecasters so far
         mapping(uint256 => int56) checkpoints;
         mapping(address => mapping(uint256 => uint256)) stakes; // user -> bucket -> stake
@@ -127,6 +129,7 @@ contract VolMarket {
         bytes32 commitment; // nonzero once committed
         int256[] quantiles; // K quantiles of ln RV, 1e18 ln units, strictly increasing
         uint256 loss; // pinball loss at lnRv (1e18), set at settlement
+        uint256 weight; // max(0, model's cumulative excess after this round), 1e18; fee-share weight
     }
 
     // ---------------------------------------------------------------- storage
@@ -212,6 +215,9 @@ contract VolMarket {
     // ---------------------------------------------------------------- predictor share
     /// @dev Basis points of each round's fee set aside for forecasters; the owner keeps the rest.
     uint256 public immutable predictorShareBps;
+    /// @dev modelId -> sum over its settled rounds of (baseline loss - own loss), 1e18 loss units;
+    ///      an unrevealed commit counts at the round's worst revealable loss (_worstLoss).
+    mapping(uint256 => int256) public cumulativeExcess;
     /// @dev Quantile levels tau_k, 1e18 = 1, strictly increasing in (0, 1e18); K = length.
     uint256[] private levels;
     /// @dev Revealed outputs are q * 2^outputScaleBits (EZKL model_output_scales); 1e18 value of
@@ -595,8 +601,8 @@ contract VolMarket {
         r.realizedVol = rv;
         r.winningBucket = uint8(win);
         emit RoundSettled(id, win, rv, count);
-        _score(r, id, rv);
-        _writeReputation(r, id);
+        uint256 worst = _score(r, id, rv);
+        _writeReputation(r, id, worst);
     }
 
     function _priceForTick(int24 tick) internal view returns (uint256) {
@@ -669,27 +675,38 @@ contract VolMarket {
     }
 
     /// @dev y = ln(max(rv, 1)) (RV floor 1 tick^2, so RV 0 scores as y = 0); every revealed
-    ///      forecast gets its pinball loss at y and its excess over the baseline loss summed for
-    ///      the predictor share. Unrevealed forecasts keep loss 0 and recorded = false.
-    function _score(Round storage r, uint256 id, uint256 rv) internal {
+    ///      forecast gets its pinball loss at y. Every committed model's cumulative excess moves by
+    ///      baseline loss - loss (worst revealable loss when unrevealed); its positive part is the
+    ///      model's predictor-share weight for this round. Unrevealed forecasts keep loss 0 and
+    ///      recorded = false. Losses are < 2e20 (see _excess), so the int256 sums cannot overflow.
+    /// @return worst the round's worst revealable loss, 1e18
+    function _score(Round storage r, uint256 id, uint256 rv) internal returns (uint256 worst) {
         uint256[] memory tau = levels;
         int256 y = MarketMath.lnWad(rv == 0 ? 1 : rv);
         uint256 baseLoss = MarketMath.pinball(y, r.baselineQuantiles, tau);
         r.lnRv = y;
         r.baselineLoss = baseLoss;
         emit RoundScored(id, y, baseLoss);
+        worst = _worstLoss(y);
         uint256 predictorsLen = r.predictors.length;
-        uint256 totalExcess;
+        uint256 totalWeight;
         for (uint256 i = 0; i < predictorsLen; ++i) {
             address who = r.predictors[i];
             Prediction storage p = r.predictions[who];
-            if (!p.recorded) continue;
-            uint256 loss = MarketMath.pinball(y, p.quantiles, tau);
-            p.loss = loss;
-            if (loss < baseLoss) totalExcess += baseLoss - loss;
-            emit PredictionScored(id, who, -int256(loss), loss);
+            uint256 loss = worst;
+            if (p.recorded) {
+                loss = MarketMath.pinball(y, p.quantiles, tau);
+                p.loss = loss;
+                emit PredictionScored(id, who, -int256(loss), loss);
+            }
+            int256 c = cumulativeExcess[p.modelId] + int256(baseLoss) - int256(loss);
+            cumulativeExcess[p.modelId] = c;
+            if (c > 0) {
+                p.weight = uint256(c);
+                totalWeight += uint256(c);
+            }
         }
-        r.totalExcess = totalExcess;
+        r.totalWeight = totalWeight;
     }
 
     /// @dev Baseline loss minus the forecast's loss, 0 at or above it and for unscored forecasts.
@@ -721,12 +738,11 @@ contract VolMarket {
     ///      revealable loss (_worstLoss), so revealing only the rounds expected to score well costs
     ///      reputation. The registry is untrusted here: a rejected write is reported as an event and
     ///      never blocks settlement or the claims that follow it.
-    function _writeReputation(Round storage r, uint256 id) internal {
+    function _writeReputation(Round storage r, uint256 id, uint256 worst) internal {
         if (address(reputationRegistry) == address(0)) return;
         uint256 predictorsLen = r.predictors.length;
         string memory zkTag = _reputationTag();
         string memory commitTag = string.concat(zkTag, "-commit");
-        uint256 worst = _worstLoss(r.lnRv);
         for (uint256 i = 0; i < predictorsLen; ++i) {
             address who = r.predictors[i];
             Prediction storage p = r.predictions[who];
@@ -917,27 +933,27 @@ contract VolMarket {
         emit FeeCollected(id, amount);
     }
 
-    /// @notice A revealed forecaster whose pinball loss beat the round's baseline loss claims its
-    ///         share of the predictor pool, pro rata to its excess (baseline loss - loss).
+    /// @notice A forecaster that committed in the round claims its share of the predictor pool,
+    ///         pro rata to its model's positive cumulative excess after the round (Prediction.weight).
     /// @dev Each share rounds down; the last forecaster to claim receives the remainder, so the
-    ///      forecasters split exactly the predictor pool. pool * excess cannot overflow for any
-    ///      pool below 2^256 / 2e20 tokens (see _excess).
+    ///      forecasters split exactly the predictor pool. A weight is at most 32 * 2e20 per round
+    ///      settled, so pool * weight cannot overflow for any realistic pool and round count.
     function claimPredictorReward(uint256 id) external roundExists(id) {
         Round storage r = rounds[id];
         if (!r.settled) revert RoundNotSettled();
         Prediction storage p = r.predictions[msg.sender];
         uint256 pool_ = _predictorPool(r);
-        uint256 excess = _excess(r, p);
-        if (pool_ == 0 || excess == 0 || p.rewardClaimed) revert NothingToClaim();
+        uint256 weight = p.weight;
+        if (pool_ == 0 || weight == 0 || p.rewardClaimed) revert NothingToClaim();
         p.rewardClaimed = true;
-        r.claimedExcess += excess;
-        uint256 amount = r.claimedExcess == r.totalExcess ? pool_ - r.predictorPaid : (pool_ * excess) / r.totalExcess;
+        r.claimedWeight += weight;
+        uint256 amount = r.claimedWeight == r.totalWeight ? pool_ - r.predictorPaid : (pool_ * weight) / r.totalWeight;
         r.predictorPaid += amount;
         if (!token.transfer(msg.sender, amount)) revert TransferFailed();
         emit PredictorRewardClaimed(id, msg.sender, amount);
     }
 
-    /// @notice Tokens of the round's fee set aside for forecasters that beat the baseline.
+    /// @notice Tokens of the round's fee set aside for forecasters with positive cumulative excess.
     function predictorPool(uint256 id) external view roundExists(id) returns (uint256) {
         return _predictorPool(rounds[id]);
     }
@@ -949,9 +965,9 @@ contract VolMarket {
     }
 
     /// @dev The predictor share of the fee, rounded down so the owner keeps the remainder; 0 when no
-    ///      revealed forecast beat the baseline, leaving the whole fee to the owner.
+    ///      committed model has positive cumulative excess, leaving the whole fee to the owner.
     function _predictorPool(Round storage r) internal view returns (uint256) {
-        if (r.totalExcess == 0) return 0;
+        if (r.totalWeight == 0) return 0;
         return (_roundFee(r) * predictorShareBps) / BPS;
     }
 
@@ -1018,6 +1034,11 @@ contract VolMarket {
         Round storage r = rounds[id];
         Prediction storage p = r.predictions[who];
         return (p.loss, _excess(r, p));
+    }
+
+    /// @return the forecaster's predictor-share weight in the round, 1e18 (0 before settlement)
+    function predictorWeight(uint256 id, address who) external view returns (uint256) {
+        return rounds[id].predictions[who].weight;
     }
 
     function getCommitment(uint256 id, address who) external view returns (bytes32) {

@@ -1843,6 +1843,110 @@ contract VolMarketTest is Test {
         assertEq(token.balanceOf(address(market)), 0);
     }
 
+    /// @dev Two rounds over the same window (RV 49), each with a 10 fee paid wholly to predictors.
+    function _twoFeeRounds() internal returns (uint256 id0, uint256 id1) {
+        _deploy(100, 10_000);
+        _segments(_mixed());
+        id0 = _create();
+        id1 = market.createRound(START, _bounds(), _baseline());
+        for (uint256 id = id0; id <= id1; ++id) {
+            vm.prank(alice);
+            market.bet(id, 3, 100e18);
+            vm.prank(bob);
+            market.bet(id, 0, 900e18);
+        }
+    }
+
+    function _commitBoth(uint256 id0, uint256 id1, uint256 modelId, address who, int256[] memory o0, int256[] memory o1)
+        internal
+    {
+        _commit(id0, modelId, who, o0);
+        _commit(id1, modelId, who, o1);
+    }
+
+    /// @dev A model that loses big in round 0 and wins big in round 1 has cumulative excess <= 0,
+    ///      so a steady small winner takes round 1's whole predictor pool.
+    function test_PredictorShareFollowsCumulativeExcess() public {
+        (uint256 id0, uint256 id1) = _twoFeeRounds();
+        address spiky = makeAddr("spiky");
+        address steady = makeAddr("steady");
+        uint256 mSpiky = market.registerModel(address(0), spiky);
+        uint256 mSteady = market.registerModel(address(0), steady);
+        _commitBoth(id0, id1, mSpiky, spiky, _out(LN49 - 3 * ONE, 300), _out(LN49, 100));
+        _commitBoth(id0, id1, mSteady, steady, _out(LN49, 600), _out(LN49, 600));
+        vm.warp(COMMIT_END);
+        _reveal(id0, spiky, "", _out(LN49 - 3 * ONE, 300));
+        _reveal(id1, spiky, "", _out(LN49, 100));
+        _reveal(id0, steady, "", _out(LN49, 600));
+        _reveal(id1, steady, "", _out(LN49, 600));
+        _settleAfterWindow(id0);
+        market.settle(id1);
+
+        (, uint256 roundExcess) = market.getPredictionLoss(id1, spiky);
+        (, uint256 steadyExcess) = market.getPredictionLoss(id1, steady);
+        assertGt(roundExcess, steadyExcess, "spiky wins round 1 by more");
+        assertLe(market.cumulativeExcess(mSpiky), 0, "but its round-0 loss outweighs it");
+        assertGt(market.cumulativeExcess(mSteady), 0);
+
+        vm.prank(spiky);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.claimPredictorReward(id1);
+        vm.prank(steady);
+        market.claimPredictorReward(id1);
+        vm.prank(steady);
+        market.claimPredictorReward(id0);
+        assertEq(token.balanceOf(steady), 20e18, "steady takes both rounds' pools");
+    }
+
+    /// @dev Every committed model at or below zero cumulative excess: the round takes the
+    ///      no-winner path and the owner keeps the whole fee, even though round 1 beat the baseline.
+    function test_AllCumulativeNonPositiveFeeToOwner() public {
+        (uint256 id0, uint256 id1) = _twoFeeRounds();
+        uint256 m = market.registerModel(address(0), carol);
+        _commitBoth(id0, id1, m, carol, _out(LN49 - 3 * ONE, 300), _out(LN49, 600));
+        vm.warp(COMMIT_END);
+        _reveal(id0, carol, "", _out(LN49 - 3 * ONE, 300));
+        _reveal(id1, carol, "", _out(LN49, 600));
+        _settleAfterWindow(id0);
+        market.settle(id1);
+
+        (, uint256 roundExcess) = market.getPredictionLoss(id1, carol);
+        assertGt(roundExcess, 0, "beats the baseline this round");
+        assertEq(market.predictorPool(id1), 0);
+        vm.prank(carol);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.claimPredictorReward(id1);
+        market.collectFee(id0);
+        market.collectFee(id1);
+        assertEq(token.balanceOf(address(this)), 20e18, "both rounds' whole fee to owner");
+    }
+
+    /// @dev A commit never revealed is charged the round's worst revealable loss, which a later
+    ///      winning round cannot make up.
+    function test_UnrevealedCommitReducesCumulativeExcess() public {
+        (uint256 id0, uint256 id1) = _twoFeeRounds();
+        address hider = makeAddr("hider");
+        address steady = makeAddr("steady");
+        uint256 mHider = market.registerModel(address(0), hider);
+        uint256 mSteady = market.registerModel(address(0), steady);
+        _commitBoth(id0, id1, mHider, hider, _out(LN49, 100), _out(LN49, 100));
+        _commitBoth(id0, id1, mSteady, steady, _out(LN49, 600), _out(LN49, 600));
+        vm.warp(COMMIT_END);
+        _reveal(id1, hider, "", _out(LN49, 100));
+        _reveal(id0, steady, "", _out(LN49, 600));
+        _reveal(id1, steady, "", _out(LN49, 600));
+        _settleAfterWindow(id0);
+        assertLt(market.cumulativeExcess(mHider), 0, "unrevealed commit scored at the worst loss");
+        market.settle(id1);
+
+        vm.prank(hider);
+        vm.expectRevert(VolMarket.NothingToClaim.selector);
+        market.claimPredictorReward(id1);
+        vm.prank(steady);
+        market.claimPredictorReward(id1);
+        assertEq(token.balanceOf(steady), 10e18, "steady takes round 1's whole pool");
+    }
+
     function test_ConstructorValidatesShareAndPhases() public {
         pool = new MockPool();
         IUniswapV3PoolOracle p = IUniswapV3PoolOracle(address(pool));

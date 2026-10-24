@@ -1445,13 +1445,12 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
   const rewardTitle = "预测者分到的手续费 · Cumulative predictor fee share (WETH)";
   const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, rankLegend: true, unit: "WETH", label: chartLabel(rewardTitle, rewards) }) +
-    `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters ${v2
-      ? "with a lower pinball loss than the climatological baseline, pro rata to their excess (baseline loss − own loss)"
-      : "above the uniform baseline, pro rata to their excess log score"}.</div>
-    <div class="sub"><b>手续费只奖励跑赢${v2 ? "气候基线" : "瞎猜"}的轮次，输了只是这一轮分不到、不扣分</b>，所以累计分成高 ≠ 平均得分高：一个 agent 可以靠几轮大胜多分钱，
-    而几轮大败的代价只是那几轮拿 0。没有人押中结果的轮次全额退款、没有手续费可分。
-    Fee share rewards rounds that beat the baseline and losses cost nothing, so it is not the same as the average ${v2 ? "pinball loss" : "log score"}.</div>
-    <div class="sub">回放中由 2 个脚本账户每轮下注，金额为分叉测试资金 · In the replay two scripted accounts bet every round, with fork-local test funds.</div>`, "wide");
+    `<div class="sub">来自押注池：每轮抽 ${p.fee_bps / 100}%；回放中由 2 个脚本账户用分叉链测试资金下注 · From the betting pool: ${p.fee_bps / 100}% of each round; in the replay two scripted accounts bet with fork-local test funds.</div>
+    <div class="sub">${p.predictor_share_bps / 100}% of each round's fee goes to ${v2
+      ? "that round's forecasters pro rata to their positive cumulative excess (Σ baseline loss − own loss over all rounds so far, an unrevealed commit counting at the worst loss); if nobody is above zero the owner keeps it"
+      : "forecasters above the uniform baseline, pro rata to their excess log score"}.</div>
+    ${v2 ? `<div class="sub"><b>按至今累计超额分，输的轮会扣掉累计。</b>只赢几轮大的、其余轮次输的 agent，累计超额 ≤ 0 时一分不拿；没人押中结果的轮次全额退款、没有手续费可分。
+    Fee share follows cumulative excess to date: losing rounds subtract from it, so a few big wins cannot outweigh steady losses.</div>` : ""}`, "wide");
 
   const tamper = Object.fromEntries((d.tamper_checks ?? []).map((t) => [t.agent, t]));
   const ctxSummary = (a) => {

@@ -151,6 +151,8 @@ FEED_SIG = "latestRoundData()(uint80,int256,uint256,uint256,uint80)"
 OBSERVE_SIG = "observe(uint32[])(int56[],uint160[])"
 PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,int256[],int256)"
 LOSS_SIG = "getPredictionLoss(uint256,address)(uint256,uint256)"
+WEIGHT_SIG = "predictorWeight(uint256,address)(uint256)"
+CUMULATIVE_SIG = "cumulativeExcess(uint256)(int256)"
 SCORING_SIG = "getRoundScoring(uint256)(int256,uint256,int256[])"
 SWAP_TOPIC = "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
 ANSWER_UPDATED_TOPIC = "0x0559884fd3a460db3073b7fc896cc77986f16e378210ded43186175bf646fc5f"
@@ -803,13 +805,13 @@ def claims(c, market, rid, bets, outcome):
     return paid
 
 
-def claim_predictor_rewards(c, market, rid, agents, excess):
-    """Every forecaster with a lower pinball loss than the baseline pulls its share of the
-    predictor pool."""
+def claim_predictor_rewards(c, market, rid, agents, weight):
+    """Every forecaster whose model's cumulative excess is positive after the round pulls its
+    share of the predictor pool."""
     pool = as_int(c.call(market, "predictorPool(uint256)(uint256)", rid)[0])
     paid = {}
     for a in agents:
-        if pool == 0 or not excess[a.name]:
+        if pool == 0 or not weight[a.name]:
             paid[a.name] = "0"
             continue
         before = balance(c, WETH, a.address)
@@ -1013,15 +1015,16 @@ class Replay:
         base_q = [as_int(v) for v in base_q]
         if base_q != self.baseline_q:
             raise RuntimeError(f"round {rid}: onchain baseline {base_q} != {self.baseline_q}")
-        scored, excess = {}, {}
+        scored, weight, cumulative = {}, {}, {}
         for a in self.agents:
             p = c.call(self.market, PREDICTION_SIG, rid, a.address)
             loss, exc = (as_int(v) for v in c.call(self.market, LOSS_SIG, rid, a.address))
             ok = truthy(p[0]) and not voided
             scored[a.name] = (as_int(p[3]), loss, exc) if ok else None
-            excess[a.name] = exc if ok else 0
+            weight[a.name] = as_int(c.call(self.market, WEIGHT_SIG, rid, a.address)[0])
+            cumulative[a.name] = as_int(c.call(self.market, CUMULATIVE_SIG, a.model_id)[0])
         paid = claims(c, self.market, rid, rec["bets"], outcome)
-        pred_pool, rewards = claim_predictor_rewards(c, self.market, rid, self.agents, excess)
+        pred_pool, rewards = claim_predictor_rewards(c, self.market, rid, self.agents, weight)
         fee, owner_got = collect_fee(c, self.owner, self.market, rid, outcome, pred_pool)
         win = outcome["winning_bucket"]
         lo50, hi50 = level_index(25 * 10**16), level_index(75 * 10**16)
@@ -1040,6 +1043,9 @@ class Replay:
                 "covered50": None if sc is None or lo50 is None
                 else q[lo50] <= ln_rv <= q[hi50],
                 "covered80": None if sc is None else q[0] <= ln_rv <= q[-1],
+                # Fee-share weight: max(0, cumulative excess after this round), 1e18.
+                "fee_weight_e18": str(weight[a.name]),
+                "cumulative_excess_e18": str(cumulative[a.name]),
                 "predictor_reward_wei": rewards[a.name]})
         rec.update({
             "end": rec["start"] + cm.N_SEGMENTS * cm.DELTA,

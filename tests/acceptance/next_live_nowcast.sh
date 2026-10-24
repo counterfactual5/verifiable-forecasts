@@ -206,7 +206,10 @@ const fs = require("fs");
   const order = legend.map((t) => t.trim());
   check(order.length === fd.agents.length && order.every((n, i) => i === 0 || finals[n] <= finals[order[i - 1]]), `fee share legend sorted by final value (${order})`);
   const cap = await page.locator("section.card", { hasText: "Cumulative predictor fee share" }).textContent();
-  check(/不扣分/.test(cap) && /not the same as/i.test(cap), "fee share caption explains losses cost nothing, unlike the average score");
+  check(/按至今累计超额分，输的轮会扣掉累计。/.test(cap) && /losing rounds subtract from it/i.test(cap) && !/不扣分|losses cost nothing/.test(cap),
+    "fee share caption explains the cumulative-excess rule: losing rounds subtract");
+  check(/来自押注池：每轮抽 1%；回放中由 2 个脚本账户用分叉链测试资金下注/.test(cap), "fee share caption names the source: 1% of the betting pool, two scripted fork-funded bettors");
+  check(/预测者分到的手续费/.test(cap), "fee share title unchanged");
   await browser.close();
 })().catch((e) => { console.log("not ok - " + e); process.exit(1); });
 EOF
