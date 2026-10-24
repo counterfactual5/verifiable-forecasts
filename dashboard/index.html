@@ -1600,9 +1600,14 @@ function flowCard(d) {
   const r = STATE.model?.rounds[STATE.round];
   return `<section class="flowcard" data-v="rounds"><div class="flow-head"><span class="eyebrow">reputation → probability → fee</span>
     <h3>声誉 / 概率流 · <b id="flow-round">${r ? `#${r.h} ${r.label} UTC` : ""}</b></h3>${roundButtons()}</div>
-    <canvas id="flow" role="img" aria-label="Probability flow from agents to volatility buckets to the AMM fee"></canvas>
-    <div class="flow-cap">左：agent（圆大小 = 截至本轮累计得分，粒子数 ∝ ERC-8004 声誉权重）→ 中：按各自揭示的概率流向 5 个波动率档位（tick²），
-    <i style="background:var(--win)"></i>紫色 = 本轮真实落档 → 右：VolFeeConsumer 本轮设定的手续费。</div></section>`;
+    <canvas id="flow" role="img" aria-label="${isV2(d) ? "Bucket mass derived from quantiles, for the betting view: agents to the 5 parimutuel betting pools to the AMM fee"
+      : "Probability flow from agents to volatility buckets to the AMM fee"}"></canvas>
+    <div class="flow-cap">${isV2(d)
+      ? `左：agent（圆大小 = 截至本轮累计得分，粒子数 ∝ ERC-8004 声誉权重）→ 中：由各 agent 揭示的 5 个分位数推出的各档概率质量（derived from quantiles, for the betting view），
+        5 个档位只是平价下注池（parimutuel betting pools），agent 揭示的是分位数而不是档位概率，按 pinball 损失结算；
+        <i style="background:var(--win)"></i>紫色 = 本轮真实落入的下注池 → 右：VolFeeConsumer 按分位数混合设定的手续费。`
+      : `左：agent（圆大小 = 截至本轮累计得分，粒子数 ∝ ERC-8004 声誉权重）→ 中：按各自揭示的概率流向 5 个波动率档位（tick²），
+        <i style="background:var(--win)"></i>紫色 = 本轮真实落档 → 右：VolFeeConsumer 本轮设定的手续费。`}</div></section>`;
 }
 
 const STAGE_SECONDS = ROUND_SECONDS / 4.5;
@@ -1637,15 +1642,15 @@ function playerBody(d) {
     return `<li>${who(a, i)}<span>${b}</span></li>`;
   }).join("");
   const settle = o.voided ? `<p>本轮作废：${o.void_reason ?? "—"}</p>` : `
-    <div class="pl-big">RV ${o.realized_vol} <span>→ 档位 #${o.winning_bucket} <b class="win">${names[o.winning_bucket]}</b></span></div>
+    <div class="pl-big">RV ${o.realized_vol} <span>→ ${isV2(d) ? "下注池" : "档位"} #${o.winning_bucket} <b class="win">${names[o.winning_bucket]}</b></span></div>
     <p class="pl-src">${r.rv_matches_mainnet ? ok("= 主网逐笔重算") : bad("≠ 主网")}
       ${mn ? ` 主网区块 ${blockLink(mn.block_from)}–${blockLink(mn.block_to)} · ${mn.swap_count} 笔 swap${mn.last_swap_tx ? ` · 末笔 ${txLink(mn.last_swap_tx)}` : ""}` : ""}</p>
     ${isV2(d) && r.ln_rv != null ? `<p class="pl-src">ln RV <b>${r.ln_rv.toFixed(3)}</b> · 气候基线 pinball 损失 ${r.baseline_loss.toFixed(3)}（中位数 ${r.baseline_quantiles[2].toFixed(2)}）</p>` : ""}
     <ul>${d.agents.map((a, i) => {
       if (isV2(d)) {
         const ra = r.agents[a.agent], e = ra?.excess;
-        return `<li>${who(a, i)}${e == null ? mute("—") : `<span class="mono">L = ${ra.pinball_loss.toFixed(3)}</span>
-        <span class="mono ${e > 0 ? "up" : "down"}">${e > 0 ? "▲" : "▼"} ${(e >= 0 ? "+" : "") + e.toFixed(3)}</span>`}</li>`;
+        return `<li>${who(a, i)}${e == null ? mute("—") : `<span class="mono">pinball loss ${ra.pinball_loss.toFixed(3)}</span>
+        <span class="mono ${e > 0 ? "up" : "down"}">${e > 0 ? "▲" : "▼"} ${(e >= 0 ? "+" : "") + e.toFixed(3)} vs climatology</span>`}</li>`;
       }
       const s = r.agents[a.agent]?.log_score_float;
       return `<li>${who(a, i)}${s == null ? mute("—") : `<span class="mono">ln p = ${s.toFixed(3)}</span>
@@ -1808,7 +1813,7 @@ TIP_PROVIDERS.push((e) => {
   const k = m.names.findIndex((_, k) => Math.abs(px - g.bx) <= g.bw / 2 && Math.abs(py - g.by(k)) <= g.bh / 2);
   if (k >= 0) {
     const mix = r.agents.reduce((s, a) => s + a.share * a.probs[k], 0);
-    return tipLines(`${head} · #${k} ${m.names[k]} tick²`, [...r.agents.map((a) => `${a.name}: ${pct(a.probs[k])}`),
+    return tipLines(`${head} · #${k} ${m.names[k]} tick²${STATE.data && isV2(STATE.data) ? " · derived from quantiles, for the betting view" : ""}`, [...r.agents.map((a) => `${a.name}: ${pct(a.probs[k])}`),
       `weighted mix: ${pct(mix)}`, ...(k === r.win ? [`realized RV (settled here): ${r.rv} tick²`] : [])]);
   }
   const i = r.agents.findIndex((_, i) => Math.hypot(px - g.ax, py - g.ay(i)) <= Math.max(12, FLOW.radii[i] ?? 0) + 4);
@@ -1988,7 +1993,8 @@ roundListeners.push((tick) => {
   const el = document.getElementById("flow-round");
   if (r && el) el.textContent = `#${r.h} ${r.label} UTC`;
   const c = document.getElementById("flow");
-  if (r && c) c.setAttribute("aria-label", `Round ${r.h} at ${r.label} UTC: ${r.agents.map((a) => `${a.name} ${a.probs.map((p) => (p * 100).toFixed(0) + "%").join("/")}`).join("; ")}; outcome bucket #${r.win}${r.fee != null ? `; AMM fee ${r.fee.toFixed(2)} bps` : ""}`);
+  if (r && c) c.setAttribute("aria-label", `Round ${r.h} at ${r.label} UTC${STATE.data && isV2(STATE.data)
+    ? " (bucket mass derived from quantiles, for the betting view; the 5 buckets are parimutuel betting pools only)" : ""}: ${r.agents.map((a) => `${a.name} ${a.probs.map((p) => (p * 100).toFixed(0) + "%").join("/")}`).join("; ")}; outcome bucket #${r.win}${r.fee != null ? `; AMM fee ${r.fee.toFixed(2)} bps` : ""}`);
   document.querySelectorAll('[data-rc="play"]').forEach((b) => { b.textContent = STATE.playing ? "❚❚" : "▶"; });
   if (calm) flowKick();
 });
