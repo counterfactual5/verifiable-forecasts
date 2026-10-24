@@ -957,8 +957,9 @@ function summaryLine(d) {
   }
   const fs = s.fee_strategies;
   if (fs) {
-    const low = lowestFee(fs);
-    tiles.push(kpi(fs.mae_bps.forecast.toFixed(2), `forecast fee MAE bps · lowest MAE: <b>${feeNames(fs.mean_bps.fixed)[low.key]} ${low.mae.toFixed(2)}</b>`,
+    const low = lowestFee(fs), m = fs.mae_bps;
+    const others = [m.fixed != null ? `固定 ${fs.mean_bps.fixed} bps：${m.fixed.toFixed(2)}` : "", m.prev_hour != null ? `上一小时：${m.prev_hour.toFixed(2)}` : ""].filter(Boolean).join("；");
+    tiles.push(kpi(`${m.forecast.toFixed(2)} bps`, `forecast fee MAE${others ? `（${others}）` : ""}${low.key === "forecast" ? " · 对比中最低" : ""}`,
       low.key === "forecast" ? "ok" : "warn"));
   }
   return `<div id="summary">${tiles.join("")}</div>`;
@@ -966,21 +967,24 @@ function summaryLine(d) {
 
 // Live files (demo/live.sh) are rewritten hourly; one older than this means the server timer stopped.
 const LIVE_STALE_S = 2 * 3600;
+const pad2 = (n) => String(n).padStart(2, "0");
+const utcHM = (t) => { const x = new Date(t * 1000); return `${pad2(x.getUTCHours())}:${pad2(x.getUTCMinutes())}`; };
+const utcMDHM = (t) => { const x = new Date(t * 1000); return `${pad2(x.getUTCMonth() + 1)}/${pad2(x.getUTCDate())} ${utcHM(t)}`; };
 function liveBadge(d) {
   if (d.live !== true) return "";
-  const hm = (t) => new Date(t * 1000).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const hm = utcHM;
   const age = Date.now() / 1000 - d.generated_at;
   if (!(age <= LIVE_STALE_S)) {
-    const when = new Date(d.generated_at * 1000).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-    return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新&nbsp;${when.replace(/\s+/g, "&nbsp;")}（${Math.floor(age / 3600)}&nbsp;小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
+    const when = utcMDHM(d.generated_at);
+    return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新&nbsp;${when.replace(/\s+/g, "&nbsp;")}&nbsp;UTC（${Math.floor(age / 3600)}&nbsp;小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
   }
-  const next = d.next_run_at ? ` · 下一轮约&nbsp;${hm(d.next_run_at)}` : "";
-  return `<span class="badge live" id="live-badge" title="每小时在本地主网分叉上模拟提交与结算；分叉上的提交时间是模拟的，不能证明现实中的事前性。">实时 · 每小时更新 · 分叉模拟 · 最近更新&nbsp;${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>fork-simulated hourly</span></span> `;
+  const next = d.next_run_at ? ` · 下一轮约&nbsp;${hm(d.next_run_at)}&nbsp;UTC` : "";
+  return `<span class="badge live" id="live-badge" title="每小时在本地主网分叉上模拟提交与结算；分叉上的提交时间是模拟的，不能证明现实中的事前性。">实时 · 每小时更新 · 分叉模拟 · 最近更新&nbsp;${hm(d.generated_at)}&nbsp;UTC${next}<span class="en"><span class="sep"> · </span>fork-simulated hourly</span></span> `;
 }
 function scopeBadge(d) {
   if (d.live === true) return liveBadge(d);
-  const at = new Date(d.generated_at * 1000).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-  return `<span class="badge scope"><span>固定回放 · 过去 ${d.replay.hours} 小时主网</span><span>（生成时间 ${at}）</span></span> `;
+  const at = utcMDHM(d.generated_at);
+  return `<span class="badge scope"><span>固定回放 · 过去 ${d.replay.hours} 小时主网</span><span>（生成时间 ${at} UTC）</span></span> `;
 }
 
 // recompute_tolerance is 1e18-scaled: probability per bucket (v1) or ln RV per quantile (v2).
@@ -1548,14 +1552,14 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     return `<tr><td>#${r.id}</td><td class="mono nowrap">${r.window_utc[0].slice(5, 16)}</td>
       <td class="nowrap">${blockLink(m.block_from)}–${blockLink(m.block_to)}</td>
       <td class="num">${m.swap_count}${m.last_swap_tx ? `<div class="sub">last ${txLink(m.last_swap_tx)}</div>` : ""}</td>
-      <td class="num">${o.realized_vol ?? r.real_realized_vol} ${badge(r.rv_matches_mainnet, "=", "≠")}</td>
+      <td class="num">${o.realized_vol ?? r.real_realized_vol} ${badge(r.rv_matches_mainnet, "✓ 与主网一致", "≠ 与主网不一致")}</td>
       <td>${o.voided ? `<span class="badge bad" title="${o.void_reason}">void</span><div class="sub">${o.void_reason}</div>` : v2 && r.ln_rv != null
         ? `<span class="nowrap">ln RV ${r.ln_rv.toFixed(2)}</span><div class="sub nowrap" title="climatology pinball loss">base L ${r.baseline_loss.toFixed(3)}</div>` : `#${o.winning_bucket}`}</td>
       <td class="num">${r.chainlink?.feed_age_s ?? "–"} s<div class="sub">${r.chainlink?.deviation_bps ?? "–"} bps</div></td>
       ${scores}<td class="num">${o.gas_used?.toLocaleString() ?? "–"}</td></tr>`;
   }).join("");
   const roundsCard = card("Rounds · mainnet blocks, swaps and scores", `${scrollTable(`<tr><th>Round</th><th>Window (UTC)</th>
-    <th>Mainnet blocks</th><th class="num">Swaps</th><th class="num">RV vs mainnet</th><th>Outcome</th><th class="num">Feed age / dev</th>
+    <th>Mainnet blocks</th><th class="num">Swaps</th><th class="num">RV vs mainnet</th><th>Outcome</th><th class="num">Chainlink 报价时长 / 与池价偏差</th>
     ${agents.map((a) => `<th class="num"><span class="hdot" style="color:${a.color}">●</span>${a.agent.replace("agent-", "")}</th>`).join("")}<th class="num">Settle gas</th></tr>
     ${roundRows}`, v2 ? 1180 : 1000, "pin-first")}
     <div class="sub" style="margin-top:8px">Block and transaction links point at Ethereum mainnet: the window's real blocks and its
@@ -1674,8 +1678,8 @@ function flowModel(d, colorOf) {
 
 function flowCard(d) {
   const r = STATE.model?.rounds[STATE.round];
-  return `<section class="flowcard" data-v="rounds"><div class="flow-head"><span class="eyebrow">reputation → probability → fee</span>
-    <h3>声誉 / 概率流 · <b id="flow-round">${r ? `#${r.h} ${r.label} UTC` : ""}</b></h3>${roundButtons()}</div>
+  return `<section class="flowcard" data-v="rounds"><div class="flow-head"><span class="eyebrow">${isV2(d) ? "reputation → quantiles → fee" : "reputation → probability → fee"}</span>
+    <h3>${isV2(d) ? "信誉 → 分位数 → 手续费" : "声誉 / 概率流"} · <b id="flow-round">${r ? `#${r.h} ${r.label} UTC` : ""}</b></h3>${roundButtons()}</div>
     <canvas id="flow" role="img" aria-label="${isV2(d) ? "Bucket mass derived from quantiles, for the betting view: agents to the 5 parimutuel betting pools to the AMM fee"
       : "Probability flow from agents to volatility buckets to the AMM fee"}"></canvas>
     <div class="flow-cap">${isV2(d)
@@ -1732,7 +1736,7 @@ function playerBody(d) {
       return `<li>${who(a, i)}${s == null ? mute("—") : `<span class="mono">ln p = ${s.toFixed(3)}</span>
         <span class="mono ${s > u ? "up" : "down"}">${s > u ? "▲" : "▼"} ${(s - u >= 0 ? "+" : "") + (s - u).toFixed(3)}</span>`}</li>`;
     }).join("")}</ul>
-    <p class="pl-src dim">settle gas ${o.gas_used?.toLocaleString() ?? "—"} · 区块 ${o.settle_block ?? "—"}（fork，无浏览器链接）</p>`;
+    <p class="pl-src dim">settle gas ${o.gas_used?.toLocaleString() ?? "—"} · 区块 ${o.settle_block?.toLocaleString() ?? "—"}（fork，无浏览器链接）</p>`;
   const hk = r.hook;
   const hookLine = !hk ? "" : `<p>Uniswap V4 hook 实际收取 <b>${(hk.effective_fee_pips / 100).toFixed(2)} bps</b>
     （hook 报价 ${(hk.hook_fee_pips / 100).toFixed(2)} bps，${hk.recorded ? "取自本轮记录的推荐费率" : "本轮无记录 → 回退费率"}）
@@ -1745,12 +1749,11 @@ function playerBody(d) {
       <p>hindsight fair fee ${f.fair_bps.toFixed(2)} bps（参照，事前无法得到）· forecast 误差 <b>${e.toFixed(2)}</b> vs fixed ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
         ${e <= ef ? ok(`本轮优于 fixed ${f.fixed_bps} bps`) : mute(`本轮 fixed ${f.fixed_bps} bps 更近`)}</p>
       <p class="pl-src dim">${f.mirror?.equal_weight_fallback ? "声誉权重尚未形成 → 等权混合" : `声誉权重 ${shares || "—"}`}
-        <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>${hookLine}`;
+        <br>setFee 区块 ${f.onchain?.block?.toLocaleString() ?? "—"}（fork）</p>${hookLine}`;
   })();
   const stage = (k, n, zh, en, body) => `<li class="pl-stage" data-stage="${k}"><div class="pl-h"><span class="n">${n}</span>${zh}<span class="en">${en}</span></div><div class="pl-b">${body}</div></li>`;
   return `<ol class="pl-stages">
-    ${stage(1, "①", "提交", "commit", `<p class="dim">哈希提交截止 ${hms(r.start - p.commit_lead_s)}（开窗前 ${p.commit_lead_s}s），揭示截止开窗前 ${p.reveal_lead_s}s</p><ul>${commit}</ul>
-      <p class="pl-src dim">回放 JSON 未记录 commit 哈希与揭示区块</p>`)}
+    ${stage(1, "①", "提交", "commit", `<p class="dim">哈希提交截止 ${hms(r.start - p.commit_lead_s)}（开窗前 ${p.commit_lead_s}s），揭示截止开窗前 ${p.reveal_lead_s}s</p><ul>${commit}</ul>`)}
     ${stage(2, "②", "证明", "prove", `<ul>${prove}</ul>${d.tamper_checks?.length ? `<p class="pl-src dim">verifyProof gas 与篡改检查为回放第 0 轮实测</p>` : ""}`)}
     ${stage(3, "③", "结算", "settle", settle)}
     ${stage(4, "④", "被使用", "use", use)}</ol>`;
@@ -2188,6 +2191,12 @@ addEventListener("keydown", (e) => {
   if (go >= 0 && go < VIEWS.length) location.hash = `#/${VIEWS[go][0]}`;
 });
 
+const hasHook = (x) => (x?.rounds ?? []).some((r) => r.hook);
+function hookStatus(d, live) {
+  const fixed = hasHook(d) ? "固定回放已在 fork 上的 V4 池里逐轮实测（单轮回放的“使用”一步）" : "固定回放未开启";
+  if (!live || live === d || live.live !== true) return fixed;
+  return fixed + (hasHook(live) ? "；实时页已在分叉上开启" : "；实时页未开启");
+}
 function pageHeads(d, live = d) {
   const s = d.summary, rp = d.replay, rounds = d.rounds, fs = s.fee_strategies;
   const stat = (v, l) => `<span><b>${v}</b>${l}</span>`;
@@ -2201,15 +2210,16 @@ function pageHeads(d, live = d) {
   return head("live", "这一小时，各 agent 怎么看？", p
       ? `案例 #1 的当前小时：每小时在本地主网分叉上模拟提交与结算（nowcast）；分叉上的提交时间是模拟的，不能证明现实中的事前性。真正的事前证明需要在持久链上提前提交（下一步）。
         下方是滚动窗口：最近 ${live.replay.hours} 小时主网，每小时重新 fork 一次、整体更新。
+        滚动窗口：与固定回放错开，数字会略有不同。
         每个 agent 的提供方、地址与验证细节见“预测者与信誉”。`
       : "这份数据不是实时模式：线上实时模式每小时重新 fork 主网，回放最近 24 小时，并为进行中的这一小时开一轮。下面是已结算各小时的押中程度。",
-      p ? [stat(`${entered}/${live.agents.length}`, "agent 已提交"), stat(live.rounds.length, "小时已结算")] : [])
+      p ? [stat(`${entered}/${live.agents.length}`, "agent 已提交"), stat(live.rounds.length, " 小时已结算")] : [])
     + head("rounds", "一轮从提交到被使用", `案例 #1 的 ${rounds.length} 个真实主网小时在 fork 上逐轮回放：选一个小时，看提交、证明、结算和被使用依次发生。`,
       [stat(`${s.settled}/${s.rounds}`, "轮已结算")])
     + head("agents", "预测者与信誉", "任何预测者都可以无许可参与：在 ERC-8004 注册身份，按三档之一证明预测的来历，得分由合约写进链上声誉。案例 #1 里是 6 个示例 agent。", [])
     + head("fee", "消费方示例 · AMM 动态手续费", fs
       ? `协议的输出要有人用。案例 #1 的消费方 VolFeeConsumer 按 ERC-8004 声誉加权各 agent 的预测，每小时开始前在链上算出推荐手续费。
-        Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；按它真正收费的是 Uniswap V4 动态手续费 hook VolFeeHook，${d.contracts?.v4_hook ? "本回放在 fork 上的 V4 池里逐轮实测（单轮回放的“使用”一步）" : "已有合约与 fork 测试，本回放未开启（V4_HOOK=1）"}，未部署到主网。`
+        Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；按它真正收费的是 Uniswap V4 动态手续费 hook VolFeeHook，${hookStatus(d, live)}；未部署主网、未审计。`
       : "这份回放没有记录消费方（动态手续费）数据。", [])
     + head("chain", "每一步都能在链上查", `mainnet 行链接 Etherscan；fork 行发生在本地分叉上（fork 自主网区块 ${d.fork_block.toLocaleString()}）。`,
       [stat(mainTx, "条主网交易链接"), stat(Object.keys(d.contracts).length, "个合约地址")]);
@@ -2222,8 +2232,8 @@ function howCard() {
     <ol class="pipe">
       ${step("commit", "提交", "commit", "预测者在截止前上链提交预测哈希（只交哈希，预测稍后公开），开窗前揭示；晚了不算。", "rounds", "单轮回放")}
       ${step("proof", "证明", "prove", "zk 档附 EZKL 证明、合约当场 <span class=\"mono\">verifyProof</span>；可复现档公开权重可重算；仅提交档只证明事前提交、没改过。", "agents", "验证档位")}
-      ${step("settle", "结算", "settle", "窗口结束后合约读结算数据、按 ln p 打分（案例 #1：池子 <span class=\"mono\">observe()</span> 算实际波动率，Chainlink 交叉校验）。", "rounds", "单轮回放")}
-      ${step("rep", "信誉", "reputation", "分数由市场合约写入 ERC-8004 声誉；跑赢均匀基线的预测者按超出部分分手续费。", "agents", "预测者与信誉")}
+      ${step("settle", "结算", "settle", "窗口结束后合约读结算数据、按 5 个分位数的 pinball 损失打分（对比气候基线；案例 #1：池子 <span class=\"mono\">observe()</span> 算实际波动率，Chainlink 交叉校验）。", "rounds", "单轮回放")}
+      ${step("rep", "信誉", "reputation", "分数由市场合约写入 ERC-8004 声誉；预测者按至今相对气候基线的累计超额分分手续费，输的轮会扣掉累计。", "agents", "预测者与信誉")}
       ${step("amm", "使用", "consume", "消费方按信誉加权读取预测（案例 #1：VolFeeConsumer 计算推荐 AMM 手续费）。", "fee", "消费方示例")}
     </ol></section>`;
 }
@@ -2250,10 +2260,11 @@ function usesCard() {
     <p class="sub uses-more">链下使用：交易机器人、AI agent 可以通过 x402 按次付费读取信誉加权预测，收入按信誉分给预测者（设想，未实现）。</p></section>`;
 }
 
+const BOND_TAG = "合约已实现，本演示未启用";
 function tiersCard(agents, tierOf) {
   const n = (t) => agents.filter((a) => tierOf(a) === t).length;
-  const tier = (cls, title, count, body, bond) => `<div class="tier${count == null ? " off" : ""}"><h3>${title}<span class="badge ${cls}">${count == null ? "路线图" : `${count} 个 agent`}</span></h3>
-    <p>${body}</p><p class="bond"><b>押金</b> ${bond} <span class="tag">设计（未实现）</span></p></div>`;
+  const tier = (cls, title, count, body, bond, tag = "") => `<div class="tier${count == null ? " off" : ""}"><h3>${title}<span class="badge ${cls}">${count == null ? "路线图" : `${count} 个 agent`}</span></h3>
+    <p>${body}</p><p class="bond"><b>押金</b> ${bond} ${tag ? `<span class="tag">${tag}</span>` : ""}</p></div>`;
   const zkModel = (name, shape, params) => `<tr><td class="mono">${name}</td><td>${shape} → 单调分位数头</td><td class="num">${params}</td></tr>`;
   const zkModels = `<div class="zk-models"><h3>zk 档的三个模型</h3>
     <p>输入是开局时合约从池子 <span class="mono">observe()</span> 算出并存在链上的 16 个特征；输出 ln(RV) 的 5 个分位数；权重写死在电路和验证合约里；只用主网真实数据训练。</p>
@@ -2265,11 +2276,11 @@ function tiersCard(agents, tierOf) {
     <p class="why">单调分位数头保证 5 个分位数递增。模型做得小，是因为每次预测都要生成 zk 证明（链上验证约 55 万 gas）。</p></div>`;
   return `<section class="card wide" id="tiers"><h2>验证档位 · Verification tiers</h2><div class="tiers" style="margin-top:0">
       ${tier("zk", "zk 证明", n("zk"), "证明“这个输出来自注册的这个模型 + 链上这组输入”。小模型，链上验证。", "无（出处由证明保证）")}
-      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每个预测值误差 ≤ 0.001（容差复核；提交先于结果）。现有三个公开权重的时间序列基础模型：<span class=\"mono\">timesfm-3.0</span> / <span class=\"mono\">timestral-209m</span> / <span class=\"mono\">chronos-2</span>，用链上数据重算验证。", "有，复算对不上就扣（接上 opML 式挑战后链上执行）")}
-      ${tier("commit", "仅提交", n("commit-only"), "黑盒：本来就不要求公开策略或模型，只公开每轮预测；预测在事前定下、没改过。闭源模型也能参与。", "有，防开很多号只留运气好的")}
-      ${tier("commit", "opML", null, "乐观验证：公开模型与输入，有人质疑时链上挑战复算；不阻塞每轮结算。", "有，被挑战且复算对不上就扣")}
-      ${tier("commit", "TEE", null, "可信硬件远程证明，适合权重不公开的模型。", "无（硬件证明，需信任厂商）")}
-    </div>${zkModels}<p class="tiers-rule">所有档共用：不公开的轮次按最低分记入信誉；三档分成相同，档位只标注出处，权重由消费方决定。（设计，未实现；详见 docs/ARCHITECTURE.md 第 9 节）</p></section>`;
+      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每个预测值误差 ≤ 0.001（容差复核；提交先于结果）。现有三个公开权重的时间序列基础模型：<span class=\"mono\">timesfm-3.0</span> / <span class=\"mono\">timestral-209m</span> / <span class=\"mono\">chronos-2</span>，用链上数据重算验证。", "有，复算对不上就扣（乐观挑战已实现，裁决暂由仲裁方）", BOND_TAG)}
+      ${tier("commit", "仅提交", n("commit-only"), "黑盒：本来就不要求公开策略或模型，只公开每轮预测；预测在事前定下、没改过。闭源模型也能参与。", "有，防开很多号只留运气好的", BOND_TAG)}
+      ${tier("commit", "opML", null, "乐观验证：公开模型与输入，有人质疑时链上挑战复算；不阻塞每轮结算。", "有，被挑战且复算对不上就扣", "路线图")}
+      ${tier("commit", "TEE", null, "可信硬件远程证明，适合权重不公开的模型。", "无（硬件证明，需信任厂商）", "路线图")}
+    </div>${zkModels}<p class="tiers-rule">所有档共用：不公开的轮次按最低分记入信誉；三档分成相同，档位只标注出处，权重由消费方决定。（合约已实现，本演示未启用押金门槛；详见 docs/ARCHITECTURE.md 第 9 节）</p></section>`;
 }
 
 load().then((x) => {
