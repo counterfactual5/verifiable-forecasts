@@ -110,12 +110,13 @@ const UNITS = { "fee-card": "bps", "excess-card": null };
   // Live nowcast: past glyph, realized RV dot, current-hour band.
   {
     const { page, ctx } = await open("v2.json", "live");
-    const past = page.locator("#nowcast g.nc-past").last();
-    const [ag, rid, q50] = await past.evaluate((g) => [g.dataset.forecaster, Number(g.dataset.round), Number(g.dataset.q50)]);
-    const t = v2.rounds.find((r) => r.id === rid).window_utc[0].slice(11, 16);
-    let text = await at(page, past.locator("rect.nc-q90"));
-    check(text.includes(ag) && text.includes(`${t} UTC`) && text.includes(fmtTick(q50)) && text.includes("tick²"),
-          `nowcast past glyph: ${ag} ${t} UTC median ${fmtTick(q50)} tick² (got ${text.replace(/\s+/g, " ").slice(0, 140)})`);
+    const hits = page.locator("#nowcast .nc-hit");
+    const shown = v2.rounds.slice(-24).filter((r) => (r.outcome?.realized_vol ?? r.real_realized_vol) != null);
+    const hr = shown[(await hits.count()) - 3], c50 = Math.exp(Number(hr.fee.onchain.mix_quantiles_e18[2]) / 1e18);
+    const t = hr.window_utc[0].slice(11, 16);
+    let text = await at(page, hits.nth((await hits.count()) - 3));
+    check(/consensus/.test(text) && text.includes(`${t} UTC`) && text.includes(fmtTick(c50)) && text.includes("tick²"),
+          `nowcast past hour: ${t} UTC consensus median ${fmtTick(c50)} tick² (got ${text.replace(/\s+/g, " ").slice(0, 140)})`);
     const dots = page.locator("#nowcast svg circle");
     const last = v2.rounds.slice(-24).filter((r) => (r.outcome?.realized_vol ?? r.real_realized_vol) != null).pop();
     text = await at(page, dots.last());
