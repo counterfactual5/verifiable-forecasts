@@ -1122,7 +1122,7 @@ function nowcastHtml(d, agents, tierOf) {
     <rect x="${split.toFixed(1)}" y="${T - 20}" width="${(W - R - split).toFixed(1)}" height="${H - B - T + 20}" rx="8" fill="var(--accent)" opacity=".06"/>
     ${grid}${fan}${agentBands}${agentLines}<path class="nc-real" d="${line}" fill="none" stroke="#1b1a17" stroke-width="2.2" stroke-linejoin="round"/>${dots}${hits}
     <text class="ax" x="${L + 10}" y="${T - 8}">${narrow ? "预测 vs 实际" : `过去 ${past.length} 小时 · 预测 vs 链上实际 RV`}</text>
-    <text class="ax" x="${(split + 8).toFixed(1)}" y="${T - 8}">${W < 600 ? "当前小时" : "当前小时 · 待结算"}</text>${bands}
+    <text class="ax" x="${(split + 8).toFixed(1)}" y="${T - 8}">${W - R - split - 8 < 290 ? `${hour} 待结算` : `当前小时 · 待结算（${hour}，整点后结算）`}</text>${bands}
     <text class="ax" x="${((split + W - R) / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${hour}</text></svg>`;
   const hm = (t) => new Date(t * 1000).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
   const rows = d.agents.map((a) => {
@@ -1138,6 +1138,7 @@ function nowcastHtml(d, agents, tierOf) {
       <span class="nc-cd">距本小时结束 <b class="cd" id="nowcast-cd" data-end="${pr.end}"></b></span></h3></div>
     <div class="sub">上次更新 ${hm(d.generated_at)} · 运行于服务器，每小时自动更新；提交发生在本地主网分叉上，时间是模拟的，不证明现实中的事前性。这一小时结束后，下一次运行把它当作已结束小时重放并结算。</div>
     ${svg}
+    <div class="sub nc-note">分叉回放：预测按分叉链时间在窗口开始前提交；现实时间里本轮由每小时一次的运行在窗口内创建。</div>
     <div class="nc-legend" role="group" aria-label="Show the consensus or one agent's own intervals">
       ${key("", "consensus", `<i class="nc-fan-mark"></i>`)}${agents.map((a) => key(a.agent, short(a.agent), `<i style="background:${a.color}"></i>`)).join("")}
       <span class="sub nowrap">${swatch("#1b1a17")} realized RV</span></div>
