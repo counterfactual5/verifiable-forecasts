@@ -864,7 +864,7 @@ function scopeBadge(d) {
   return `<span class="badge scope"><span>固定回放 · 过去 ${d.replay.hours} 小时主网</span><span>（生成时间 ${at}）</span></span> `;
 }
 
-// recompute_tolerance is on the 1e18 probability scale.
+// recompute_tolerance is 1e18-scaled: probability per bucket (v1) or ln RV per quantile (v2).
 const tolText = (a) => a.recompute_tolerance ? String(Number(a.recompute_tolerance) / 1e18) : "0.001";
 const PROVIDER_ZH = { "self-built zk": "自建 zk", "self-hosted inference": "自部署推理服务" };
 const TIER_ZH = { zk: "zk 证明", reproducible: "可复现", "commit-only": "仅提交" };
@@ -1075,8 +1075,8 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     if (tier === "reproducible") {
       const { checked, failed } = repro(a), hash = a.model_hash ? short(a.model_hash) : "?";
       const how = a.recompute_command
-        ? `modelHash ${hash} registered onchain; anyone can recompute each reveal from the onchain features (and, for 512-point models, the pool's Swap logs) with the public weights at a pinned revision (${a.recompute_command}): every bucket within ${tolText(a)} (tolerance check; the reveal is committed before the outcome)`
-        : `modelHash ${hash} registered onchain; every reveal re-run from the onchain features with the public weights at a pinned revision (python -m vol_agents.tsfm_recompute; full command in agents/README.md): every bucket within the tolerance committed in modelHash`;
+        ? `modelHash ${hash} registered onchain; anyone can recompute each reveal from the onchain features (and, for 512-point models, the pool's Swap logs) with the public weights at a pinned revision (${a.recompute_command}): ${v2 ? "every quantile within" : "every bucket within"} ${tolText(a)}${v2 ? " ln RV" : ""} (tolerance check; the reveal is committed before the outcome)`
+        : `modelHash ${hash} registered onchain; every reveal re-run from the onchain features with the public weights at a pinned revision (python -m vol_agents.tsfm_recompute; full command in agents/README.md): ${v2 ? "every quantile" : "every bucket"} within the tolerance committed in modelHash`;
       if (checked && !failed) return tierBadge("ok", `${how} · ${checked}/${checked} rounds reproduced`, "可复现-已核验", "reproducible·verified");
       if (!checked && a.recompute_command) return tierBadge("commit", `${how}; not re-run by this replay`, "可复现", "reproducible · offline check");
       return tierBadge("commit", how, "可复现", "reproducible") +
@@ -1264,7 +1264,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       `${timesfm ? " · <b>非商用 license</b>" : ""}${a.sum.rounds_sat_out ? ` · 未参赛 ${a.sum.rounds_sat_out} 轮` : ""}</div>`;
     return head + `<details class="vdetails"><summary>详情 / 复核命令</summary>` +
       `<div class="sub">${PROVIDER_ZH[a.provider] ?? attr(a.provider)} · <span class="mono">${attr(a.model)}</span> · ${repo ? `公开权重 <span class="mono">${attr(repo)}</span>` : "闭源"} · ${lic}</div>` +
-      (a.recompute_command ? `<div class="sub">可复现：公开权重 ${attr(repo)}，每桶误差 ≤ ${tolText(a)}（容差复核；提交先于结果）${checked
+      (a.recompute_command ? `<div class="sub">可复现：公开权重 ${attr(repo)}，${v2 ? "每个分位数误差 ≤ " + tolText(a) + "（ln RV）" : "每桶误差 ≤ " + tolText(a)}（容差复核；提交先于结果）${checked
           ? `；本回放已重算 ${checked - failed}/${checked} 轮在容差内` : ""}。复核：<span class="mono">${attr(a.recompute_command)}</span></div>` : "") +
       ctxSummary(a) + out + `</details>`;
   };
@@ -1919,7 +1919,7 @@ function tiersCard(agents, tierOf) {
     <p>${body}</p><p class="bond"><b>押金</b> ${bond} <span class="tag">设计（未实现）</span></p></div>`;
   return `<section class="card wide" id="tiers"><h2>验证档位 · Verification tiers</h2><div class="tiers" style="margin-top:0">
       ${tier("zk", "zk 证明", n("zk"), "证明“这个输出来自注册的这个模型 + 链上这组输入”。小模型，链上验证。", "无（出处由证明保证）")}
-      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每桶误差 ≤ 0.001（容差复核；提交先于结果）。", "有，复算对不上就扣（接上 opML 式挑战后链上执行）")}
+      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每个预测值误差 ≤ 0.001（容差复核；提交先于结果）。", "有，复算对不上就扣（接上 opML 式挑战后链上执行）")}
       ${tier("commit", "仅提交", n("commit-only"), "黑盒：本来就不要求公开策略或模型，只公开每轮预测；预测在事前定下、没改过。闭源模型也能参与。", "有，防开很多号只留运气好的")}
       ${tier("commit", "opML", null, "乐观验证：公开模型与输入，有人质疑时链上挑战复算；不阻塞每轮结算。", "有，被挑战且复算对不上就扣")}
       ${tier("commit", "TEE", null, "可信硬件远程证明，适合权重不公开的模型。", "无（硬件证明，需信任厂商）")}

@@ -90,8 +90,9 @@ grep -q '^not ok' <<<"$res" && fail=1
 grep -q '^ok' <<<"$res" || fail=1
 
 json="${REPLAY_JSON:-demo/out/fork_replay.json}"
+[[ $json = /* ]] || json="$root/$json"
 if [[ -f "$json" ]] && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("schema") == "vol-replay/v2" else 1)' "$json"; then
-  res=$(cd "$root/agents" && uv run python - "$(cd "$(dirname "$json")" && pwd)/$(basename "$json")" <<'EOF' 2>&1
+  res=$(cd "$root/agents" && uv run python - "$json" <<'EOF' 2>&1
 import json, sys
 from vol_agents import contract_math as cm
 check = lambda c, m: print(("ok - " if c else "not ok - ") + m)

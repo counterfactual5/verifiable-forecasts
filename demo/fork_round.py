@@ -5,15 +5,17 @@ registries and cross-checks the pool price against the Chainlink ETH/USD feed. E
 round: the three EZKL agents from agents/ prove on the round's onchain features, and, when
 VOL_TSFM_API_URL is set, one agent per time-series model (timesfm-3.0, timestral-209m, chronos-2;
 VOL_TSFM_MODELS) forecasts through a self-hosted inference service, named agent-<model id>. A model
-whose public weights recompute its reveal within 0.001 per bucket (tolerance check; the reveal is
-committed before the outcome) registers as reproducible with its modelHash, else commit-only; the
-tier and hash are read from the agent. Every agent commits a hash first and reveals once commits
-close; the zk agents' reveals carry the proof.
+whose public weights recompute its reveal within 1e-3 ln units per quantile (tolerance check; the
+reveal is committed before the outcome) registers as reproducible with its modelHash, else
+commit-only; the tier and hash are read from the agent. Every agent commits a hash first and
+reveals once commits close; the zk agents' reveals carry the proof.
 With VOL_REPRO_PYTHON set (and not LIVE), every reproducible reveal is then recomputed with
 `python -m vol_agents.tsfm_recompute` against the fork, after the last round so the recompute's
 wall time never shifts the fork's clock; VOL_REPRO_PYTHON_<MODEL> (model id upper-cased, "-" and
 "." as "_") overrides the interpreter per model. The result is each round's "reproduced".
-Forecasts above the uniform baseline share half of each round's fee.
+Forecasts are K = 5 quantiles of y = ln(max(RV, 1)) at levels 0.1/0.25/0.5/0.75/0.9, scored by
+the pinball loss against the climatological baseline (training-period quantiles of y, passed to
+createRound); forecasts with a lower loss than the baseline share half of each round's fee.
 
 One fork, one deployment, so ERC-8004 reputation and the market accumulate across the hours:
 - The fork starts before the replayed hours. From then on the forked pool follows mainnet at the
@@ -45,8 +47,9 @@ completed mainnet hours on a fresh fork and writes dashboard/live-replay.json wi
 It also opens the round for the hour in progress, which starts where the replay ends: its features
 are past segments, so every agent commits and reveals on real data, but nothing settles it until the
 next run replays it as a completed hour. It is written as "pending_round".
-zk proofs are cached by (model, round features) in
-agents/out/proof-cache, so each hourly run proves only the hour it has not seen.
+zk proofs are cached by (model, round features) in agents/out/proof-cache (VOL_PROOF_CACHE=0
+disables it), so each hourly run proves only the hour it has not seen and a fixed replay whose
+proofs were pre-generated (vol_agents.precache) proves nothing.
 """
 
 import json
@@ -72,6 +75,7 @@ from vol_agents.chain import DEV_KEYS, Anvil, address_of, as_int
 from vol_agents.ezkl_step import OUT as AGENTS_OUT
 
 REPO = Path(__file__).resolve().parent.parent
+
 RESULT = REPO / "demo" / "out" / "fork_replay.json"
 LIVE_RESULT = REPO / "dashboard" / "live-replay.json"
 LIVE_HOURS = 24
@@ -140,11 +144,13 @@ EXACT_INPUT = "exactInputSingle((address,address,uint24,address,uint256,uint256,
 ROUND_SIG = "getRound(uint256)(uint64,bool,bool,uint256,uint256,uint256,uint256[5],uint256[])"
 FEED_SIG = "latestRoundData()(uint80,int256,uint256,uint256,uint80)"
 OBSERVE_SIG = "observe(uint32[])(int56[],uint160[])"
-PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)"
+PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,int256[],int256)"
+LOSS_SIG = "getPredictionLoss(uint256,address)(uint256,uint256)"
+SCORING_SIG = "getRoundScoring(uint256)(int256,uint256,int256[])"
 SWAP_TOPIC = "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
 ANSWER_UPDATED_TOPIC = "0x0559884fd3a460db3073b7fc896cc77986f16e378210ded43186175bf646fc5f"
-FEE_RECORDED_SIG = "FeeRecorded(uint256,uint24,uint256,uint256[5])"
-REPUTATION_TAG1 = "logScore"
+FEE_RECORDED_SIG = "FeeRecorded(uint256,uint24,uint256,int256[])"
+REPUTATION_TAG1 = "pinball"
 # Must equal VolMarket._reputationTag, or the consumer finds no reputation and weighs equally.
 REPUTATION_TAG2 = f"vol-{cm.DELTA}s-{cm.N_SEGMENTS}"
 SUMMARY_SIG = "getSummary(uint256,address[],string,string)(uint64,int128,uint8)"
@@ -158,6 +164,12 @@ VOID_REASONS = {1: "pool tick out of range", 2: "Chainlink answer stale or inval
                 5: "Chainlink call failed"}
 
 getcontext().prec = 60
+
+WAD = cm.WAD  # 1e18: quantile levels, ln values (natural log of tick^2) and pinball losses
+LEVELS_E18 = list(cm.QUANTILE_LEVELS_E18)
+OUTPUT_UNIT_E18 = cm.OUTPUT_UNIT_E18  # one 2^-OUTPUT_SCALE_BITS output step in 1e18 ln units
+# Training-period climatological baseline: analysis/src/vol_calibrate.py --baseline-quantiles.
+BASELINE_FILE = REPO / "agents" / "models" / "baseline_quantiles.json"
 
 
 def log(msg):
@@ -289,7 +301,7 @@ def fair_bps(rv, m):
     return fs.fair_fee(rv, m["liquidity"], m["sqrt_price_x96"], m["volume_token1"]) * 10_000
 
 
-def calibrate_fee(mainnet, start):
+def calibrate_fee(mainnet, start, baseline):
     """VolFeeConsumer parameters from the CALIBRATION_HOURS mainnet hours before `start`."""
     step, hour = cm.DELTA, cm.N_SEGMENTS * cm.DELTA
     cal_start = start - CALIBRATION_HOURS * hour
@@ -308,10 +320,14 @@ def calibrate_fee(mainnet, start):
                       "liquidity": str(m["liquidity"]),
                       "sqrt_price_x96": str(m["sqrt_price_x96"]),
                       "volume_token1": str(m["volume_token1"]), "swap_count": m["swap_count"]})
-    fpv, bucket_var, sources = fs.calibrate(hours, BOUNDS)
+    fpv = fs.calibrate(hours, BOUNDS)[0]
+    # VolFeeConsumer weighs a model by how far its mean reputation score (-pinball loss, 1e18)
+    # beats the climatological baseline's training-period score.
+    baseline_score = -baseline["mean_loss_e18"]
     log(f"fee calibration {utc(cal_start)} .. {utc(start)}: feePerVarE18 {fpv}, "
-        f"bucketVar {bucket_var}")
-    return {"bucket_var": bucket_var, "fee_per_var_e18": str(fpv), "min_fee_pips": MIN_FEE_PIPS,
+        f"baselineScore {baseline_score}")
+    return {"baseline_score_e18": str(baseline_score), "levels_e18": [str(v) for v in LEVELS_E18],
+            "fee_per_var_e18": str(fpv), "min_fee_pips": MIN_FEE_PIPS,
             "max_fee_pips": MAX_FEE_PIPS, "fixed_fee_pips": FIXED_FEE_PIPS,
             "tag1": REPUTATION_TAG1, "tag2_zk": REPUTATION_TAG2,
             "tag2_commit": REPUTATION_TAG2 + "-commit",
@@ -319,10 +335,8 @@ def calibrate_fee(mainnet, start):
                 "window": [cal_start, start], "hours": CALIBRATION_HOURS,
                 "fee_per_var": "ratio of sums: sum fair pips / sum rv over the calibration hours, "
                                "1e18-scaled, so fee_for_var(rv) totals the fair fee unclamped",
-                "bucket_var": "mean rv of the calibration hours in each bucket; an empty bucket "
-                              "takes its bounds' midpoint (bucket 0: half its upper bound, "
-                              "bucket 4: 1.5x its lower bound), then a running max",
-                "bucket_var_sources": sources,
+                "expected_var": "midpoint-weighted mean of exp(mix quantile) over the K levels "
+                                "(Vincentized reputation-weighted mix), tick^2 1e18-scaled",
                 "fair": fs.FAIR_DEFINITION,
                 "hours_data": [{k: v for k, v in h.items() if k != "fair_pips"} for h in hours]}}
 
@@ -467,9 +481,32 @@ def minted_agent_id(receipt):
     raise RuntimeError(f"identity registration minted no token: {receipt}")
 
 
+def load_baseline(path=None):
+    """Baseline quantiles (1e18, on the output grid, strictly increasing) and their
+    training-period mean pinball loss, as written by vol_calibrate.py --baseline-quantiles."""
+    path = Path(path or os.environ.get("BASELINE_QUANTILES") or BASELINE_FILE)
+    b = json.loads(path.read_text())
+    levels = [int(v) for v in b["levels_e18"]]
+    q = [int(v) for v in b["quantiles_e18"]]
+    if levels != LEVELS_E18:
+        raise SystemExit(f"{path}: levels {levels} differ from the market's {LEVELS_E18}")
+    if any(v % OUTPUT_UNIT_E18 for v in q) or any(b2 <= a for a, b2 in zip(q, q[1:], strict=False)):
+        raise SystemExit(f"{path}: baseline quantiles off the output grid or not increasing")
+    return {"quantiles_e18": q, "mean_loss_e18": int(b["mean_loss_e18"]),
+            "test_mean_loss_e18": (int(b["test_mean_loss_e18"])
+                                   if b.get("test_mean_loss_e18") is not None else None),
+            "until": b.get("until"), "source": str(path.relative_to(REPO))
+            if path.is_relative_to(REPO) else path.name}
+
+
+def int_list(vals):
+    return "[" + ",".join(map(str, vals)) + "]"
+
+
 def deploy(c, owner, api_agents=(), proof_cache=None):
     market = c.deploy(owner, "src/VolMarket.sol:VolMarket", WETH, FEE_BPS, PREDICTOR_SHARE_BPS,
-                      POOL, cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
+                      POOL, cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD,
+                      int_list(LEVELS_E18), cm.OUTPUT_SCALE_BITS)
     c.send(owner, market, "setReputation(address,address)", IDENTITY, REPUTATION)
     c.send(owner, market, "setPriceFeed(address)", FEED)
     agents, agent_ids, verifiers = [], {}, {}
@@ -549,7 +586,7 @@ def tsfm_info(agent):
     out = {"provider": PROVIDER_TSFM, "weights": m.weights or None, "license": m.license}
     if agent.tier == "reproducible":
         out["recompute_command"] = RECOMPUTE.format(model=m.model)
-        out["recompute_tolerance"] = sf.RECOMPUTE_TOLERANCE
+        out["recompute_tolerance"] = str(sf.RECOMPUTE_TOLERANCE_E18)
     return out
 
 
@@ -587,9 +624,8 @@ def forecast_source(agent, sub):
 
 def deploy_fee_consumer(c, owner, market, fee):
     return c.deploy(owner, "src/VolFeeConsumer.sol:VolFeeConsumer", market, fee["tag1"],
-                    fee["tag2_zk"], fee["tag2_commit"],
-                    "[" + ",".join(map(str, fee["bucket_var"])) + "]", fee["fee_per_var_e18"],
-                    fee["min_fee_pips"], fee["max_fee_pips"])
+                    fee["tag2_zk"], fee["tag2_commit"], fee["baseline_score_e18"],
+                    fee["fee_per_var_e18"], fee["min_fee_pips"], fee["max_fee_pips"])
 
 
 def fund_trader(c):
@@ -654,12 +690,28 @@ class FeedReplay:
                 log(f"Chainlink report {r['tx']} did not replay (status {status})")
 
 
-def place_bets(c, market, rid, agents_probs):
-    """Bettor 0 follows the agents' consensus bucket, bettor 1 takes the runner-up."""
-    mean = [sum(p[b] for p in agents_probs) / len(agents_probs) for b in range(cm.BUCKETS)]
-    ranked = sorted(range(cm.BUCKETS), key=lambda b: mean[b], reverse=True)
+def level_index(tau_e18):
+    return LEVELS_E18.index(tau_e18) if tau_e18 in LEVELS_E18 else None
+
+
+def bet_buckets(agents_q):
+    """Bettor 0 takes the bucket of the agents' mean median, bettor 1 the bucket of the mean
+    quartile on the far side (the neighbour if both quartiles share the median's bucket)."""
+    mean = [sum(q[k] for q in agents_q) / len(agents_q) for k in range(len(LEVELS_E18))]
+    k_med = level_index(WAD // 2) or len(LEVELS_E18) // 2
+
+    def bucket(q_e18):
+        return cm.bucket_of(math.floor(math.exp(q_e18 / WAD)), BOUNDS)
+
+    first = bucket(mean[k_med])
+    others = [b for b in (bucket(mean[k_med + 1]), bucket(mean[k_med - 1])) if b != first]
+    second = others[0] if others else (first + 1 if first < cm.BUCKETS - 1 else first - 1)
+    return first, second
+
+
+def place_bets(c, market, rid, agents_q):
     bets = []
-    for key, bucket in zip(BETTOR_KEYS, ranked[:2], strict=True):
+    for key, bucket in zip(BETTOR_KEYS, bet_buckets(agents_q), strict=True):
         who = address_of(key)
         c.send(key, WETH, "deposit()", "--value", BET_WEI)
         c.send(key, WETH, "approve(address,uint256)", market, BET_WEI)
@@ -672,7 +724,7 @@ def tamper_check(c, agent, verifier, market, rid, sub):
     """The verifier accepts the revealed proof and rejects it once one output is changed."""
     work = AGENTS_OUT / "rounds" / f"{market.lower()}-{rid}" / agent.name
     proof = json.loads((work / "proof.json").read_text())["hex_proof"]
-    inst = [cm.encode(v) for v in sub["features"]] + list(sub["outputs"])
+    inst = [cm.encode(v) for v in sub["features"]] + [cm.encode(v) for v in sub["outputs"]]
     tampered = inst[:-1] + [inst[-1] + 1]
 
     def verify(instances):
@@ -741,12 +793,13 @@ def claims(c, market, rid, bets, outcome):
     return paid
 
 
-def claim_predictor_rewards(c, market, rid, agents, scores, base):
-    """Every forecaster above the uniform baseline pulls its share of the predictor pool."""
+def claim_predictor_rewards(c, market, rid, agents, excess):
+    """Every forecaster with a lower pinball loss than the baseline pulls its share of the
+    predictor pool."""
     pool = as_int(c.call(market, "predictorPool(uint256)(uint256)", rid)[0])
     paid = {}
     for a in agents:
-        if pool == 0 or scores[a.name] is None or scores[a.name] <= base:
+        if pool == 0 or not excess[a.name]:
             paid[a.name] = "0"
             continue
         before = balance(c, WETH, a.address)
@@ -787,8 +840,8 @@ class Replay:
     def open_round(self, h, g, real_feats):
         """createRound at grid time g, mined with the grid's swap; returns the batch tx."""
         start = self.round_start(h)
-        data = calldata("createRound(uint64,uint256[])", start,
-                        "[" + ",".join(map(str, BOUNDS)) + "]")
+        data = calldata("createRound(uint64,uint256[],int256[])", start, int_list(BOUNDS),
+                        int_list(self.baseline_q))
         self.rounds[h] = {"h": h, "start": start, "created_at": g, "id": h,
                           "features_real": real_feats}
         return {"from": address_of(self.owner), "to": self.market, "data": data,
@@ -817,12 +870,11 @@ class Replay:
         reveal_gas = {}
         for a in entered:
             reveal_gas[a.name] = int(a.reveal(c, self.market, rid)["gasUsed"], 0)
-        probs, probs_e18 = {}, {}
+        q_e18 = {}
         for a in entered:
             p = c.call(self.market, PREDICTION_SIG, rid, a.address)
-            probs_e18[a.name] = [str(as_int(v)) for v in p[2]]
-            probs[a.name] = [as_int(v) / 1e18 for v in p[2]]
-        rec["bets"] = place_bets(c, self.market, rid, list(probs.values()))
+            q_e18[a.name] = [as_int(v) for v in p[2]]
+        rec["bets"] = place_bets(c, self.market, rid, list(q_e18.values()))
         if c.latest_ts() >= start:
             raise RuntimeError(f"round {rid}: entering ran past the round start")
         if not self.tamper:
@@ -832,10 +884,14 @@ class Replay:
         for a in self.agents:
             if a.name not in subs:
                 rec["agents"][a.name] = {"entered": False, "skip_reason": "API failed",
-                                         "probs": None, "probs_e18": None}
+                                         "quantiles": None, "quantiles_e18": None,
+                                         "outputs": None}
                 continue
             sub = subs[a.name]
-            row = {"entered": True, "probs": probs[a.name], "probs_e18": probs_e18[a.name],
+            q = q_e18[a.name]
+            row = {"entered": True, "quantiles": [v / WAD for v in q],
+                   "quantiles_e18": [str(v) for v in q],
+                   "outputs": [v // OUTPUT_UNIT_E18 for v in q],
                    "prove_seconds": prove[a.name], "proof_cached": cached[a.name],
                    "reveal_gas": reveal_gas[a.name],
                    "forecast_source": forecast_source(a, sub)}
@@ -858,12 +914,15 @@ class Replay:
         if not start - REVEAL_LEAD <= ts < start:
             raise RuntimeError(f"round {rid}: fee recorded at {ts}, outside the quote window")
         data = logs_with(receipt, self.fee_consumer, FEE_RECORDED_SIG)[0]["data"][2:]
-        words = [int(data[64 * i:64 * (i + 1)], 16) for i in range(7)]
-        on_fee, on_ev, on_mix = words[0], words[1], words[2:]
-        mirror = fs.mirror_quote(self.fee_inputs(rid, block), self.baseline,
-                                 self.registry_at(block) != ZERO_ADDRESS, fee["bucket_var"],
+        words = [int(data[64 * i:64 * (i + 1)], 16) for i in range(len(data) // 64)]
+        # (uint24 fee, uint256 expectedVarE18, int256[] mix): head words, then length and items
+        on_fee, on_ev, n_mix = words[0], words[1], words[3]
+        on_mix = [int256(f"{w:064x}") for w in words[4:4 + n_mix]]
+        mirror = fs.mirror_quote(self.fee_inputs(rid, block), int(fee["baseline_score_e18"]),
+                                 self.registry_at(block) != ZERO_ADDRESS, LEVELS_E18,
                                  int(fee["fee_per_var_e18"]), MIN_FEE_PIPS, MAX_FEE_PIPS)
-        matches = (mirror["fee_pips"], mirror["mix_e18"], mirror["expected_var_e18"]) == (
+        mirror_mix = mirror.get("mix_quantiles_e18", mirror.get("mix_e18"))
+        matches = (mirror["fee_pips"], list(mirror_mix), mirror["expected_var_e18"]) == (
             on_fee, on_mix, on_ev)
         if not matches:
             log(f"round {rid}: fee mirror {mirror} differs from on-chain {words}")
@@ -872,11 +931,11 @@ class Replay:
         prev_rv = cm.realized_vol(prev_ticks)
         fpv = int(fee["fee_per_var_e18"])
         rec["fee"] = {
-            "onchain": {"fee_pips": on_fee, "mix_e18": [str(v) for v in on_mix],
+            "onchain": {"fee_pips": on_fee, "mix_quantiles_e18": [str(v) for v in on_mix],
                         "expected_var_e18": str(on_ev), "tx": receipt["transactionHash"],
                         "block": block, "timestamp": ts},
             "mirror": {"fee_pips": mirror["fee_pips"],
-                       "mix_e18": [str(v) for v in mirror["mix_e18"]],
+                       "mix_quantiles_e18": [str(v) for v in mirror_mix],
                        "expected_var_e18": str(mirror["expected_var_e18"]),
                        "weights": [str(w) for w in mirror["weights"]],
                        "equal_weight_fallback": mirror["equal_weight_fallback"]},
@@ -904,7 +963,7 @@ class Replay:
             p = c.call_at(block, m, PREDICTION_SIG, rid, who)
             if not truthy(p[0]):
                 continue
-            out.append({"probs": [as_int(v) for v in p[2]],
+            out.append({"quantiles": [as_int(v) for v in p[2]],
                         "reputation": self.model_reputation(block, as_int(p[1]), registry)})
         return out
 
@@ -938,23 +997,40 @@ class Replay:
                             "volume_token1": str(market_hour["volume_token1"]),
                             "volume_token": "WETH wei"}})
         price = chainlink_check(c, self.market, outcome["settle_block"], settle_ts)
-        preds = {a.name: c.call(self.market, PREDICTION_SIG, rid, a.address) for a in self.agents}
-        scores = {n: as_int(p[3]) if truthy(p[0]) and not outcome["voided"] else None
-                  for n, p in preds.items()}
+        voided = outcome["voided"]
+        ln_rv, base_loss, base_q = c.call(self.market, SCORING_SIG, rid)
+        ln_rv, base_loss = as_int(ln_rv), as_int(base_loss)
+        base_q = [as_int(v) for v in base_q]
+        if base_q != self.baseline_q:
+            raise RuntimeError(f"round {rid}: onchain baseline {base_q} != {self.baseline_q}")
+        scored, excess = {}, {}
+        for a in self.agents:
+            p = c.call(self.market, PREDICTION_SIG, rid, a.address)
+            loss, exc = (as_int(v) for v in c.call(self.market, LOSS_SIG, rid, a.address))
+            ok = truthy(p[0]) and not voided
+            scored[a.name] = (as_int(p[3]), loss, exc) if ok else None
+            excess[a.name] = exc if ok else 0
         paid = claims(c, self.market, rid, rec["bets"], outcome)
-        pred_pool, rewards = claim_predictor_rewards(c, self.market, rid, self.agents, scores,
-                                                     self.baseline)
+        pred_pool, rewards = claim_predictor_rewards(c, self.market, rid, self.agents, excess)
         fee, owner_got = collect_fee(c, self.owner, self.market, rid, outcome, pred_pool)
         win = outcome["winning_bucket"]
+        lo50, hi50 = level_index(25 * 10**16), level_index(75 * 10**16)
         for a in self.agents:
             row = rec["agents"][a.name]
-            s = scores[a.name]
-            row.update({"p_win": None if outcome["voided"] or row["probs"] is None
-                        else row["probs"][win],
-                        "log_score": None if s is None else str(s),
-                        "log_score_float": None if s is None else s / 1e18,
-                        "beat_baseline": s is not None and s > self.baseline,
-                        "predictor_reward_wei": rewards[a.name]})
+            sc = scored[a.name]
+            q = [int(v) for v in row["quantiles_e18"]] if row["quantiles_e18"] else None
+            row.update({
+                "score_e18": None if sc is None else str(sc[0]),
+                "pinball_loss_e18": None if sc is None else str(sc[1]),
+                "pinball_loss": None if sc is None else sc[1] / WAD,
+                "excess_e18": None if sc is None else str(sc[2]),
+                # Signed L_baseline - L for display; the onchain excess (payout weight) is >= 0.
+                "excess": None if sc is None else (base_loss - sc[1]) / WAD,
+                "beat_baseline": sc is not None and sc[2] > 0,
+                "covered50": None if sc is None or lo50 is None
+                else q[lo50] <= ln_rv <= q[hi50],
+                "covered80": None if sc is None else q[0] <= ln_rv <= q[-1],
+                "predictor_reward_wei": rewards[a.name]})
         rec.update({
             "end": rec["start"] + cm.N_SEGMENTS * cm.DELTA,
             "window_utc": [utc(rec["start"]), utc(rec["start"] + cm.N_SEGMENTS * cm.DELTA)],
@@ -962,6 +1038,13 @@ class Replay:
             "real_segment_ticks": real_window_ticks, "real_realized_vol": real_rv,
             "real_bucket": cm.bucket_of(real_rv, BOUNDS),
             "rv_matches_mainnet": outcome["voided"] or outcome["realized_vol"] == real_rv,
+            "ln_rv": None if voided else ln_rv / WAD,
+            "ln_rv_e18": None if voided else str(ln_rv),
+            "ln_rv_matches_mirror": voided or ln_rv == cm.ln_rv_e18(outcome["realized_vol"]),
+            "baseline_quantiles": [v / WAD for v in base_q],
+            "baseline_quantiles_e18": [str(v) for v in base_q],
+            "baseline_loss": None if voided else base_loss / WAD,
+            "baseline_loss_e18": None if voided else str(base_loss),
             "outcome": outcome, "chainlink": price, "bets": paid,
             "fee_split": {"fee_wei": str(fee), "owner_wei": str(owner_got),
                           "predictors_wei": str(pred_pool)},
@@ -969,12 +1052,19 @@ class Replay:
         rec.pop("features_real")
         status = f"VOID ({outcome['void_reason']})" if outcome["voided"] else (
             f"RV {outcome['realized_vol']} (mainnet {real_rv}) bucket {win}")
-        best = ", ".join(f"{n.removeprefix('agent-')} {r['log_score_float']:.3f}"
-                         for n, r in rec["agents"].items() if r["log_score_float"] is not None)
+        best = ", ".join(f"{n.removeprefix('agent-')} L {r['pinball_loss']:.3f}"
+                         for n, r in rec["agents"].items() if r["pinball_loss"] is not None)
+        if not voided:
+            best = f"ln RV {ln_rv / WAD:.3f}, baseline L {base_loss / WAD:.3f}; {best}"
         f = rec["fee"]
         log(f"round {rid} {utc(rec['start'])}: {status}; feed age {price['feed_age_s']} s, "
             f"dev {price['deviation_bps']} bps; {best}; fee bps fair {f['fair_bps']:.3f} "
             f"forecast {f['forecast_bps']} prev-hour {f['prev_hour_bps']}")
+
+
+def base_covered(r, lo, hi):
+    q = [int(v) for v in r["baseline_quantiles_e18"]]
+    return q[lo] <= int(r["ln_rv_e18"]) <= q[hi]
 
 
 def summarize(rounds, agents, final_rep):
@@ -987,12 +1077,22 @@ def summarize(rounds, agents, final_rep):
     for r in settled:
         counts[r["outcome"]["winning_bucket"]] += 1
     out = {}
+
+    def mean(xs, nd=6):
+        return round(sum(xs) / len(xs), nd) if xs else None
+
     for a in agents:
-        s = [r["agents"][a.name]["log_score_float"] for r in settled
-             if r["agents"][a.name]["log_score_float"] is not None]
+        rows = [r["agents"][a.name] for r in settled
+                if r["agents"][a.name].get("pinball_loss") is not None]
+        loss = [x["pinball_loss"] for x in rows]
+        exc = [x["excess"] for x in rows]
         out[a.name] = {
-            "rounds_scored": len(s), "total_log_score": round(sum(s), 4),
-            "mean_log_score": round(sum(s) / len(s), 4) if s else None,
+            "rounds_scored": len(rows),
+            "mean_pinball_loss": mean(loss), "mean_excess": mean(exc),
+            "total_excess": round(sum(exc), 6),
+            "coverage50": mean([float(x["covered50"]) for x in rows if x["covered50"] is not None],
+                               4),
+            "coverage80": mean([float(x["covered80"]) for x in rows], 4),
             "beat_baseline_rounds": sum(r["agents"][a.name]["beat_baseline"] for r in settled),
             "rounds_sat_out": sum(r["agents"][a.name]["entered"] is False for r in rounds),
             "reproduced_rounds": (sum(r["agents"][a.name].get("reproduced") is True for r in rounds)
@@ -1004,7 +1104,9 @@ def summarize(rounds, agents, final_rep):
         }
     return {"rounds": len(rounds), "settled": len(settled), "voided": len(rounds) - len(settled),
             "void_reasons": reasons, "bucket_counts": counts,
-            "uniform_total_log_score": round(len(settled) * math.log(1 / cm.BUCKETS), 4),
+            "baseline_mean_pinball_loss": mean([r["baseline_loss"] for r in settled]),
+            "baseline_coverage50": mean([float(base_covered(r, 1, -2)) for r in settled], 4),
+            "baseline_coverage80": mean([float(base_covered(r, 0, -1)) for r in settled], 4),
             "features_match_mainnet": all(r["features_match_mainnet"] for r in rounds),
             "rv_matches_mainnet": all(r["rv_matches_mainnet"] for r in rounds),
             "agents": out,
@@ -1055,14 +1157,16 @@ def main():
     reports = feed_reports(mainnet, aggregator, fork_block + 1, last_block)
     log(f"forking mainnet at block {fork_block} ({utc(mainnet.ts(fork_block))}); "
         f"{len(reports)} Chainlink reports to replay")
-    fee = calibrate_fee(mainnet, start)
+    baseline = load_baseline()
+    fee = calibrate_fee(mainnet, start, baseline)
 
     owner = DEV_KEYS[0]
     with ForkAnvil(rpc_url, fork_block, cache=not live) as c:
         fork_ts = c.latest_ts()
         market, agents, agent_ids, verifiers = deploy(
             c, owner, api_agents=api_agents,
-            proof_cache=AGENTS_OUT / "proof-cache" if live else None)
+            proof_cache=None if os.environ.get("VOL_PROOF_CACHE") == "0"
+            else AGENTS_OUT / "proof-cache")
         fee_consumer = deploy_fee_consumer(c, owner, market, fee)
         log(f"VolFeeConsumer {fee_consumer}")
         fund_trader(c)
@@ -1070,7 +1174,10 @@ def main():
         rp = Replay(c, mainnet, owner, start, hours)
         rp.market, rp.agents, rp.verifiers = market, agents, verifiers
         rp.fee_consumer, rp.fee, rp.ticks, rp.grid_origin = fee_consumer, fee, ticks, warm
-        rp.baseline = as_int(c.call(market, "baselineLogScore()(int256)")[0])
+        rp.baseline_q = baseline["quantiles_e18"]
+        levels = [as_int(v) for v in c.call(market, "quantileLevels()(uint256[])")[0]]
+        if levels != LEVELS_E18:
+            raise RuntimeError(f"market quantile levels {levels} != {LEVELS_E18}")
         tick_now = pool_tick(c)
         log(f"deployed in {c.latest_ts() - fork_ts} s of chain time; replay grid starts "
             f"{utc(warm)}")
@@ -1136,7 +1243,7 @@ def main():
             utc(pending["start"]), utc(pending["start"] + hour)]})
     rounds = [rp.rounds[h] for h in sorted(rp.rounds)]
     result = {
-        "schema": "vol-replay/v1",
+        "schema": "vol-replay/v2",
         "network": "anvil fork of Ethereum mainnet", "fork_block": fork_block,
         "fork_timestamp": fork_ts, "generated_at": int(time.time()),
         "elapsed_s": round(time.time() - t_wall),
@@ -1153,8 +1260,17 @@ def main():
                    "fee_bps": FEE_BPS, "predictor_share_bps": PREDICTOR_SHARE_BPS,
                    "commit_lead_s": COMMIT_LEAD, "reveal_lead_s": REVEAL_LEAD,
                    "round_lead_s": ROUND_LEAD_S, "bet_wei": str(BET_WEI),
-                   "baseline_log_score": str(rp.baseline),
-                   "baseline_log_score_float": rp.baseline / 1e18, "fee_consumer": fee},
+                   "quantile_levels": [v / WAD for v in LEVELS_E18],
+                   "quantile_levels_e18": [str(v) for v in LEVELS_E18],
+                   "output_scale_bits": cm.OUTPUT_SCALE_BITS,
+                   "target": "y = ln(max(RV, 1)), RV in tick^2; natural log",
+                   "baseline": {"kind": "climatological quantiles of y, training period",
+                                "quantiles_e18": [str(v) for v in baseline["quantiles_e18"]],
+                                "train_mean_loss_e18": str(baseline["mean_loss_e18"]),
+                                "test_mean_loss_e18": None if baseline["test_mean_loss_e18"]
+                                is None else str(baseline["test_mean_loss_e18"]),
+                                "until": baseline["until"], "source": baseline["source"]},
+                   "fee_consumer": fee},
         "agents": [{"agent": a.name,
                     "model": a.config.model if isinstance(a, ApiAgent) else a.model,
                     "model_type": a.kind, "tier": tiers[a.name], "model_hash": hashes[a.name],
@@ -1198,13 +1314,17 @@ def print_summary(r, out):
           f"{s['void_reasons']}; "
           f"features match mainnet {s['features_match_mainnet']}, RV matches mainnet "
           f"{s['rv_matches_mainnet']}; winning buckets {s['bucket_counts']}")
-    print(f"{'agent':<20}{'rounds':>7}{'total ln p':>12}{'mean':>9}{'>base':>7}{'reward WETH':>13}"
-          f"  ERC-8004 count")
-    print(f"{'uniform baseline':<20}{s['settled']:>7}{s['uniform_total_log_score']:>12.3f}"
-          f"{math.log(0.2):>9.3f}")
+    def f3(v):
+        return "-" if v is None else f"{v:.3f}"
+
+    print(f"{'agent':<24}{'rounds':>7}{'mean L':>9}{'excess':>9}{'cov50':>7}{'cov80':>7}"
+          f"{'>base':>7}{'reward WETH':>13}  ERC-8004 count")
+    print(f"{'climatological baseline':<24}{s['settled']:>7}"
+          f"{f3(s['baseline_mean_pinball_loss']):>9}{'0':>9}"
+          f"{f3(s['baseline_coverage50']):>7}{f3(s['baseline_coverage80']):>7}")
     for name, a in s["agents"].items():
-        mean = f"{a['mean_log_score']:.3f}" if a["mean_log_score"] is not None else "-"
-        print(f"{name:<20}{a['rounds_scored']:>7}{a['total_log_score']:>12.3f}{mean:>9}"
+        print(f"{name:<24}{a['rounds_scored']:>7}{f3(a['mean_pinball_loss']):>9}"
+              f"{f3(a['total_excess']):>9}{f3(a['coverage50']):>7}{f3(a['coverage80']):>7}"
               f"{a['beat_baseline_rounds']:>7}{int(a['predictor_reward_wei']) / 1e18:>13.6f}"
               f"  {a['erc8004']['count']} ({a['erc8004']['tag2']})")
     for name, a in s["agents"].items():
