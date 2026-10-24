@@ -186,11 +186,23 @@ tick 差分，下称 c16）；`swaps` 是链下 swap 缓存算出的 512 个 5 �
 再取 `y = ln(max(RV_path, 1))` 在 τ = [0.1, 0.25, 0.5, 0.75, 0.9] 上的经验分位数（numpy 线性插值）。
 **不做分位数相加**：相加会把水平低估约 42%，并得到 U 形分布。
 
-- **spread**（按模型，在验证期 10-08 至 10-15 的 165 个整点轮次上选定；当时的输出是分桶概率、按 log score
-  选，并固定混合 0.3）：timesfm-3.0 0.5、timestral-209m 0.5、chronos-2 0.35。改为分位数输出后沿用这些值，
-  没有按 pinball 损失在验证期上重选 `[待证据]`。原来与均匀分布混合的那一步只对分桶概率有意义，已去掉。
-- **校准跟着输入走**（`tsfm_forecast.calibration(model, source)`）：`onchain` 用上面的 spread；`swaps` 用
-  `history.LONG_CONTEXT_SPREAD`（同样在验证期上选）：timesfm-3.0 0.8、timestral-209m 0.8、chronos-2 0.8。
+- **spread**（按模型和输入，在验证期 10-08 至 10-15 的 165 个整点轮次上按 ln RV 分位数的平均 pinball 损失
+  重选，候选 {0.2 … 1.2}，每轮单独请求一次推理服务；测试期没有参与）。原来与均匀分布混合的那一步只对分桶
+  概率有意义，已去掉。验证期 pinball 损失（越低越好；训练期气候基线分位数在同一 165 轮上为 0.4102）：
+
+  | 模型 | 输入 | 旧 spread（分桶时选定） | 旧 spread 损失 | 新 spread | 新 spread 损失 |
+  |---|---|---|---|---|---|
+  | timesfm-3.0 | c16 | 0.5 | 0.4162 | **0.6** | 0.4012 |
+  | timestral-209m | c16 | 0.5 | 0.4092 | 0.5 | 0.4092 |
+  | timestral-209m | c512 | 0.8 | 0.3127 | 0.8 | 0.3127 |
+  | chronos-2 | c16 | 0.35 | 0.3772 | **0.4** | 0.3658 |
+  | chronos-2 | c512 | 0.8 | 0.3401 | **0.9** | 0.3355 |
+
+  c16 上 timesfm-3.0 与 timestral-209m 和气候基线基本持平（0.401 / 0.409 对 0.410），chronos-2 低 0.044；
+  c512 的 timestral-209m 与 chronos-2 比基线低 0.07–0.10。
+  这是选参所用的同一批轮次，不是样本外结果。
+- **校准跟着输入走**（`tsfm_forecast.calibration(model, source)`）：`onchain` 用 `tsfm_forecast.MODELS` 的
+  spread；`swaps` 用 `history.LONG_CONTEXT_SPREAD`（timesfm-3.0 0.8 沿用分桶时的值，它固定用 c16）。
   揭示记录里 `context_source` / `context_points` / `context_reason` 写明这一轮实际用的是哪种输入。
 
 以下测试期表格都是**改为分位数输出之前**的分桶 log score 结果，留作历史；分位数输出的测试期 pinball

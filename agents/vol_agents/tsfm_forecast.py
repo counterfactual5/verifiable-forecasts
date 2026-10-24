@@ -51,7 +51,8 @@ class TsfmModel:
     weights: str  # public weights "hf_repo@revision"; "" when closed
     license: str
     # Scale on the sampled differences (realized vol scales by spread^2): per-step quantiles from
-    # 16 points are far too wide. Chosen on the validation period 2026-10-08 .. 10-15.
+    # 16 points are far too wide. Chosen by mean pinball loss of the ln RV quantiles on the
+    # validation period 2026-10-08 .. 10-15 (165 hourly rounds, MODEL_CARD 6.2).
     spread: float
     # reproducible only where the public weights on CPU recompute the API's reveal within
     # RECOMPUTE_TOLERANCE_E18 on every checked round (MODEL_CARD 6.2)
@@ -67,11 +68,11 @@ class TsfmModel:
 
 MODELS = {m.model: m for m in (
     TsfmModel("timesfm-3.0", "google/timesfm-3.0-pytorch@43046b85ec22d584a13f8098c2ed39c889e129c2",
-              "TimesFM-NC-1.0", 0.5, REPRODUCIBLE, False),
+              "TimesFM-NC-1.0", 0.6, REPRODUCIBLE, False),
     TsfmModel("timestral-209m", "mistralai/Timestral-209M@9874d252ab0aae16f7f7c999f98f98d6ad7d8365",
               "Mistral-Modified-MIT", 0.5, REPRODUCIBLE, True),
     TsfmModel("chronos-2", "amazon/chronos-2@29ec3766d36d6f73f0696f85560a422f50e8498c",
-              "Apache-2.0", 0.35, REPRODUCIBLE, True),
+              "Apache-2.0", 0.4, REPRODUCIBLE, True),
     TsfmModel("remote-model", "", "Proprietary", 0.5, COMMIT_ONLY, True),
 )}
 DEFAULT_MODELS = ("timesfm-3.0", "timestral-209m", "chronos-2")

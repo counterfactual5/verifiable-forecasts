@@ -115,9 +115,9 @@ The agent draws 4000 independent samples per step (fixed seed; linear between qu
 exponential tails), scales them by a per-model spread, sums the squares into realized vol per
 path and takes the empirical quantiles (numpy linear) of `y = ln(max(RV_path, 1))` at the market's
 levels `[0.1, 0.25, 0.5, 0.75, 0.9]`. Request and post-processing live in
-`vol_agents/tsfm_forecast.py`; spreads were chosen on the validation period 2026-10-08 .. 10-15
-only, under the earlier bucket log score (`MODEL_CARD.md` 6.2), and are kept for the quantile
-output.
+`vol_agents/tsfm_forecast.py`; spreads were chosen by mean pinball loss on the validation period
+2026-10-08 .. 10-15 only (165 hourly rounds; table in `MODEL_CARD.md` 6.2): timesfm-3.0 0.6,
+timestral-209m 0.5 (512-point context 0.8), chronos-2 0.4 (512-point context 0.9).
 
 Context: `timestral-209m` and `chronos-2` send the long context of `history.round_context` (512
 differences, ~42.7 h, from `VOL_HISTORY_CACHE`, falling back to the 16 features when the cache is

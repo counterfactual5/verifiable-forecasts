@@ -37,11 +37,12 @@ DEFAULT_CONTEXT = 512  # ~42.7 h of 5-minute differences, the evaluated long con
 CACHE_ENV = "VOL_HISTORY_CACHE"
 CONTEXT_ENV = "VOL_HISTORY_CONTEXT"
 # Spread of the tsfm_forecast sampling post-process per model for the long context, chosen on the
-# validation period 2026-10-08 .. 10-15 with c512 only (MODEL_CARD 6.2); the 16-point spreads in
-# tsfm_forecast.MODELS do not transfer.
+# validation period 2026-10-08 .. 10-15 with c512 only (MODEL_CARD 6.2; timestral-209m and
+# chronos-2 by pinball loss of the ln RV quantiles, the others carried over from the bucket
+# output); the 16-point spreads in tsfm_forecast.MODELS do not transfer.
 LONG_CONTEXT_SPREAD = {
     "remote-model": 0.9,
-    "chronos-2": 0.8,
+    "chronos-2": 0.9,
     "remote-model-b": 0.8,
     "timesfm-3.0": 0.8,
     "timestral-209m": 0.8,

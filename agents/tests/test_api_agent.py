@@ -249,7 +249,7 @@ def test_three_model_agents_are_independent_with_honest_tiers(server):
 
 
 def test_calibration_follows_the_context_source():
-    assert sf.calibration("chronos-2") == 0.35
+    assert sf.calibration("chronos-2") == 0.4
     assert sf.calibration("chronos-2", sf.SWAPS) == history.LONG_CONTEXT_SPREAD["chronos-2"]
     assert sf.calibration("unknown-model", sf.SWAPS) == sf.DEFAULT_LONG_SPREAD
 
