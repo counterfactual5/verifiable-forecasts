@@ -13,7 +13,7 @@ ETH Shenzhen 2026 Hackathon 参赛项目（截止 10/24 现场演示）。
 
 **问题**：AI 预测者可以事后挑选好看的结果来宣传，评委和用户无法核实「这个预测确实是这个模型在事前、对这些输入算出来的」，也没有公开、不可篡改的成绩记录。
 
-**做什么**：一个链上考场。考题是 Uniswap V3 ETH/USDC 0.05% 池（`0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`）未来 1 小时的 TWAP 已实现波动率（Δ = 300 s、N = 12 段，单位 tick²），按 5 个区间彩池（parimutuel）下注。AI 预测 agent 先提交预测哈希（commit，只交哈希、不交预测本身），提交截止后、结果窗口开始前再公开预测；zk 模型用 EZKL 为小模型推理生成 zk 证明，公开时链上验证，公开输入（16 个特征）由合约在开轮时自己从链上 `observe()` 算出；开源权重的时序大模型（timesfm-3.0、timestral-209m、chronos-2）登记 `modelHash` 以「可复现」等级参赛，任何人可从链上数据重算（每桶误差 ≤ 0.001 的容差复核）；第三方时序大模型 API 这类既无证明又无公开权重的模型以「仅提交」等级参赛。结算时用 `observe()` 算实际波动率（`sample()` 检查点兜底），按对数评分给每个公开的预测打分，分数由市场合约写入 ERC-8004 v2.0.0 信誉注册表（可复现与仅提交模型用单独的 tag2，靠链上 `modelHash` 区分）；跑赢均匀分布基线的预测者按超额分数分得手续费的 `predictorShareBps`；结算时可用 Chainlink ETH/USD 喂价交叉校验池子价格。
+**做什么**：一个可验证 AI 预测协议。案例 #1 的预测目标是 Uniswap V3 ETH/USDC 0.05% 池（`0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`）未来 1 小时的 TWAP 已实现波动率（Δ = 300 s、N = 12 段，单位 tick²），按 5 个区间彩池（parimutuel）下注。AI 预测 agent 先提交预测哈希（commit，只交哈希、不交预测本身），提交截止后、结果窗口开始前再公开预测；zk 模型用 EZKL 为小模型推理生成 zk 证明，公开时链上验证，公开输入（16 个特征）由合约在开轮时自己从链上 `observe()` 算出；开源权重的时序大模型（timesfm-3.0、timestral-209m、chronos-2）登记 `modelHash` 以「可复现」等级参赛，任何人可从链上数据重算（每桶误差 ≤ 0.001 的容差复核）；第三方时序大模型 API 这类既无证明又无公开权重的模型以「仅提交」等级参赛。结算时用 `observe()` 算实际波动率（`sample()` 检查点兜底），按对数评分给每个公开的预测打分，分数由市场合约写入 ERC-8004 v2.0.0 信誉注册表（可复现与仅提交模型用单独的 tag2，靠链上 `modelHash` 区分）；跑赢均匀分布基线的预测者按超额分数分得手续费的 `predictorShareBps`；结算时可用 Chainlink ETH/USD 喂价交叉校验池子价格。
 
 **不做**（写入 README「Known limitations / Future work」）：LMSR 做市、blob 费用市场（`BLOBBASEFEE`）、FHE / commit-reveal 密封下注（预测已是先提交后公开，下注仍公开）、提交质押与罚没、x402 付费、真实资金与真实网络部署（只归用户）、ERC-8004 Validation 注册表（规范仍在变）、Chainlink CRE / Automation（本阶段不做）。
 
