@@ -40,9 +40,7 @@ CONTEXT_ENV = "VOL_HISTORY_CONTEXT"
 # chosen on the validation period 2026-10-08 .. 10-15 with c512 only (MODEL_CARD 6.2); the
 # 16-point spreads in tsfm_forecast.MODELS do not transfer.
 LONG_CONTEXT_CALIBRATION = {
-    "remote-model": (0.9, 0.3),
     "chronos-2": (0.8, 0.3),
-    "remote-model-b": (0.8, 0.3),
     "timesfm-3.0": (0.8, 0.3),
     "timestral-209m": (0.8, 0.2),
 }

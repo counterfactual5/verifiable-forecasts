@@ -79,7 +79,6 @@ MODELS = {m.model: m for m in (
               "Mistral-Modified-MIT", 0.5, REPRODUCIBLE, True),
     TsfmModel("chronos-2", "amazon/chronos-2@29ec3766d36d6f73f0696f85560a422f50e8498c",
               "Apache-2.0", 0.35, REPRODUCIBLE, True),
-    TsfmModel("remote-model", "", "Proprietary", 0.5, COMMIT_ONLY, True),
 )}
 DEFAULT_MODELS = ("timesfm-3.0", "timestral-209m", "chronos-2")
 

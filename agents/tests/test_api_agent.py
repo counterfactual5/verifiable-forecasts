@@ -146,7 +146,7 @@ def test_config_from_env():
     cfg = api.ApiConfig.from_env({"VOL_TSFM_API_URL": "http://x/y", "VOL_TSFM_API_KEY": "k",
                                   "VOL_TSFM_TIMEOUT_S": "5"})
     assert cfg == api.ApiConfig(url="http://x/y", key="k", timeout_s=5.0)
-    assert cfg.schema == api.TSFM and cfg.model == "remote-model"
+    assert cfg.schema == api.TSFM and cfg.model == "timesfm-3.0"
     cfg = api.ApiConfig.from_env({"VOL_TSFM_API_URL": "http://x/v1", "VOL_TSFM_MODEL": "chronos-2",
                                   "VOL_TSFM_API_SCHEMA": api.REQUEST_SCHEMA})
     assert cfg.model == "chronos-2" and cfg.schema == api.REQUEST_SCHEMA
@@ -236,14 +236,15 @@ def test_three_model_agents_are_independent_with_honest_tiers(server):
         assert h.startswith("0x") and len(h) == 66 and h == sf.model_hash(a.config.model)
     assert len({a.model_hash for a in agents}) == 3
     remote = api.tsfm_agents(cfg, keys[:1], ["remote-model"])[0]
-    assert remote.name == "agent-remote-model" and remote.tier == sf.COMMIT_ONLY and remote.model_hash is None
+    assert remote.name == "agent-remote-model" and remote.tier == sf.COMMIT_ONLY
+    assert remote.model_hash is None
     # one run, three forecasts, each request naming its own model
     for a in agents:
         a.api_probs(FEATURES, BOUNDS, INFO)
         assert server.requests[-1]["body"]["model"] == a.config.model
     assert api.models_from_env({}) == list(sf.DEFAULT_MODELS)
-    assert api.models_from_env({"VOL_TSFM_MODELS": " chronos-2 ,remote-model"}) == ["chronos-2",
-                                                                                "remote-model"]
+    assert api.models_from_env({"VOL_TSFM_MODELS": " chronos-2 ,remote-model"}) == [
+        "chronos-2", "remote-model"]
     with pytest.raises(ValueError):
         api.models_from_env({"VOL_TSFM_MODELS": "chronos-2,chronos-2"})
     with pytest.raises(ValueError):
@@ -310,7 +311,7 @@ def test_model_hash_binds_public_weights_parameters_and_code():
     assert len(long["inference"]["context"]["history_sha256"]) == 64
     assert long["postprocess"]["long_calibration"] == list(sf.calibration("chronos-2", sf.SWAPS))
     assert len(long["local_runner_sha256"]) == 64
-    for m in ("remote-model", "unknown-model"):
+    for m in ("unknown-model",):
         with pytest.raises(ValueError):
             sf.model_hash_preimage(m)
 
@@ -444,7 +445,8 @@ def test_commit_only_agent_round_and_predictor_share(server):
                           MAX_DEV_BPS, MAX_FEED_AGE)
         key = DEV_KEYS[1]
         agent = api.ApiAgent(name="agent-tsfm", key=key, address=address_of(key),
-                             config=api.ApiConfig(url=_url(server, "/v1"), key=SECRET))
+                             config=api.ApiConfig(url=_url(server, "/v1"), key=SECRET,
+                                                  model="remote-model"))
         c.send(owner, market, "registerModel(address,address)",
                "0x0000000000000000000000000000000000000000", agent.address)
         agent.model_id = 0

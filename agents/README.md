@@ -95,7 +95,7 @@ configured from the environment (see `.env.example`; never commit real values):
 | `VOL_TSFM_API_KEY` | optional; sent as `Authorization: Bearer <key>` |
 | `VOL_TSFM_API_KEY_HEADER` | optional; send the key raw under this header instead (e.g. `X-API-Key`) |
 | `VOL_TSFM_API_SCHEMA` | `tsfm-forecast` (default) or `vol-forecast-request/v1` (the generic schema below) |
-| `VOL_TSFM_MODEL` | model id of a single `ApiAgent` built from `ApiConfig.from_env()`, default `remote-model` |
+| `VOL_TSFM_MODEL` | model id of a single `ApiAgent` built from `ApiConfig.from_env()`, default `timesfm-3.0` |
 | `VOL_TSFM_MODELS` | comma-separated models for `api_agent.tsfm_agents` (one independent agent each), default `timesfm-3.0,timestral-209m,chronos-2` |
 | `VOL_TSFM_TIMEOUT_S` | request timeout, default 30 (120 recommended) |
 | `VOL_HISTORY_CACHE` | absolute path of the swap cache written by `analysis/src/fetch_swaps.py --tail` (with its `.coverage.json`); unset: every agent sends the 16 onchain features |
