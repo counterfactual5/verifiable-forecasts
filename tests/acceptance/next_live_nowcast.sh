@@ -27,7 +27,9 @@ d = json.load(open("dashboard/live-replay.json"))
 p = d["pending_round"]
 entered = [a for a in p["agents"].values() if a.get("entered")]
 sys.exit(0 if p["start"] == d["replay"]["end"] and p["end"] == p["start"] + 3600 and "outcome" not in p
-         and p["features_match_mainnet"] and entered and all(len(a["probs"]) == 5 for a in entered)
+         and p["features_match_mainnet"] and entered
+         and all(len(a["quantiles" if d["schema"] == "vol-replay/v2" else "probs"]) == 5 for a in entered)
+         and (d["schema"] != "vol-replay/v2" or all(b > a for e in entered for a, b in zip(e["quantiles"], e["quantiles"][1:])))
          and d["rounds"][-1]["end"] == p["start"] else 1)
 EOF
 else
