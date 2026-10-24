@@ -425,9 +425,19 @@
   .pipe li b .en { display: block; margin-top: 2px; font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
   .pipe .goto { margin-top: 8px; }
   .uses-lead { margin: 0 0 14px; max-width: 980px; }
-  .uses { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 12px; }
-  .uses li { padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--line-2); background: var(--panel-2); font-size: 13px; color: var(--muted); }
-  .uses h3 { margin: 0 0 6px; font: 700 15px/1.3 var(--display); color: var(--text); display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+  .uses { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px; }
+  .uses li { display: flex; flex-direction: column; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--line-2); background: var(--panel-2); font-size: 13px; color: var(--muted); }
+  .uses li.live { border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-top: 3px solid var(--accent); background: var(--panel); }
+  .uses h3 { margin: 0 0 8px; font: 700 15px/1.3 var(--display); color: var(--text); }
+  .uses h3 .n { color: var(--vermil); margin-right: 4px; }
+  .uses dl { margin: 0 0 10px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 10px; }
+  .uses dt { font-size: 12px; color: var(--faint); white-space: nowrap; }
+  .uses dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+  .uses dd.why { color: var(--accent); font-weight: 600; }
+  .uses .st { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+  .uses .st .badge { white-space: normal; }
+  .uses-key { margin: 14px 0 0; color: var(--text); font-weight: 600; }
+  .uses-more { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
   .badge.scope { background: #e3e8fa; color: var(--accent); font-weight: 600; flex-wrap: wrap; row-gap: 0; max-width: 100%; border-radius: 8px; }
   /* ---------- protocol hero + case #1 ---------- */
   .flowline { display: flex; flex-wrap: wrap; gap: 4px 0; max-width: 1180px; }
@@ -856,7 +866,7 @@ function liveBadge(d) {
     return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新&nbsp;${when.replace(/\s+/g, "&nbsp;")}（${Math.floor(age / 3600)}&nbsp;小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
   }
   const next = d.next_run_at ? ` · 下一轮约&nbsp;${hm(d.next_run_at)}` : "";
-  return `<span class="badge live" id="live-badge">实时 · 每小时更新 · 最近更新&nbsp;${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
+  return `<span class="badge live" id="live-badge" title="每小时在本地主网分叉上模拟提交与结算；分叉上的提交时间是模拟的，不能证明现实中的事前性。">实时 · 每小时更新 · 分叉模拟 · 最近更新&nbsp;${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>fork-simulated hourly</span></span> `;
 }
 function scopeBadge(d) {
   if (d.live === true) return liveBadge(d);
@@ -965,9 +975,9 @@ function nowcastHtml(d, agents, tierOf) {
       <div class="sub mono">${attr(a.model ?? "")}</div></td><td>${TIER_ZH[tier] ?? tier}</td><td class="num">${range}</td></tr>`;
   }).join("");
   return `<section class="nowcast" id="nowcast" aria-labelledby="nc-title"><div class="flow-head"><span class="eyebrow">live nowcast · 实时预测</span>
-    <h3 id="nc-title">实时预测 · 当前小时 ${hour} <span class="badge warn">待结算</span>
+    <h3 id="nc-title">实时预测 · 当前小时 ${hour} <span class="badge warn">待结算 · 分叉模拟</span>
       <span class="nc-cd">距本小时结束 <b class="cd" id="nowcast-cd" data-end="${pr.end}"></b></span></h3></div>
-    <div class="sub">上次更新 ${hm(d.generated_at)} · 运行于服务器，每小时自动更新；这一小时结束后，下一次运行把它当作已结束小时重放并结算。</div>
+    <div class="sub">上次更新 ${hm(d.generated_at)} · 运行于服务器，每小时自动更新；提交发生在本地主网分叉上，时间是模拟的，不证明现实中的事前性。这一小时结束后，下一次运行把它当作已结束小时重放并结算。</div>
     ${svg}
     <div class="sub nc-legend"><span class="nowrap">${swatch("#1b1a17")} 真实 RV · realized</span>
       ${agents.map((a) => `<span class="nowrap"><i style="background:${a.color}"></i>${a.agent.replace("agent-", "")}</span>`).join("")}</div>
@@ -1013,7 +1023,7 @@ function caseCard(d, live = d) {
       <rect x="${x(q[1]).toFixed(1)}" y="8" width="${(x(q[3]) - x(q[1])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".45"/>
       <line x1="${x(q[2]).toFixed(1)}" x2="${x(q[2]).toFixed(1)}" y1="4" y2="${H - 4}" stroke="var(--vermil)" stroke-width="3" stroke-linecap="round"/></svg>`;
     const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
-    snap = `<div class="cs-snap" id="case-snap"><span class="cs-k">实时 · 当前小时</span><b>${hour}</b><span class="badge warn">待结算</span>
+    snap = `<div class="cs-snap" id="case-snap"><span class="cs-k">实时 · 当前小时</span><b>${hour}</b><span class="badge warn" title="在本地主网分叉上模拟提交，不证明现实中的事前性">待结算 · 分叉模拟</span>
       <span class="nc-cd">剩 <b class="cd" data-end="${pr.end}"></b></span>
       <span><b>${entered.length}/${live.agents.length}</b> 已提交</span>
       <span class="cs-k">${m?.equal_weight_fallback ? "等权共识" : "声誉加权共识"}</span>
@@ -1495,6 +1505,10 @@ function playerBody(d) {
         <span class="mono ${s > u ? "up" : "down"}">${s > u ? "▲" : "▼"} ${(s - u >= 0 ? "+" : "") + (s - u).toFixed(3)}</span>`}</li>`;
     }).join("")}</ul>
     <p class="pl-src dim">settle gas ${o.gas_used?.toLocaleString() ?? "—"} · 区块 ${o.settle_block ?? "—"}（fork，无浏览器链接）</p>`;
+  const hk = r.hook;
+  const hookLine = !hk ? "" : `<p>Uniswap V4 hook 实际收取 <b>${(hk.effective_fee_pips / 100).toFixed(2)} bps</b>
+    （hook 报价 ${(hk.hook_fee_pips / 100).toFixed(2)} bps，${hk.recorded ? "取自本轮记录的推荐费率" : "本轮无记录 → 回退费率"}）
+    <span class="pl-src dim">fork 上的 VolFeeHook 动态费率池，开窗后一笔 ${hk.swap_usdc.toLocaleString()} USDC 试算 swap，按 LP 手续费增长计；gas ${hk.swap_gas.toLocaleString()}</span></p>`;
   const use = f?.forecast_bps == null ? `<p>这份回放没有记录消费方（动态手续费）数据。</p>` : (() => {
     const e = Math.abs(f.forecast_bps - f.fair_bps), ef = Math.abs(f.fixed_bps - f.fair_bps);
     const shares = f.mirror?.weights?.length !== d.agents.length ? "" : (STATE.model?.rounds[STATE.round]?.agents ?? [])
@@ -1503,7 +1517,7 @@ function playerBody(d) {
       <p>hindsight fair fee ${f.fair_bps.toFixed(2)} bps（参照，事前无法得到）· forecast 误差 <b>${e.toFixed(2)}</b> vs fixed ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
         ${e <= ef ? ok(`本轮优于 fixed ${f.fixed_bps} bps`) : mute(`本轮 fixed ${f.fixed_bps} bps 更近`)}</p>
       <p class="pl-src dim">${f.mirror?.equal_weight_fallback ? "声誉权重尚未形成 → 等权混合" : `声誉权重 ${shares || "—"}`}
-        <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>`;
+        <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>${hookLine}`;
   })();
   const stage = (k, n, zh, en, body) => `<li class="pl-stage" data-stage="${k}"><div class="pl-h"><span class="n">${n}</span>${zh}<span class="en">${en}</span></div><div class="pl-b">${body}</div></li>`;
   return `<ol class="pl-stages">
@@ -1872,7 +1886,8 @@ function pageHeads(d, live = d) {
   const p = live.pending_round, entered = p ? Object.values(p.agents).filter((a) => a.entered).length : 0;
   const mainTx = rp.chainlink_reports.filter((c) => c.mainnet_tx).length + rounds.filter((r) => r.mainnet?.last_swap_tx).length;
   return head("live", "这一小时，各 agent 怎么看？", p
-      ? `案例 #1 的当前小时：预测已在链上提交并公开，要等这一小时结束才结算。下方是滚动窗口：最近 ${live.replay.hours} 小时主网，每小时重新 fork 一次、整体更新。
+      ? `案例 #1 的当前小时：每小时在本地主网分叉上模拟提交与结算（nowcast）；分叉上的提交时间是模拟的，不能证明现实中的事前性。真正的事前证明需要在持久链上提前提交（下一步）。
+        下方是滚动窗口：最近 ${live.replay.hours} 小时主网，每小时重新 fork 一次、整体更新。
         每个 agent 的提供方、地址与验证细节见“预测者与信誉”。`
       : "这份数据不是实时模式：线上实时模式每小时重新 fork 主网，回放最近 24 小时，并为进行中的这一小时开一轮。下面是已结算各小时的押中程度。",
       p ? [stat(`${entered}/${live.agents.length}`, "agent 已提交"), stat(live.rounds.length, "小时已结算")] : [])
@@ -1881,7 +1896,7 @@ function pageHeads(d, live = d) {
     + head("agents", "预测者与信誉", "任何预测者都可以无许可参与：在 ERC-8004 注册身份，按三档之一证明预测的来历，得分由合约写进链上声誉。案例 #1 里是 6 个示例 agent。", [])
     + head("fee", "消费方示例 · AMM 动态手续费", fs
       ? `协议的输出要有人用。案例 #1 的消费方 VolFeeConsumer 按 ERC-8004 声誉加权各 agent 的预测，每小时开始前在链上算出推荐手续费。
-        Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；真正按它收费需要 Uniswap V4 动态手续费 hook（下一步）。`
+        Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；按它真正收费的是 Uniswap V4 动态手续费 hook VolFeeHook，${d.contracts?.v4_hook ? "本回放在 fork 上的 V4 池里逐轮实测（单轮回放的“使用”一步）" : "已有合约与 fork 测试，本回放未开启（V4_HOOK=1）"}，未部署到主网。`
       : "这份回放没有记录消费方（动态手续费）数据。", [])
     + head("chain", "每一步都能在链上查", `mainnet 行链接 Etherscan；fork 行发生在本地分叉上（fork 自主网区块 ${d.fork_block.toLocaleString()}）。`,
       [stat(mainTx, "条主网交易链接"), stat(Object.keys(d.contracts).length, "个合约地址")]);
@@ -1901,16 +1916,24 @@ function howCard() {
 }
 
 function usesCard() {
-  const use = (title, body) => `<li><h3>${title}<span class="badge commit">尚未实现</span></h3>${body}</li>`;
+  const idea = `<span class="badge commit">设想（未实现）</span>`;
+  const use = (n, title, what, how, why, status, cls = "") => `<li class="${cls}"><h3><span class="n">${n}</span>${title}</h3>
+    <dl><dt>预测什么</dt><dd>${what}</dd><dt>谁用、怎么用</dt><dd>${how}</dd><dt>说明什么</dt><dd class="why">${why}</dd></dl>
+    <div class="st">${status}</div></li>`;
   return `<section class="card wide" id="usecases"><h2>同一协议还能用在哪 · Other uses</h2>
-    <p class="sub uses-lead">换一个预测目标、结算数据源和消费方，“提交 → 证明 → 结算 → 信誉 → 使用”这条链不变。下面是可能的用法，都还没有做。
+    <p class="sub uses-lead">三个案例各代表一个方向：完整闭环、换消费方、换指标。
     目前合约只实现了案例 #1 这一种结算数据源：Uniswap V3 池的 <span class="mono">observe()</span>（VolMarket 开轮与结算时读取）。</p>
     <ul class="uses">
-      ${use("借贷协议", "按预测波动率调整抵押率与清算线：预期波动变大时提前收紧，变小时放宽。")}
-      ${use("期权与波动率金库", "用预测的波动率分布给期权定价，按预测区间调整金库卖出的行权价。")}
-      ${use("保险与协议国库", "按预测设定对冲比例与备付金规模，波动预期高时多留缓冲。")}
-      ${use("Uniswap V4 动态手续费 hook", "把案例 #1 中 VolFeeConsumer 算出的推荐费率真正用于收费；今天只计算、记录与对照，不改池子。")}
-    </ul></section>`;
+      ${use("①", "AMM 动态手续费", "ETH/USDC 下一小时波动率",
+        "VolFeeConsumer 按信誉加权算推荐费率；Uniswap V4 hook 按它实际收费", "完整闭环",
+        `<span class="badge ok">推荐费率已实现（分叉回放中上链）</span><span class="badge warn">V4 hook：分叉上已模拟收费（未部署主网、未审计）</span>`, "live")}
+      ${use("②", "借贷风险参数", "同一指标的高分位（如第 90 百分位），窗口改为 24 小时（窗口是部署参数）",
+        "下调新借款最高抵押率、加大清算缓冲、收紧借款上限；每次调整有上下限和步长", "同一份预测，换一个消费方", idea)}
+      ${use("③", "Rollup / paymaster 的 gas 报价", "下一小时 gas 价格（<span class=\"mono\">block.basefee</span>）",
+        "决定批量提交时机、给用户报 gas 价", "换一个指标也能用；数据源就是区块本身，不需要预言机", idea)}
+    </ul>
+    <p class="uses-key">换一个结算数据源和一个消费合约，同一套协议（提交 → 公开并证明 → 合约结算打分 → ERC-8004 信誉 → 按信誉加权使用）就能预测别的指标。</p>
+    <p class="uses-more">更多方向（尚未实现）：期权与波动率金库、保险与协议国库、永续资金费率、LP 区间管理。</p></section>`;
 }
 
 function tiersCard(agents, tierOf) {

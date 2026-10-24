@@ -35,8 +35,9 @@ Everything happens on the local fork: nothing is broadcast.
 
 Environment: MAINNET_RPC_URL (archive; default the public tenderly gateway), HOURS (default 24),
 REPLAY_START (unix seconds or ISO-8601 UTC, a full hour; default 2026-10-21T06:00:00Z, inside the
-models' test period), VOL_TSFM_* (inference service; see api_agent.py). Usage: bash demo/run.sh
-(writes demo/out/fork_replay.json)
+models' test period), VOL_TSFM_* (inference service; see api_agent.py), V4_HOOK=1 (each round's
+"hook": what a VolFeeHook v4 pool charged on one swap inside the window; see v4_hook.py).
+Usage: bash demo/run.sh (writes demo/out/fork_replay.json)
 
 An inference failure never stops the replay: a reproducible agent sits the round out (a stand-in
 forecast would not be the registered model's), a commit-only agent commits its local placeholder
@@ -64,6 +65,8 @@ import urllib.request
 from datetime import UTC, datetime
 from decimal import Decimal, getcontext
 from pathlib import Path
+
+import v4_hook  # demo/ is on sys.path as the script's directory
 
 from vol_agents import contract_math as cm
 from vol_agents import fee_strategies as fs
@@ -1176,6 +1179,11 @@ def main():
         fee_consumer = deploy_fee_consumer(c, owner, market, fee)
         log(f"VolFeeConsumer {fee_consumer}")
         fund_trader(c)
+        hook_pool = None
+        if os.environ.get("V4_HOOK") == "1":
+            hook_pool = v4_hook.HookPool(c, owner, fee_consumer, market, cm.N_SEGMENTS * cm.DELTA,
+                                         USDC, WETH, POOL, MIN_FEE_PIPS, MAX_FEE_PIPS)
+            log(f"VolFeeHook {hook_pool.hook} on v4 pool {hook_pool.pool_id}")
         feed = FeedReplay(c, reports)
         rp = Replay(c, mainnet, owner, start, hours)
         rp.market, rp.agents, rp.verifiers = market, agents, verifiers
@@ -1223,6 +1231,10 @@ def main():
                 rp.close(h_end, window, info, hour_market(mainnet, first, nxt, swaps))
             if opening:
                 rp.enter(h_open, feed)
+            if hook_pool:
+                for rec in rp.rounds.values():
+                    if rec["start"] == g:
+                        rec["hook"] = hook_pool.probe()
 
         tiers = {a.name: model_tier(c, market, a.model_id) for a in agents}
         hashes = {a.name: model_hash_of(c, market, a.model_id) for a in agents}
@@ -1261,7 +1273,8 @@ def main():
         "contracts": {"market": market, "pool": POOL, "chainlink_feed": FEED,
                       "chainlink_aggregator": aggregator, "erc8004_identity": IDENTITY,
                       "erc8004_reputation": REPUTATION, "settlement_token": WETH,
-                      "fee_consumer": fee_consumer},
+                      "fee_consumer": fee_consumer,
+                      **({"v4_hook": hook_pool.info()} if hook_pool else {})},
         "params": {"delta_s": cm.DELTA, "n_segments": cm.N_SEGMENTS, "bounds": list(BOUNDS),
                    "fee_bps": FEE_BPS, "predictor_share_bps": PREDICTOR_SHARE_BPS,
                    "commit_lead_s": COMMIT_LEAD, "reveal_lead_s": REVEAL_LEAD,

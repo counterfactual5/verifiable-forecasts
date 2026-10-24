@@ -2,7 +2,7 @@
 # Live nowcast acceptance: a live run also opens a round for the hour in progress (commit + reveal, no
 # settlement) and writes it as pending_round; #/live shows it on the first screen, inside #hero:
 # past realized vol next to each entered agent's median and 50% / 90% intervals read off its bucket
-# probabilities, "待结算" with a ticking countdown to the hour's end, when it was updated, a compact row per
+# probabilities, "待结算 · 分叉模拟" (commit times on the fork are simulated, not real-world ex-ante) with a ticking countdown to the hour's end, when it was updated, a compact row per
 # agent (tier, median / interval), plus the shared-operator disclaimer. Each agent's provider, address,
 # ERC-8004 agentId and modelHash live once, in the #/agents table.
 # A one-hot forecast fixes the interpolated quantiles, so the method is checked, not just drawn.
@@ -116,6 +116,8 @@ const fs = require("fs");
     if (width === 1440) check(r.top < 900, `@${width}: #nowcast starts on the first screen (top ${Math.round(r.top)}px)`);
     check(/实时预测/.test(r.text) && /待结算/.test(r.text), `@${width}: titled 实时预测 and marked 待结算`);
     check(/运行于服务器，每小时自动更新/.test(r.text) && /上次更新/.test(r.text), `@${width}: last update and "运行于服务器，每小时自动更新"`);
+    check(/待结算 · 分叉模拟/.test(r.text) && /不证明现实中的事前性/.test(r.text) && !/已在链上提交/.test(r.text),
+      `@${width}: pending hour marked 分叉模拟, says the fork commit does not prove real-world ex-ante`);
     check(r.text.includes("演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（无许可）。"), `@${width}: shared-operator disclaimer`);
     check(r.label.length > 20, `@${width}: chart is a named image`);
     check(JSON.stringify(r.bands.map((x) => x.agent).sort()) === JSON.stringify(entered.slice().sort()), `@${width}: one interval per entered agent (${r.bands.length}/${entered.length})`);
