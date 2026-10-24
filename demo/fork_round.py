@@ -52,6 +52,7 @@ agents/out/proof-cache, so each hourly run proves only the hour it has not seen.
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -74,6 +75,10 @@ REPO = Path(__file__).resolve().parent.parent
 RESULT = REPO / "demo" / "out" / "fork_replay.json"
 LIVE_RESULT = REPO / "dashboard" / "live-replay.json"
 LIVE_HOURS = 12
+# A copy of every live result, outside the served dashboard/ and kept by deploy/push.sh (demo/out/
+# is excluded from its rsync). About 125 KB a run: 720 hourly copies (30 days) stay under 100 MB.
+LIVE_ARCHIVE = REPO / "demo" / "out" / "live-archive"
+LIVE_ARCHIVE_KEEP = 720
 # A live run replays hours that ended at least this long ago, so mainnet has the blocks the
 # settlement and its Chainlink replay read (SETTLE_AFTER_S + 60 s past the hour, plus slack).
 LIVE_SETTLE_MARGIN_S = 180
@@ -161,6 +166,15 @@ def log(msg):
 
 def utc(t):
     return datetime.fromtimestamp(t, UTC).strftime("%Y-%m-%d %H:%M:%SZ")
+
+
+def archive_live(out, at, archive=LIVE_ARCHIVE, keep=LIVE_ARCHIVE_KEEP):
+    archive.mkdir(parents=True, exist_ok=True)
+    dst = archive / f"live-replay-{datetime.fromtimestamp(at, UTC):%Y%m%dT%H%MZ}.json"
+    shutil.copyfile(out, dst)
+    for old in sorted(archive.glob("live-replay-*.json"))[:-keep]:
+        old.unlink()
+    return dst
 
 
 def parse_start(v):
@@ -1168,6 +1182,8 @@ def main():
     tmp = out.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(result, indent=1) + "\n")
     tmp.replace(out)
+    if live:
+        log(f"archived {archive_live(out, result['generated_at']).relative_to(REPO)}")
     print_summary(result, out)
 
 
