@@ -4,6 +4,12 @@ test = "test"
 script = "script"
 out = "out"
 libs = ["lib"]
+# lib/v4-core: Uniswap v4-core v4.0.0 (e50237c), src + test/utils/CurrencySettler.sol only.
+# lib/v4-periphery: Uniswap v4-periphery 0c4e5bd, test/shared/HookMiner.sol (MIT) only.
+remappings = [
+    "@uniswap/v4-core/=lib/v4-core/",
+    "forge-std/=lib/forge-std/src/",
+]
 solc_version = "0.8.28"
 via_ir = false
 fs_permissions = [{ access = "read", path = "./test/fixtures" }]
