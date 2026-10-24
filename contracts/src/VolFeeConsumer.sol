@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IERC8004Reputation} from "./interfaces/IERC8004Reputation.sol";
+import {MarketMath} from "./lib/MarketMath.sol";
 
 /// @notice The VolMarket views VolFeeConsumer reads; VolMarket satisfies it as deployed.
 interface IVolMarketReader {
@@ -24,17 +25,18 @@ interface IVolMarketReader {
     function getPrediction(uint256 id, address who)
         external
         view
-        returns (bool recorded, uint256 modelId, uint256[5] memory probs, int256 logScore);
+        returns (bool recorded, uint256 modelId, int256[] memory quantiles, int256 score);
+    function quantileLevels() external view returns (uint256[] memory);
     function agentBound(uint256 modelId) external view returns (bool);
     function agentOfModel(uint256 modelId) external view returns (uint256);
     function isZkModel(uint256 modelId) external view returns (bool);
-    function baselineLogScore() external view returns (int256);
     function reputationRegistry() external view returns (address);
 }
 
 /// @title VolFeeConsumer
-/// @notice Sets an hourly AMM swap fee from a VolMarket round's revealed forecasts: the forecasts
-///         are mixed by their models' ERC-8004 reputation, and the mix's expected realized
+/// @notice Sets an hourly AMM swap fee from a VolMarket round's revealed forecasts: each forecast
+///         is K quantiles of y = ln RV; they are averaged level by level (Vincentization) with
+///         weights from their models' ERC-8004 pinball reputation, and the mix's expected realized
 ///         variance maps linearly to a fee clamped to [minFee, maxFee].
 /// @dev Simulation/demo only: the fee is computed and recorded here, no real pool fee changes.
 ///      A quote exists only between the reveal deadline (startTime - revealLead), when every
@@ -47,27 +49,26 @@ contract VolFeeConsumer {
     error NoForecasts();
     error AlreadyRecorded();
 
-    event FeeRecorded(uint256 indexed id, uint24 fee, uint256 expectedVarE18, uint256[5] mix);
+    event FeeRecorded(uint256 indexed id, uint24 fee, uint256 expectedVarE18, int256[] mix);
 
-    uint256 private constant BUCKETS = 5;
-    /// @dev Probability scale: forecast probs and the mix are fixed-point with 1e18 = 1, log scores
-    ///      and reputation means are 1e18-scaled too.
-    uint256 private constant PROB_SCALE = 1e18;
-    /// @dev expectedVarE18 carries PROB_SCALE and feePerVarE18 carries 1e18.
+    /// @dev 1e18 = 1.0 for quantile levels; quantiles, the mix, scores and reputation means are
+    ///      1e18-scaled ln units / scores.
+    uint256 private constant WAD = 1e18;
+    /// @dev expectedVarE18 carries 1e18 (tick^2 * 1e18) and feePerVarE18 carries 1e18.
     uint256 private constant VAR_FEE_SCALE = 1e36;
     /// @dev ERC-8004 summaries are compared in 18 decimals; a mainnet summary with more decimals
     ///      cannot be upscaled and counts as no reputation.
     uint8 private constant REPUTATION_DECIMALS = 18;
 
     IVolMarketReader public immutable market;
-    /// @dev ERC-8004 tags VolMarket writes log scores under: tag1 "logScore", tag2 per model
+    /// @dev ERC-8004 tags VolMarket writes scores under: tag1 "pinball", tag2 per model
     ///      "vol-<delta>s-<n>" for zk models and that plus "-commit" for commit-only ones.
     string public tag1;
     string public tag2Zk;
     string public tag2Commit;
-    /// @dev Representative realized variance of each bucket in tick^2, the unit of
-    ///      VolMarket.realizedVol; non-decreasing so the fee cannot fall as mass moves up.
-    uint256[5] public bucketVar;
+    /// @dev Score (-mean pinball loss, 1e18) of the climatological baseline quantiles over the
+    ///      training period: a model weighs its mean reputation score above this, 0 at or below.
+    int256 public immutable baselineScore;
     /// @dev Fee in pips (Uniswap v3 fee units, 1e-6; 500 = 5 bps) per tick^2 of expected variance,
     ///      1e18-scaled. Calibrated offline from LVR (Milionis et al. 2022): a CPMM loses
     ///      sigma^2 / 8 of pool value per unit time, with the virtual value 2 * L * sqrt(P) for
@@ -88,22 +89,20 @@ contract VolFeeConsumer {
         string memory tag1_,
         string memory tag2Zk_,
         string memory tag2Commit_,
-        uint256[5] memory bucketVar_,
+        int256 baselineScore_,
         uint256 feePerVarE18_,
         uint24 minFee_,
         uint24 maxFee_
     ) {
         if (address(market_) == address(0) || minFee_ > maxFee_) revert InvalidParams();
-        for (uint256 b = 1; b < BUCKETS; ++b) {
-            if (bucketVar_[b] < bucketVar_[b - 1]) revert InvalidParams();
-        }
-        // expectedVarE18 <= bucketVar[4] * PROB_SCALE must fit in uint256.
-        if (bucketVar_[BUCKETS - 1] > type(uint256).max / PROB_SCALE) revert InvalidParams();
+        // reputation means are int128 values: a baseline outside int128 makes every weight 0 or
+        // lets mean - baseline approach 2^255
+        if (baselineScore_ < type(int128).min || baselineScore_ > type(int128).max) revert InvalidParams();
         market = market_;
         tag1 = tag1_;
         tag2Zk = tag2Zk_;
         tag2Commit = tag2Commit_;
-        bucketVar = bucketVar_;
+        baselineScore = baselineScore_;
         feePerVarE18 = feePerVarE18_;
         minFee = minFee_;
         maxFee = maxFee_;
@@ -112,23 +111,22 @@ contract VolFeeConsumer {
     /// @notice Fee for round `id` from its revealed forecasts, valid from the reveal deadline
     ///         until startTime.
     /// @return fee in pips, clamped to [minFee, maxFee]
-    /// @return mix reputation-weighted forecast, 1e18-scaled, summing exactly to 1e18
-    /// @return expectedVarE18 sum_b mix[b] * bucketVar[b]: tick^2 scaled by 1e18
-    function quote(uint256 id) public view returns (uint24 fee, uint256[5] memory mix, uint256 expectedVarE18) {
+    /// @return mix reputation-weighted quantiles of ln RV, 1e18, one per market quantile level
+    /// @return expectedVarE18 E[RV] of the mix, tick^2 scaled by 1e18
+    function quote(uint256 id) public view returns (uint24 fee, int256[] memory mix, uint256 expectedVarE18) {
         (uint64 startTime,,,,,,,) = market.getRound(id);
         if (block.timestamp < startTime - market.revealLead()) revert TooEarly();
         if (block.timestamp >= startTime) revert TooLate();
-        mix = _mix(id);
-        for (uint256 b = 0; b < BUCKETS; ++b) {
-            expectedVarE18 += mix[b] * bucketVar[b];
-        }
+        uint256[] memory tau = market.quantileLevels();
+        mix = _mix(id, tau.length);
+        expectedVarE18 = _expectedVar(mix, tau);
         fee = _fee(expectedVarE18);
     }
 
     /// @notice Permissionless on-chain record of round `id`'s fee, once per round.
     function record(uint256 id) external returns (uint24 fee) {
         if (feeRecorded[id]) revert AlreadyRecorded();
-        uint256[5] memory mix;
+        int256[] memory mix;
         uint256 expectedVarE18;
         (fee, mix, expectedVarE18) = quote(id);
         feeRecorded[id] = true;
@@ -136,42 +134,61 @@ contract VolFeeConsumer {
         emit FeeRecorded(id, fee, expectedVarE18, mix);
     }
 
-    /// @dev mix[b] = sum_i w_i * p_i[b] / W rounded down; the last bucket takes the remainder so
-    ///      the mix sums exactly to PROB_SCALE, as VolMarket's revealed probs do.
-    function _mix(uint256 id) internal view returns (uint256[5] memory mix) {
-        (uint256[5][] memory probs, uint256[] memory weights, uint256 n, uint256 totalWeight) = _forecasts(id);
-        uint256 assigned;
-        for (uint256 b = 0; b < BUCKETS - 1; ++b) {
-            uint256 sum;
-            for (uint256 i = 0; i < n; ++i) {
-                sum += weights[i] * probs[i][b];
-            }
-            mix[b] = sum / totalWeight;
-            assigned += mix[b];
+    /// @dev E[RV] of the quantile function of RV = exp(y) by the midpoint rule over the levels:
+    ///      sum_k w_k * exp(mix_k) / sum_k w_k, w_k = tau_{k+1} - tau_{k-1} with tau_0 = 0 and
+    ///      tau_{K+1} = 1e18 (twice the midpoint weights; the factor cancels). Each mix_k is clamped
+    ///      to [Q_MIN, Q_MAX] first, so exp stays below ~1.2e44 and w_k * exp below 2^256 / 16.
+    function _expectedVar(int256[] memory mix, uint256[] memory tau) internal pure returns (uint256) {
+        uint256 n = tau.length;
+        uint256 weighted;
+        uint256 totalW;
+        for (uint256 k = 0; k < n; ++k) {
+            uint256 w = (k + 1 < n ? tau[k + 1] : WAD) - (k > 0 ? tau[k - 1] : 0);
+            int256 q = mix[k];
+            if (q < MarketMath.Q_MIN) q = MarketMath.Q_MIN;
+            if (q > MarketMath.Q_MAX) q = MarketMath.Q_MAX;
+            weighted += w * MarketMath.expWad(q);
+            totalW += w;
         }
-        mix[BUCKETS - 1] = PROB_SCALE - assigned;
+        return weighted / totalW;
     }
 
-    /// @dev Revealed forecasts and their weights; committed-only entries are skipped. A weight is the
-    ///      model's mean log score above the market's uniform baseline, 0 at or below it, as
-    ///      VolMarket._excess pays forecasters. Without a registry, when any revealed
-    ///      model has no reputation, or when every weight is 0, all revealed forecasts weigh the
-    ///      same. Equal weight is the simplest safe fallback, chosen over the market's own scoring
-    ///      history, and a partly rated round never silently drops its unrated forecasts.
-    function _forecasts(uint256 id)
+    /// @dev mix_k = sum_i w_i * q_ik / W, Solidity division (rounds toward zero). A weighted mean
+    ///      of increasing vectors is non-decreasing. Weights are < 2^129 (int128 means minus an
+    ///      int128 baseline) and market quantiles |q| <= 60e18 < 2^66, so each product is < 2^195
+    ///      and the sum over <= 32 forecasts stays far inside int256; anything larger reverts.
+    function _mix(uint256 id, uint256 k) internal view returns (int256[] memory mix) {
+        (int256[][] memory qs, uint256[] memory weights, uint256 n, uint256 totalWeight) = _forecasts(id, k);
+        mix = new int256[](k);
+        for (uint256 j = 0; j < k; ++j) {
+            int256 sum;
+            for (uint256 i = 0; i < n; ++i) {
+                sum += int256(weights[i]) * qs[i][j];
+            }
+            mix[j] = sum / int256(totalWeight);
+        }
+    }
+
+    /// @dev Revealed forecasts with K quantiles and their weights; committed-only entries are
+    ///      skipped. A weight is the model's mean reputation score above baselineScore, 0 at or
+    ///      below it, as VolMarket pays forecasters by their loss below the round's baseline loss.
+    ///      Without a registry, when any revealed model has no reputation, or when every weight is
+    ///      0, all revealed forecasts weigh the same. Equal weight is the simplest safe fallback,
+    ///      and a partly rated round never silently drops its unrated forecasts.
+    function _forecasts(uint256 id, uint256 k)
         internal
         view
-        returns (uint256[5][] memory probs, uint256[] memory weights, uint256 n, uint256 totalWeight)
+        returns (int256[][] memory qs, uint256[] memory weights, uint256 n, uint256 totalWeight)
     {
         uint256 count = market.predictorCount(id);
-        probs = new uint256[5][](count);
+        qs = new int256[][](count);
         weights = new uint256[](count);
         address registry = market.reputationRegistry();
         bool rated = registry != address(0);
         for (uint256 i = 0; i < count; ++i) {
-            (bool recorded, uint256 modelId, uint256[5] memory p) = _prediction(id, i);
-            if (!recorded) continue;
-            probs[n] = p;
+            (bool recorded, uint256 modelId, int256[] memory q) = _prediction(id, i);
+            if (!recorded || q.length != k) continue;
+            qs[n] = q;
             if (rated) (rated, weights[n]) = _weight(registry, modelId);
             totalWeight += weights[n];
             ++n;
@@ -188,23 +205,22 @@ contract VolFeeConsumer {
     function _prediction(uint256 id, uint256 i)
         internal
         view
-        returns (bool recorded, uint256 modelId, uint256[5] memory probs)
+        returns (bool recorded, uint256 modelId, int256[] memory quantiles)
     {
-        (recorded, modelId, probs,) = market.getPrediction(id, market.predictorAt(id, i));
+        (recorded, modelId, quantiles,) = market.getPrediction(id, market.predictorAt(id, i));
     }
 
     function _weight(address registry, uint256 modelId) internal view returns (bool found, uint256 weight) {
         int256 mean;
         (found, mean) = _reputation(registry, modelId);
-        int256 baseline = market.baselineLogScore();
-        if (found && mean > baseline) weight = uint256(mean - baseline);
+        if (found && mean > baselineScore) weight = uint256(mean - baselineScore);
     }
 
-    /// @dev Mean log score (1e18) of `modelId`'s agent over the market's feedback under this
+    /// @dev Mean score (1e18) of `modelId`'s agent over the market's feedback under this
     ///      consumer's tags. Mainnet ERC-8004 v2.0.0 returns (uint64 count, int128 mean, uint8
     ///      decimals) under the same getSummary selector as the local registry's single int256
     ///      (18 decimals), so the shape is told apart by return length. The local registry returns
-    ///      0 for no record, which is also a perfect log score: presence is decided by the record
+    ///      0 for no record, which is also a perfect score: presence is decided by the record
     ///      count, never by the value. A failed call or any other shape counts as no reputation.
     function _reputation(address registry, uint256 modelId) internal view returns (bool found, int256 mean) {
         if (!market.agentBound(modelId)) return (false, 0);
@@ -219,7 +235,9 @@ contract VolFeeConsumer {
         if (ret.length == 96) return _decodeTupleSummary(ret);
         if (ret.length == 32) {
             if (_matchingRecords(registry, agentId, tag2) == 0) return (false, 0);
-            return (true, abi.decode(ret, (int256)));
+            int256 value = abi.decode(ret, (int256));
+            if (value < type(int128).min || value > type(int128).max) return (false, 0);
+            return (true, value);
         }
         return (false, 0);
     }

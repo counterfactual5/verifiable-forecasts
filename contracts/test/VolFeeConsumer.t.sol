@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {VolFeeConsumer, IVolMarketReader} from "../src/VolFeeConsumer.sol";
+import {MarketMath} from "../src/lib/MarketMath.sol";
 import {ReputationRegistryLite} from "../src/erc8004/ReputationRegistryLite.sol";
 import {MockFeeMarket} from "./mocks/MockFeeMarket.sol";
 import {MockReputationTuple} from "./mocks/MockReputationTuple.sol";
@@ -10,8 +11,9 @@ import {RawReputationRegistry} from "./mocks/RawReputationRegistry.sol";
 
 contract VolFeeConsumerTest is Test {
     uint32 constant REVEAL_LEAD = 100;
-    int256 constant BASELINE = -1609437912434100366;
-    string constant TAG1 = "logScore";
+    /// @dev -(training-period mean pinball loss of the climatological baseline), 1e18.
+    int256 constant BASELINE = -366844839083915113;
+    string constant TAG1 = "pinball";
     string constant TAG2_ZK = "vol-300s-12";
     string constant TAG2_COMMIT = "vol-300s-12-commit";
     uint256 constant ZK_MODEL = 0;
@@ -47,40 +49,47 @@ contract VolFeeConsumerTest is Test {
     // ------------------------------------------------------------ helpers
     function _consumer(uint256 feePerVarE18, uint24 minFee, uint24 maxFee) internal returns (VolFeeConsumer) {
         return new VolFeeConsumer(
-            IVolMarketReader(address(market)), TAG1, TAG2_ZK, TAG2_COMMIT, _vars(), feePerVarE18, minFee, maxFee
+            IVolMarketReader(address(market)), TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, feePerVarE18, minFee, maxFee
         );
     }
 
-    function _vars() internal pure returns (uint256[5] memory v) {
-        v = [uint256(100), 400, 900, 1600, 2500];
+    /// @dev Five quantiles a, a + 1, ..., a + 4 in tenths of a ln unit, 1e18-scaled.
+    function _q(int256 tenths) internal pure returns (int256[] memory q) {
+        q = new int256[](5);
+        for (uint256 k = 0; k < 5; ++k) {
+            q[k] = tenths * 1e17 + int256(k) * 1e18;
+        }
     }
 
-    /// @dev Probabilities in per mille, scaled to 1e18.
-    function _pm(uint256 a, uint256 b, uint256 c, uint256 d, uint256 e) internal pure returns (uint256[5] memory p) {
-        p = [a * 1e15, b * 1e15, c * 1e15, d * 1e15, e * 1e15];
+    /// @dev Every level at `v`: a point forecast.
+    function _flat(int256 v) internal pure returns (int256[] memory q) {
+        q = new int256[](5);
+        for (uint256 k = 0; k < 5; ++k) {
+            q[k] = v;
+        }
     }
 
-    function _probsA() internal pure returns (uint256[5] memory) {
-        return _pm(500, 200, 100, 100, 100);
+    function _qA() internal pure returns (int256[] memory) {
+        return _q(40); // 4 .. 8
     }
 
-    function _probsB() internal pure returns (uint256[5] memory) {
-        return _pm(100, 100, 100, 200, 500);
+    function _qB() internal pure returns (int256[] memory) {
+        return _q(60); // 6 .. 10
     }
 
-    function _equalMixAB() internal pure returns (uint256[5] memory) {
-        return _pm(300, 150, 100, 150, 300);
+    function _equalMixAB() internal pure returns (int256[] memory) {
+        return _q(50);
     }
 
     /// @dev (3 * A + B) / 4, the mix for reputation weights 3:1.
-    function _weightedMixAB() internal pure returns (uint256[5] memory) {
-        return _pm(400, 175, 100, 125, 200);
+    function _weightedMixAB() internal pure returns (int256[] memory) {
+        return _q(45);
     }
 
     /// @dev alice reveals A with the zk model, bob reveals B with the commit-only model.
     function _addAB(uint256 id) internal {
-        market.addForecast(id, alice, true, ZK_MODEL, _probsA());
-        market.addForecast(id, bob, true, COMMIT_MODEL, _probsB());
+        market.addForecast(id, alice, true, ZK_MODEL, _qA());
+        market.addForecast(id, bob, true, COMMIT_MODEL, _qB());
     }
 
     function _bindAB() internal {
@@ -103,56 +112,30 @@ contract VolFeeConsumerTest is Test {
         vm.warp(start - REVEAL_LEAD);
     }
 
-    function _mixOf(uint256 id) internal view returns (uint256[5] memory mix) {
+    function _mixOf(uint256 id) internal view returns (int256[] memory mix) {
         (, mix,) = consumer.quote(id);
     }
 
-    function _same(uint256[5] memory a, uint256[5] memory b) internal pure returns (bool) {
+    function _same(int256[] memory a, int256[] memory b) internal pure returns (bool) {
         return keccak256(abi.encode(a)) == keccak256(abi.encode(b));
     }
 
-    function _assertMix(uint256[5] memory actual, uint256[5] memory expected) internal pure {
-        for (uint256 b = 0; b < 5; ++b) {
-            assertEq(actual[b], expected[b]);
+    function _assertMix(int256[] memory actual, int256[] memory expected) internal pure {
+        assertEq(actual.length, expected.length, "mix length");
+        for (uint256 k = 0; k < expected.length; ++k) {
+            assertEq(actual[k], expected[k]);
         }
     }
 
-    function _sum(uint256[5] memory p) internal pure returns (uint256 s) {
-        for (uint256 b = 0; b < 5; ++b) {
-            s += p[b];
-        }
-    }
-
-    /// @dev VolMarket's reveal normalization: floor shares, remainder to the last bucket.
-    function _normalize(uint256[5] memory raw) internal pure returns (uint256[5] memory p) {
-        uint256 sum;
-        for (uint256 b = 0; b < 5; ++b) {
-            raw[b] = bound(raw[b], 0, 1e30);
-            sum += raw[b];
-        }
-        if (sum == 0) {
-            raw[0] = 1;
-            sum = 1;
-        }
-        uint256 assigned;
-        for (uint256 b = 0; b < 4; ++b) {
-            p[b] = (raw[b] * 1e18) / sum;
-            assigned += p[b];
-        }
-        p[4] = 1e18 - assigned;
-    }
-
-    function _weightedMix(uint256[5] memory a, uint256[5] memory b, uint256 wa, uint256 wb)
+    function _weightedMix(int256[] memory a, int256[] memory b, uint256 wa, uint256 wb)
         internal
         pure
-        returns (uint256[5] memory mix)
+        returns (int256[] memory mix)
     {
-        uint256 assigned;
-        for (uint256 i = 0; i < 4; ++i) {
-            mix[i] = (wa * a[i] + wb * b[i]) / (wa + wb);
-            assigned += mix[i];
+        mix = new int256[](a.length);
+        for (uint256 k = 0; k < a.length; ++k) {
+            mix[k] = (int256(wa) * a[k] + int256(wb) * b[k]) / int256(wa + wb);
         }
-        mix[4] = 1e18 - assigned;
     }
 
     // ------------------------------------------------------------ weighting
@@ -161,31 +144,53 @@ contract VolFeeConsumerTest is Test {
         _bindAB();
         _rateAB();
         _open();
-        (uint24 fee, uint256[5] memory mix, uint256 expectedVarE18) = consumer.quote(0);
+        (uint24 fee, int256[] memory mix, uint256 expectedVarE18) = consumer.quote(0);
         _assertMix(mix, _weightedMixAB());
         assertFalse(_same(mix, _equalMixAB()));
-        // 0.4*100 + 0.175*400 + 0.1*900 + 0.125*1600 + 0.2*2500 = 900 tick^2
-        assertEq(expectedVarE18, 900e18);
-        assertEq(fee, 900);
+        // (0.25 e^4.5 + 0.4 e^5.5 + 0.5 e^6.5 + 0.4 e^7.5 + 0.25 e^8.5) / 1.8 tick^2
+        assertApproxEqRel(expectedVarE18, 1336033915616782447511, 1e3);
+        assertEq(fee, 1336);
     }
 
-    function test_MixSumsToOne(uint256[5] memory rawA, uint256[5] memory rawB, uint64 wA, uint64 wB) public {
-        market.addForecast(0, alice, true, ZK_MODEL, _normalize(rawA));
-        market.addForecast(0, bob, true, COMMIT_MODEL, _normalize(rawB));
+    /// @dev Vincentization: each level is the weighted mean of that level across forecasts, and
+    ///      the mix of two increasing forecasts is non-decreasing.
+    function testFuzz_MixIsWeightedMeanPerLevel(int256 a, int256 b, uint64 wA, uint64 wB) public {
+        a = bound(a, -200, 550);
+        b = bound(b, -200, 550);
+        market.addForecast(0, alice, true, ZK_MODEL, _q(a));
+        market.addForecast(0, bob, true, COMMIT_MODEL, _q(b));
         _bindAB();
         market.setReputationRegistry(address(tuple));
         _rate(AGENT_A, TAG2_ZK, BASELINE + int256(uint256(wA)), 18);
         _rate(AGENT_B, TAG2_COMMIT, BASELINE + int256(uint256(wB)), 18);
         _open();
-        assertEq(_sum(_mixOf(0)), 1e18);
+        int256[] memory mix = _mixOf(0);
+        if (wA == 0 && wB == 0) {
+            _assertMix(mix, _weightedMix(_q(a), _q(b), 1, 1));
+        } else {
+            _assertMix(mix, _weightedMix(_q(a), _q(b), wA, wB));
+        }
+        for (uint256 k = 1; k < 5; ++k) {
+            assertGe(mix[k], mix[k - 1]);
+        }
     }
 
-    function test_MixSumsToOneOddVectors() public {
-        market.addForecast(0, alice, true, ZK_MODEL, [uint256(1), 1, 1, 1, 1e18 - 4]);
-        market.addForecast(
-            0, bob, true, COMMIT_MODEL, [uint256(333333333333333333), 333333333333333333, 333333333333333334, 0, 0]
-        );
-        market.addForecast(0, carol, true, ZK_MODEL_2, [uint256(7), 11, 13, 17, 1e18 - 48]);
+    /// @dev Weights 1, 3, 7; division rounds toward zero, also for a negative level.
+    function test_MixOddVectors() public {
+        int256[] memory a = new int256[](5);
+        int256[] memory b = new int256[](5);
+        int256[] memory c = new int256[](5);
+        a[0] = -5;
+        b[0] = -7;
+        c[0] = 1;
+        for (uint256 k = 1; k < 5; ++k) {
+            a[k] = int256(k) * 1e18 + 1;
+            b[k] = int256(k) * 1e18 + 3;
+            c[k] = int256(k) * 1e18 + 7;
+        }
+        market.addForecast(0, alice, true, ZK_MODEL, a);
+        market.addForecast(0, bob, true, COMMIT_MODEL, b);
+        market.addForecast(0, carol, true, ZK_MODEL_2, c);
         _bindAB();
         market.bindAgent(ZK_MODEL_2, AGENT_C);
         market.setReputationRegistry(address(tuple));
@@ -193,21 +198,23 @@ contract VolFeeConsumerTest is Test {
         _rate(AGENT_B, TAG2_COMMIT, BASELINE + 3, 18);
         _rate(AGENT_C, TAG2_ZK, BASELINE + 7, 18);
         _open();
-        uint256[5] memory mix = _mixOf(0);
-        assertEq(_sum(mix), 1e18);
-        // floor((1 + 3 * 333333333333333333 + 7 * 7) / 11)
-        assertEq(mix[0], 90909090909090913);
+        int256[] memory mix = _mixOf(0);
+        // (-5 - 21 + 7) / 11 = -19 / 11 -> -1 (toward zero, not -2)
+        assertEq(mix[0], -1);
+        // k * 1e18 + (1 + 9 + 49) / 11 -> k * 1e18 + 5
+        assertEq(mix[3], 3e18 + 5);
     }
 
-    // ------------------------------------------------------------ fee map
-    function test_FeeMonotoneInVolatility(uint256[5] memory raw, uint256 from, uint256 to, uint256 amount) public {
-        uint256[5] memory p = _normalize(raw);
-        from = bound(from, 0, 3);
-        to = bound(to, from + 1, 4);
-        amount = bound(amount, 0, p[from]);
-        uint256[5] memory q = p;
-        q[from] -= amount;
-        q[to] += amount;
+    // ------------------------------------------------------------ expected variance and fee map
+    /// @dev Shifting every quantile of a forecast up never lowers the expected variance or the fee.
+    function testFuzz_FeeMonotoneInVolatility(int256 a, uint256 up) public {
+        a = bound(a, -200, 550);
+        up = bound(up, 0, 10e18);
+        int256[] memory p = _q(a);
+        int256[] memory q = _q(a);
+        for (uint256 k = 0; k < 5; ++k) {
+            q[k] += int256(up);
+        }
         market.addForecast(0, alice, true, ZK_MODEL, p);
         market.addForecast(1, alice, true, ZK_MODEL, q);
         _open();
@@ -217,37 +224,73 @@ contract VolFeeConsumerTest is Test {
         assertGe(feeAfter, feeBefore);
     }
 
-    function test_FeeRisesBucketByBucket() public {
+    /// @dev A point forecast at ln v prices v tick^2 (floor of exp(ln v) may lose one pip).
+    function test_FeeRisesWithForecastLevel() public {
+        uint256[5] memory vars = [uint256(100), 400, 900, 1600, 2500];
         uint24 prev;
-        for (uint256 b = 0; b < 5; ++b) {
-            uint256[5] memory p;
-            p[b] = 1e18;
-            market.setRound(10 + b, start);
-            market.addForecast(10 + b, alice, true, ZK_MODEL, p);
+        for (uint256 i = 0; i < 5; ++i) {
+            market.setRound(10 + i, start);
+            market.addForecast(10 + i, alice, true, ZK_MODEL, _flat(MarketMath.lnWad(vars[i])));
         }
         _open();
-        for (uint256 b = 0; b < 5; ++b) {
-            (uint24 fee,,) = consumer.quote(10 + b);
-            assertEq(fee, _vars()[b]);
+        for (uint256 i = 0; i < 5; ++i) {
+            (uint24 fee,, uint256 expectedVarE18) = consumer.quote(10 + i);
+            assertApproxEqRel(expectedVarE18, vars[i] * 1e18, 1e9);
+            assertApproxEqAbs(fee, vars[i], 1);
             assertGt(fee, prev);
             prev = fee;
         }
     }
 
+    /// @dev Levels 0.2 and 0.3: midpoint weights tau_2 - tau_0 = 0.3 and 1 - tau_1 = 0.8, so
+    ///      E = (0.3 * e^0 + 0.8 * e^(10 ln2)) / 1.1, not the plain mean of the two.
+    function test_ExpectedVarUsesMidpointWeights() public {
+        uint256[] memory levels = new uint256[](2);
+        levels[0] = 2e17;
+        levels[1] = 3e17;
+        market.setLevels(levels);
+        int256[] memory q = new int256[](2);
+        q[0] = 0;
+        q[1] = 10 * 0.693147180559945309e18;
+        market.addForecast(0, alice, true, ZK_MODEL, q);
+        _open();
+        (, int256[] memory mix, uint256 expectedVarE18) = consumer.quote(0);
+        assertEq(mix.length, 2);
+        assertApproxEqRel(expectedVarE18, 744999999999999996892, 1e3);
+        // a single median level prices exp(q) exactly
+        levels = new uint256[](1);
+        levels[0] = 5e17;
+        market.setLevels(levels);
+        q = new int256[](1);
+        q[0] = 0;
+        market.addForecast(1, alice, true, ZK_MODEL, q);
+        (,, expectedVarE18) = consumer.quote(1);
+        assertEq(expectedVarE18, 1e18);
+    }
+
+    /// @dev Quantiles outside [Q_MIN, Q_MAX] are clamped before exp instead of reverting.
+    function test_MixClampedBeforeExp() public {
+        market.addForecast(0, alice, true, ZK_MODEL, _flat(200e18));
+        market.addForecast(1, alice, true, ZK_MODEL, _flat(-200e18));
+        _open();
+        (uint24 highFee,, uint256 highVar) = consumer.quote(0);
+        assertEq(highVar, MarketMath.expWad(MarketMath.Q_MAX));
+        assertEq(highFee, 10_000);
+        (uint24 lowFee,, uint256 lowVar) = consumer.quote(1);
+        assertEq(lowVar, MarketMath.expWad(MarketMath.Q_MIN));
+        assertEq(lowFee, 100);
+    }
+
     function test_FeeClampedToBounds() public {
         VolFeeConsumer clamped = _consumer(1e18, 500, 2000);
-        uint256[5] memory low;
-        low[0] = 1e18;
-        uint256[5] memory high;
-        high[4] = 1e18;
-        market.addForecast(0, alice, true, ZK_MODEL, low);
-        market.addForecast(1, alice, true, ZK_MODEL, high);
+        market.addForecast(0, alice, true, ZK_MODEL, _flat(MarketMath.lnWad(100)));
+        market.addForecast(1, alice, true, ZK_MODEL, _flat(MarketMath.lnWad(2500)));
         _open();
         (uint24 lowFee,, uint256 lowVar) = clamped.quote(0);
         (uint24 highFee,, uint256 highVar) = clamped.quote(1);
-        assertEq(lowVar, 100e18);
+        assertApproxEqRel(lowVar, 100e18, 1e9);
         assertEq(lowFee, 500);
-        assertEq(highVar, 2500e18);
+        assertApproxEqRel(highVar, 2500e18, 1e9);
         assertEq(highFee, 2000);
 
         // expectedVarE18 * feePerVarE18 past uint256 clamps instead of reverting
@@ -290,24 +333,35 @@ contract VolFeeConsumerTest is Test {
         _bindAB();
         _rateAB();
         _open();
-        (uint24 feeBefore, uint256[5] memory mixBefore,) = consumer.quote(0);
+        (uint24 feeBefore, int256[] memory mixBefore,) = consumer.quote(0);
 
-        uint256[5] memory extreme;
-        extreme[4] = 1e18;
-        // committed, never revealed, and without reputation: neither its probs nor its missing
+        // committed, never revealed, and without reputation: neither its quantiles nor its missing
         // reputation may change the weighted result
-        market.addForecast(0, carol, false, ZK_MODEL_2, extreme);
-        (uint24 feeAfter, uint256[5] memory mixAfter,) = consumer.quote(0);
+        market.addForecast(0, carol, false, ZK_MODEL_2, _q(500));
+        (uint24 feeAfter, int256[] memory mixAfter,) = consumer.quote(0);
         _assertMix(mixAfter, mixBefore);
         _assertMix(mixAfter, _weightedMixAB());
         assertEq(feeAfter, feeBefore);
+    }
+
+    /// @dev A revealed forecast with a different quantile count than the market's levels cannot be
+    ///      mixed level by level and is skipped like an unrevealed one.
+    function test_WrongLengthForecastIgnored() public {
+        _addAB(0);
+        _open();
+        int256[] memory six = new int256[](6);
+        market.addForecast(0, carol, true, ZK_MODEL_2, six);
+        _assertMix(_mixOf(0), _equalMixAB());
+        market.addForecast(1, carol, true, ZK_MODEL_2, new int256[](4));
+        vm.expectRevert(VolFeeConsumer.NoForecasts.selector);
+        consumer.quote(1);
     }
 
     function test_RevertsWithoutRevealedForecast() public {
         _open();
         vm.expectRevert(VolFeeConsumer.NoForecasts.selector);
         consumer.quote(0);
-        market.addForecast(0, alice, false, ZK_MODEL, _probsA());
+        market.addForecast(0, alice, false, ZK_MODEL, _qA());
         vm.expectRevert(VolFeeConsumer.NoForecasts.selector);
         consumer.quote(0);
     }
@@ -317,27 +371,27 @@ contract VolFeeConsumerTest is Test {
         _addAB(0);
         _bindAB();
         market.setReputationRegistry(address(tuple));
-        // 6-decimal means: -0.609438 and -1.509438
-        _rate(AGENT_A, TAG2_ZK, -609438, 6);
-        _rate(AGENT_B, TAG2_COMMIT, -1509438, 6);
+        // 6-decimal means: -0.109438 and -0.309438
+        _rate(AGENT_A, TAG2_ZK, -109438, 6);
+        _rate(AGENT_B, TAG2_COMMIT, -309438, 6);
         _open();
-        uint256[5] memory mix = _mixOf(0);
-        uint256 wa = uint256(-609438e12 - BASELINE);
-        uint256 wb = uint256(-1509438e12 - BASELINE);
-        _assertMix(mix, _weightedMix(_probsA(), _probsB(), wa, wb));
+        int256[] memory mix = _mixOf(0);
+        uint256 wa = uint256(-109438e12 - BASELINE);
+        uint256 wb = uint256(-309438e12 - BASELINE);
+        _assertMix(mix, _weightedMix(_qA(), _qB(), wa, wb));
         assertFalse(_same(mix, _equalMixAB()));
 
         // the same means at 18 decimals give the same mix
-        _rate(AGENT_A, TAG2_ZK, -609438e12, 18);
-        _rate(AGENT_B, TAG2_COMMIT, -1509438e12, 18);
+        _rate(AGENT_A, TAG2_ZK, -109438e12, 18);
+        _rate(AGENT_B, TAG2_COMMIT, -309438e12, 18);
         _assertMix(_mixOf(0), mix);
 
         // count 0, decimals that cannot be upscaled, and a reverting registry mean no reputation
         tuple.setSummary(AGENT_B, address(market), TAG1, TAG2_COMMIT, 0, int128(BASELINE + 1e17), 18);
         _assertMix(_mixOf(0), _equalMixAB());
-        _rate(AGENT_B, TAG2_COMMIT, -1509438e12, 19);
+        _rate(AGENT_B, TAG2_COMMIT, -309438e12, 19);
         _assertMix(_mixOf(0), _equalMixAB());
-        _rate(AGENT_B, TAG2_COMMIT, -1509438e12, 18);
+        _rate(AGENT_B, TAG2_COMMIT, -309438e12, 18);
         tuple.setReverts(true);
         _assertMix(_mixOf(0), _equalMixAB());
     }
@@ -364,8 +418,8 @@ contract VolFeeConsumerTest is Test {
         _assertMix(_mixOf(0), _weightedMixAB());
 
         // Lite reports 0 (a perfect score) for agent C, yet it has no matching record
-        market.addForecast(1, alice, true, ZK_MODEL, _probsA());
-        market.addForecast(1, carol, true, ZK_MODEL_2, _probsB());
+        market.addForecast(1, alice, true, ZK_MODEL, _qA());
+        market.addForecast(1, carol, true, ZK_MODEL_2, _qB());
         market.bindAgent(ZK_MODEL_2, AGENT_C);
         _assertMix(_mixOf(1), _equalMixAB());
     }
@@ -395,7 +449,7 @@ contract VolFeeConsumerTest is Test {
         raw.setSummary(AGENT_B, abi.encode(uint256(1), int256(type(int128).min) - 1, uint256(18)));
         _assertMix(_mixOf(0), _equalMixAB());
         raw.setSummary(AGENT_B, abi.encode(uint256(1), int256(type(int128).min), uint256(18)));
-        _assertMix(_mixOf(0), _probsA());
+        _assertMix(_mixOf(0), _qA());
     }
 
     function test_SummaryOfOtherLengthIsNoReputation() public {
@@ -409,9 +463,23 @@ contract VolFeeConsumerTest is Test {
         RawReputationRegistry raw = _rawAB(abi.encode(BASELINE + 1e17));
         raw.setSummary(AGENT_A, abi.encode(BASELINE + 3e17));
         raw.addRecord(AGENT_A, TAG1, TAG2_ZK);
-        raw.addRecord(AGENT_B, "otherScore", TAG2_COMMIT);
+        raw.addRecord(AGENT_B, "logScore", TAG2_COMMIT);
         _assertMix(_mixOf(0), _equalMixAB());
         raw.addRecord(AGENT_B, TAG1, TAG2_COMMIT);
+        _assertMix(_mixOf(0), _weightedMixAB());
+    }
+
+    /// @dev A single-int summary is an int128 average; a value past int128 would let the weight
+    ///      reach 2^255 and wrap the signed mix, so it counts as no reputation.
+    function test_IntSummaryOutsideInt128IsNoReputation() public {
+        RawReputationRegistry raw = _rawAB(abi.encode(int256(type(int128).max) + 1));
+        raw.setSummary(AGENT_A, abi.encode(BASELINE + 3e17));
+        raw.addRecord(AGENT_A, TAG1, TAG2_ZK);
+        raw.addRecord(AGENT_B, TAG1, TAG2_COMMIT);
+        _assertMix(_mixOf(0), _equalMixAB());
+        raw.setSummary(AGENT_B, abi.encode(type(int256).max));
+        _assertMix(_mixOf(0), _equalMixAB());
+        raw.setSummary(AGENT_B, abi.encode(BASELINE + 1e17));
         _assertMix(_mixOf(0), _weightedMixAB());
     }
 
@@ -454,10 +522,12 @@ contract VolFeeConsumerTest is Test {
         _bindAB();
         _rateAB();
         _open();
+        (uint24 fee,, uint256 expectedVarE18) = consumer.quote(0);
+        assertEq(fee, 1336);
         vm.expectEmit(true, false, false, true, address(consumer));
-        emit VolFeeConsumer.FeeRecorded(0, 900, 900e18, _weightedMixAB());
-        assertEq(consumer.record(0), 900);
-        assertEq(consumer.feeOf(0), 900);
+        emit VolFeeConsumer.FeeRecorded(0, 1336, expectedVarE18, _weightedMixAB());
+        assertEq(consumer.record(0), 1336);
+        assertEq(consumer.feeOf(0), 1336);
         assertTrue(consumer.feeRecorded(0));
         vm.expectRevert(VolFeeConsumer.AlreadyRecorded.selector);
         consumer.record(0);
@@ -467,16 +537,16 @@ contract VolFeeConsumerTest is Test {
     function test_ConstructorRejectsInvalidParams() public {
         IVolMarketReader m = IVolMarketReader(address(market));
         vm.expectRevert(VolFeeConsumer.InvalidParams.selector);
-        new VolFeeConsumer(IVolMarketReader(address(0)), TAG1, TAG2_ZK, TAG2_COMMIT, _vars(), 1e18, 100, 200);
+        new VolFeeConsumer(IVolMarketReader(address(0)), TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, 1e18, 100, 200);
         vm.expectRevert(VolFeeConsumer.InvalidParams.selector);
-        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, _vars(), 1e18, 201, 200);
+        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, 1e18, 201, 200);
         vm.expectRevert(VolFeeConsumer.InvalidParams.selector);
-        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, [uint256(100), 400, 300, 1600, 2500], 1e18, 100, 200);
+        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, int256(type(int128).min) - 1, 1e18, 100, 200);
         vm.expectRevert(VolFeeConsumer.InvalidParams.selector);
-        new VolFeeConsumer(
-            m, TAG1, TAG2_ZK, TAG2_COMMIT, [uint256(100), 400, 900, 1600, type(uint256).max / 1e18 + 1], 1e18, 100, 200
-        );
-        // equal bounds and flat variances are valid
-        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, [uint256(5), 5, 5, 5, 5], 1e18, 200, 200);
+        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, int256(type(int128).max) + 1, 1e18, 100, 200);
+        // equal fee bounds and the int128 ends are valid
+        VolFeeConsumer c = new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, type(int128).min, 1e18, 200, 200);
+        assertEq(c.baselineScore(), type(int128).min);
+        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, type(int128).max, 1e18, 200, 200);
     }
 }
