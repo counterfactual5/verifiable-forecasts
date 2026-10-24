@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # R1 acceptance: a sparse live replay (1 settled round + the pending hour, e.g. HOURS=1) renders without
-# console errors on any of the 6 sub-pages at 1280 and 390, and a single-value line chart gets an axis
-# scaled to the value (span >= 5% of it) instead of the degenerate v ± 1; the 24-round sample keeps
-# its realized-vol axis as before.
+# console errors on any of the 6 sub-pages at 1280 and 390. The Live view's per-round chart plots each
+# agent's p_win (probability on the realized bucket) against a dashed uniform 1/5 line: with one round
+# its axis still holds every p_win and the line; on the 24-round sample the dashed line sits at 20% on
+# the axis, there is one series per agent, the hover tooltip lists that round's p_win high to low, and
+# the old realized-vol vs median chart is gone.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
@@ -40,12 +42,19 @@ const base = process.argv[2];
 const check = (cond, msg) => console.log((cond ? "ok - " : "not ok - ") + msg);
 const fs = require("fs");
 const VIEWS = ["overview", "live", "rounds", "agents", "fee", "chain"];
-// y-axis tick labels of the realized-vol card (right-aligned axis text)
-const rvTicks = (page) => page.evaluate(() => {
-  const card = [...document.querySelectorAll(".card")].find((c) => /每小时真实波动率/.test(c.querySelector("h2, h3")?.textContent ?? ""));
+// The p_win card: y-axis tick labels (percent) with their y, and the y of the dashed uniform line.
+const pwinAxis = (page) => page.evaluate(() => {
+  const card = [...document.querySelectorAll(".card")].find((c) => /押中程度/.test(c.querySelector("h2, h3")?.textContent ?? ""));
   if (!card) return null;
-  return [...card.querySelectorAll("svg text.ax[text-anchor=end]")].map((t) => Number(t.textContent.replace(/[^\d.\-]/g, "")));
+  const ticks = [...card.querySelectorAll("svg text.ax[text-anchor=end]")].map((t) => ({ v: parseFloat(t.textContent) / 100, y: Number(t.getAttribute("y")) - 4 }));
+  const dash = card.querySelector("svg > line[stroke-dasharray]");
+  return { ticks, dashY: dash ? Number(dash.getAttribute("y1")) : null, series: card.querySelectorAll("svg g.series > path").length,
+    legend: card.querySelectorAll(".chart + .sub .nowrap").length, text: card.textContent.replace(/\s+/g, " ") };
 });
+const at = (ticks, yv) => {
+  const [a, b] = [ticks[0], ticks[ticks.length - 1]];
+  return a.v + (yv - a.y) * (b.v - a.v) / (b.y - a.y);
+};
 (async () => {
   let browser;
   try { browser = await pw.chromium.launch(); } catch (_) { browser = await pw.chromium.launch({ channel: "chrome" }); }
@@ -70,17 +79,34 @@ const rvTicks = (page) => page.evaluate(() => {
     await page.setViewportSize({ width, height: 900 });
     await page.waitForTimeout(300);
     check(errors.length === 0, `@${width}: 1 round + pending: no console errors or page errors across ${VIEWS.length} sub-pages ${JSON.stringify(errors.slice(0, 3))}`);
-    const t = await rvTicks(page);
-    const span = t && t.length ? Math.max(...t) - Math.min(...t) : 0;
-    check(t && t.length >= 2 && span >= 0.05 * v && Math.min(...t) <= v && Math.max(...t) >= v,
-      `@${width}: single-round RV axis spans >= 5% of RV ${v} and contains it (ticks ${JSON.stringify(t)})`);
+    const ax = await pwinAxis(page);
+    const pw = d.agents.map((a) => r0.agents[a.agent]?.p_win).filter((x) => x != null);
+    const tv = ax ? ax.ticks.map((t) => t.v) : [];
+    check(ax && tv.length >= 2 && Math.min(...tv) <= Math.min(0.2, ...pw) && Math.max(...tv) >= Math.max(0.2, ...pw) && Math.max(...tv) <= 1,
+      `@${width}: single-round p_win axis holds every p_win ${JSON.stringify(pw.map((x) => x.toFixed(3)))} and the 20% line (ticks ${JSON.stringify(tv)})`);
     await page.close();
   }
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(`${base}/dashboard/?data=sample-replay.json#/live`);
   await page.waitForSelector("#app svg", { state: "attached", timeout: 15000 });
-  const t = await rvTicks(page);
-  check(JSON.stringify(t) === JSON.stringify([0, 2000, 4000, 6000, 8000]), `24-round sample: RV axis unchanged (${JSON.stringify(t)})`);
+  const s = JSON.parse(fs.readFileSync("dashboard/sample-replay.json", "utf8"));
+  const ax = await pwinAxis(page);
+  check(ax && ax.dashY != null && Math.abs(at(ax.ticks, ax.dashY) - 1 / (s.params.bounds.length + 1)) < 0.005,
+    `24-round sample: dashed reference line at uniform 20% (${ax && ax.dashY != null ? (at(ax.ticks, ax.dashY) * 100).toFixed(2) : "none"}%)`);
+  check(ax && ax.series === s.agents.length && ax.legend === s.agents.length, `24-round sample: one p_win series and legend entry per agent (${ax?.series}/${ax?.legend})`);
+  check(ax && /p_win/.test(ax.text) && /瞎猜/.test(ax.text) && /uniform/i.test(ax.text) && /Probability on the realized bucket/.test(ax.text),
+    "24-round sample: bilingual title and caption explain p_win vs uniform");
+  const old = await page.evaluate(() => [...document.querySelectorAll(".card h2")].some((h) => /每小时真实波动率|forecast median/.test(h.textContent)));
+  check(!old, "24-round sample: the realized-vol vs forecast-median chart is gone");
+  const i = 5, chart = page.locator("section.card", { hasText: "押中程度" }).locator(".chart svg");
+  await chart.scrollIntoViewIfNeeded();
+  const box = await chart.boundingBox(), W = Number((await chart.getAttribute("viewBox")).split(" ")[2]), k = box.width / W;
+  await page.mouse.move(box.x + (70 + i * (W - 86) / (s.rounds.length - 1)) * k, box.y + box.height / 2);
+  await page.waitForTimeout(200);
+  const tip = await page.evaluate(() => [...document.querySelectorAll(".chart.hover .tip .r b")].map((b) => parseFloat(b.textContent) / 100));
+  const want = s.agents.map((a) => s.rounds[i].agents[a.agent].p_win).sort((x, y) => y - x);
+  check(tip.length === want.length && tip.every((v, j) => Math.abs(v - want[j]) < 0.0006),
+    `24-round sample: hover on round ${i} lists its p_win high to low (${tip.map((v) => v.toFixed(3))} vs ${want.map((v) => v.toFixed(3))})`);
   await browser.close();
 })().catch((e) => { console.log("not ok - " + e); process.exit(1); });
 EOF

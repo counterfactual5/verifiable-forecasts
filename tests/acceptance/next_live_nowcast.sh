@@ -6,8 +6,9 @@
 # its provider, address, ERC-8004 agentId, tier and modelHash, plus the shared-operator disclaimer.
 # A one-hot forecast fixes the interpolated quantiles, so the method is checked, not just drawn.
 # Past rounds carry each agent's forecast median / intervals next to the realized line, on an axis
-# labelled up to it, and the nowcast sits above the overview KPIs. Per-agent tooltips and the fee
-# share legend rank high to low. Without pending_round the section is absent. No overflow at 390 px,
+# labelled up to it, and the nowcast sits above the overview KPIs. With more than 8 past hours the
+# wide chart drops the 90% whiskers and the narrow one stacks each hour's medians on the hour.
+# Per-agent tooltips and the fee share legend rank high to low. Without pending_round the section is absent. No overflow at 390 px,
 # no page errors.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -90,7 +91,8 @@ const fs = require("fs");
         cd: document.querySelector("#nowcast-cd")?.textContent ?? "",
         rows: [...el.querySelectorAll("tr[data-provider]")].map((tr) => ({ agent: tr.dataset.agent, provider: tr.dataset.provider, text: tr.textContent.replace(/\s+/g, " ") })),
         past: [...el.querySelectorAll("svg g.nc-past")].map((g) => ({ agent: g.dataset.forecaster, round: g.dataset.round, q50: Number(g.dataset.q50),
-          fill: g.querySelector("circle")?.getAttribute("fill") })),
+          fill: g.querySelector("circle")?.getAttribute("fill"), cx: g.querySelector("circle")?.getAttribute("cx"),
+          bar: !!g.querySelector("rect"), whisker: !!g.querySelector("line") })),
         bandFill: Object.fromEntries([...el.querySelectorAll("svg g[data-agent]")].map((g) => [g.dataset.agent, g.querySelector("rect")?.getAttribute("fill")])),
         ticks: [...el.querySelectorAll("svg text.ax")].map((t) => Number(t.textContent)).filter((v) => Number.isFinite(v) && v > 0),
         summaryTop: (() => { const s = document.querySelector("#summary"); return s && s.offsetParent ? s.getBoundingClientRect().top + scrollY : null; })(),
@@ -115,6 +117,12 @@ const fs = require("fs");
     const got = r.past.map((m) => `${m.round}/${m.agent}`);
     check(want.length > 0 && JSON.stringify(got.slice().sort()) === JSON.stringify(want.slice().sort()),
       `@${width}: past rounds show one forecast marker per agent per settled round (${got.length}/${want.length})`);
+    if (shown.length > 8) {
+      const byRound = Object.values(r.past.reduce((o, m) => ((o[m.round] ??= new Set()).add(m.cx), o), {}));
+      check(width < 600 ? byRound.every((x) => x.size === 1) && r.past.every((m) => !m.bar && !m.whisker)
+        : r.past.every((m) => m.bar && !m.whisker),
+        `@${width}: ${shown.length} past hours stay readable: ${width < 600 ? "medians stacked on the hour, no bars" : "50% bars, no 90% whiskers"}`);
+    }
     check(r.past.every((m) => Number.isFinite(m.q50) && m.q50 > 0 && (!r.bandFill[m.agent] || m.fill === r.bandFill[m.agent])),
       `@${width}: past markers carry the agent's pending-bar colour and a finite median`);
     check(/预测中位数/.test(r.text) && /median/i.test(r.text) && /真实 RV/.test(r.text), `@${width}: legend explains forecast markers vs realized line`);

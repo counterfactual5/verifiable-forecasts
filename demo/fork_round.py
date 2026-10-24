@@ -73,7 +73,7 @@ from vol_agents.ezkl_step import OUT as AGENTS_OUT
 REPO = Path(__file__).resolve().parent.parent
 RESULT = REPO / "demo" / "out" / "fork_replay.json"
 LIVE_RESULT = REPO / "dashboard" / "live-replay.json"
-LIVE_HOURS = 6
+LIVE_HOURS = 12
 # A live run replays hours that ended at least this long ago, so mainnet has the blocks the
 # settlement and its Chainlink replay read (SETTLE_AFTER_S + 60 s past the hour, plus slack).
 LIVE_SETTLE_MARGIN_S = 180

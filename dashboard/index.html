@@ -830,13 +830,15 @@ function nowcastHtml(d, agents, tierOf) {
     <text class="ax" x="${L - 6}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
   const grid = b.map((v) => tick(v, true)).join("") + extra.map((v) => tick(v, false)).join("");
   const gap = past.length < 2 ? 40 : (split - L - 26) / (past.length - 1);
-  const dx = Math.min(narrow ? 3 : 7, gap * 0.8 / Math.max(1, agents.length));
+  // Past this many hours the 90% whiskers (wide) or the per-agent spread (narrow) turn into noise.
+  const dense = past.length > 8;
+  const dx = narrow && dense ? 0 : Math.min(narrow ? 3 : 7, gap * 0.8 / Math.max(1, agents.length));
   const marks = past.map((x, i) => x.fc.map(({ a, k, q: [q05, q25, q50, q75, q95] }) => {
     const cx = (px(i) + (k - (agents.length - 1) / 2) * dx).toFixed(1), w = Math.max(2, dx * 0.6);
     return `<g class="nc-past" data-forecaster="${a.agent}" data-round="${x.id}" data-q50="${q50}"><title>${a.agent} · ${x.t} UTC: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, 90% ${fmt(q05)}–${fmt(q95)} tick² · realized ${x.v}</title>` +
-      (narrow ? "" : `<line x1="${cx}" x2="${cx}" y1="${y(q95).toFixed(1)}" y2="${y(q05).toFixed(1)}" stroke="${a.color}" stroke-width="1" opacity=".3"/>` +
-        `<rect x="${(cx - w / 2).toFixed(1)}" y="${y(q75).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(1, y(q25) - y(q75)).toFixed(1)}" rx="1" fill="${a.color}" opacity=".45"/>`) +
-      `<circle cx="${cx}" cy="${y(q50).toFixed(1)}" r="${narrow ? 1.8 : 2.4}" fill="${a.color}"/></g>`;
+      (narrow ? "" : (dense ? "" : `<line x1="${cx}" x2="${cx}" y1="${y(q95).toFixed(1)}" y2="${y(q05).toFixed(1)}" stroke="${a.color}" stroke-width="1" opacity=".3"/>`) +
+        `<rect x="${(cx - w / 2).toFixed(1)}" y="${y(q75).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(1, y(q25) - y(q75)).toFixed(1)}" rx="1" fill="${a.color}" opacity="${dense ? ".35" : ".45"}"/>`) +
+      `<circle cx="${cx}" cy="${y(q50).toFixed(1)}" r="${narrow ? (dense ? 1.6 : 1.8) : dense ? 2 : 2.4}" fill="${a.color}"${narrow && dense ? ` opacity=".75"` : ""}/></g>`;
   }).join("")).join("");
   const line = past.map((x, i) => `${i ? "L" : "M"}${px(i).toFixed(1)},${y(x.v).toFixed(1)}`).join("");
   const step = Math.ceil(past.length / Math.max(2, Math.floor((split - L) / 46)));
@@ -878,8 +880,8 @@ function nowcastHtml(d, agents, tierOf) {
     ${svg}
     <div class="sub nc-legend"><span class="nowrap">${swatch("#1b1a17")} 真实 RV · realized</span>
       ${agents.map((a) => `<span class="nowrap"><i style="background:${a.color}"></i>${a.agent.replace("agent-", "")}</span>`).join("")}</div>
-    <div class="sub">左侧彩色小点 = 各 agent 在该小时开窗前揭示的预测中位数${narrow ? "" : "，竖条 = 50% 区间（淡线 90%）"}；黑线 = 链上结算的真实 RV，点越贴近黑线越准。
-      Coloured dots: each agent's revealed forecast median for that hour${narrow ? "" : " (bar = 50% interval, faint line = 90%)"}; black line: realized RV settled on-chain.</div>
+    <div class="sub">左侧彩色小点 = 各 agent 在该小时开窗前揭示的预测中位数${narrow ? "" : dense ? "，竖条 = 50% 区间" : "，竖条 = 50% 区间（淡线 90%）"}；黑线 = 链上结算的真实 RV，点越贴近黑线越准。
+      Coloured dots: each agent's revealed forecast median for that hour${narrow ? "" : dense ? " (bar = 50% interval)" : " (bar = 50% interval, faint line = 90%)"}; black line: realized RV settled on-chain.</div>
     ${scrollTable(`<tr><th>Agent</th><th>提供方</th><th>地址</th><th class="num">ERC-8004 agentId</th><th>档位</th><th>modelHash</th><th class="num">中位数 · 区间 (tick²)</th></tr>${rows}`, 760)}
     <div class="sub">左侧实线：过去各小时链上结算的真实 RV（tick²，对数轴，虚线为档位边界）。右侧：每个 agent 对当前小时已揭示的 5 档概率，
     档内按 log(RV) 线性插值（两端开放档各外延一个边界倍数）得到中位数、50% 与 90% 区间。地址与 agentId 都在 fork 上，不在主网。</div>
@@ -1069,17 +1071,21 @@ function renderReplay({ data: d, src }) {
   const rollCard = card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, rankLegend: true, label: chartLabel(rollTitle, roll) }) +
     `<div class="sub">最近 ${W} 轮的平均得分；虚线是瞎猜 ln(1/5)。Dashed line: uniform baseline.</div>`, "wide");
 
-  const median = (ra) => ra && ra.entered !== false && ra.probs ? bucketQuantile(ra.probs, p.bounds, 0.5) : null;
-  const rvSeries = agents.map((a) => ({ name: `${a.agent.replace("agent-", "")} median`, color: a.color, width: 1.5, opacity: 0.7, dash: dashOf(a),
-    values: rounds.map((r) => median(r.agents[a.agent])) }))
-    .concat({ name: "realized vol (tick²)", color: "#1b1a17", width: 3, values: rounds.map((r) => r.outcome.realized_vol ?? r.real_realized_vol) });
-  const rvTitle = "每小时真实波动率 vs 预测 · Realized volatility vs forecast median";
-  const rvCard = card(rvTitle,
-    lineChart(rvSeries, labels, { min: 0, tip: (v) => v.toFixed(0), label: chartLabel(rvTitle, rvSeries) }) +
-    `<div class="sub">黑粗线 = 链上结算的真实 RV；彩色细线 = 各 agent 开窗前揭示的预测中位数（5 档概率按 log(RV) 档内插值）。
-    Thick black: realized RV; thin coloured: each agent's revealed forecast median.</div>
-    <div class="sub">tick²：相邻 5 分钟均价 tick 之差的平方和（1 tick ≈ 0.01% 价格），越大越波动，决定这一轮落在哪档。
-    Bucket bounds ${p.bounds.join(" / ")} tick². RV from the contract's settle, equal to the mainnet recompute.</div>`, "wide");
+  const pUniform = 1 / (p.bounds.length + 1);
+  const pct = (v) => `${(v * 100).toFixed(1)}%`;
+  const pwinOf = (r, a) => {
+    const ra = r.agents[a.agent];
+    return r.outcome.voided || !ra || ra.entered === false || ra.p_win == null ? null : ra.p_win;
+  };
+  const pwin = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a), width: 1.8, values: rounds.map((r) => pwinOf(r, a)) }));
+  const pwinTitle = "每轮押中程度 · Probability on the realized bucket";
+  const pwinCard = card(pwinTitle,
+    lineChart(pwin, labels, { zero: pUniform, min: 0, max: 1, rankLegend: true, fmt: (v) => `${Math.round(v * 100)}%`, tip: pct,
+      label: chartLabel(pwinTitle, pwin) }) +
+    `<div class="sub">每轮各 agent 给真实结果所在档位的概率（p_win，开窗前揭示）；虚线 = 瞎猜每档 ${pct(pUniform)}，
+    点在虚线之上 = 这一轮比瞎猜更准。每轮得分 = ln p_win。真实 RV 见上方实时预测图。
+    Each agent's revealed probability on the bucket that actually happened; dashed line: uniform 1/${p.bounds.length + 1}.
+    Above the line = beat uniform that round. Voided rounds are not shown.</div>`, "wide", "pwin-card");
 
   const fs = s.fee_strategies;
   let feeCard = "";
@@ -1237,7 +1243,7 @@ function renderReplay({ data: d, src }) {
   // The excess chart must stay the first .card.wide: every chart takes its width from it.
   const v = (view, html) => html.replace(/^\s*<(section|div)/, `<$1 data-v="${view}"`);
   app.innerHTML = v("overview", excessCard) + v("overview", howCard(d, agents, tierOf)) +
-    v("live", rvCard) +
+    v("live", pwinCard) +
     v("rounds", heatCard) + v("rounds", roundsCard) + v("rounds", `<div class="trio">${overview}${bucketCard}</div>`) +
     v("agents", agentsCard) + v("agents", rollCard) +
     (feeCard ? v("fee", feeCard) : "") + v("fee", rewardCard) +
