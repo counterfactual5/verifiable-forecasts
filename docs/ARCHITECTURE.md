@@ -87,6 +87,20 @@ agents/round.py → out/compare_round.json；demo/fork_round.py → demo/out/for
 
 EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`Mlp16Verifier`、`Mlp32AbsVerifier`），由 `agents/vol_agents/build.py` 安装，只改了合约名，内容不同时默认拒绝覆盖；`SpikeModelVerifier` 来自 `spikes/ezkl`，供 `VolMarket.t.sol` 用真实证明 fixture 测试。这些文件不手改、不参与 `forge fmt`，按 `foundry.toml` 只对该目录与 `VolMarket.sol` 开启 optimizer 以满足 EIP-170。
 
+### `hooks/VolFeeHook.sol`（Uniswap v4 动态费率 hook，仅 fork 模拟，未在主网部署）
+
+`VolFeeConsumer` 只记录每轮的推荐费率；`VolFeeHook` 让一个 v4 动态费率池在每笔 swap 实际收取它。
+
+- 构造参数：`(poolManager, feeSource, rounds, window, maxLookback, minFee, maxFee, fallbackFee)`；`window` 为轮次窗口秒数（`delta × nSegments`），`maxLookback` 为从最新轮往回最多查几轮（提前开的未来轮排在覆盖当前时间的轮之上）；要求 `minFee ≤ fallbackFee ≤ maxFee ≤ 1e6`。无 owner、无可改参数。
+- 权限：`afterInitialize`（拒绝非动态费率池，静态费率池会忽略覆盖）与 `beforeSwap`；hook 地址低 14 位须与权限一致，用 v4-periphery `HookMiner` 按 CREATE2 挖 salt。
+- 每笔 swap：找 `startTime ≤ block.timestamp < startTime + window` 的轮，若 `feeRecorded(id)` 则收 `feeOf(id)` 夹到 `[minFee, maxFee]`，否则（无覆盖轮、未记录）收 `fallbackFee`；返回值带 `LPFeeLibrary.OVERRIDE_FEE_FLAG`。`feeAt(timestamp)` 返回 `(fee, id, recorded)` 供演示与看板读取。
+- 单位：`VolFeeConsumer.feeOf` 与 v4 LP 费率同为 pips（1e-6，500 = 5 bps，`MAX_LP_FEE = 1e6`），换算系数为 1。
+- 只依赖两个窄接口：`IVolFeeSource { feeOf(uint256) returns (uint24); feeRecorded(uint256) returns (bool) }`（`VolFeeConsumer` 的公开 mapping）与 `IVolRoundSource { roundCount(); getRound(uint256) }`（只解码 `VolMarket.getRound` 的第一个返回值 `startTime`）；不调用 `quote`。
+- 作废只在窗口结束后的结算时发生，所以作废轮在其窗口内仍按记录的费率收费。
+- 依赖：`contracts/lib/v4-core`（v4.0.0，PoolManager 等核心合约为 BUSL-1.1，hook 只 import MIT 的接口与库；测试路由 `PoolSwapTest` 等为 UNLICENSED，仅测试用）、`contracts/lib/v4-periphery`（只取 MIT 的 `HookMiner`）。`PoolManager.sol` 锁定 solc 0.8.26，与本仓库 0.8.28 不兼容，单测从 `test/fixtures/v4_pool_manager_v4.0.0.hex`（按 v4-core 自身配置编译的创建字节码）部署。
+- 测试：`VolFeeHook.t.sol`（本地 PoolManager：费率等于记录值、夹紧、回退、窗口边界、跨未来轮查找、swap 的 LP 手续费增长等于 `amountIn × fee / 1e6`、费率高则输出少、gas）；`VolFeeHookFork.t.sol`（需 `MAINNET_RPC_URL`，否则跳过：主网 PoolManager `0x000000000004444c5dc75cB358380D2e3dE08A90` 上建 WETH/USDC 动态费率池，真实 0.05% V3 池上的 VolMarket 轮次经 `VolFeeConsumer.record` 记下 1100 pips，1000 USDC swap 的 LP 手续费为 1.099999 USDC）。
+- 开销：本地单测里一次 swap（覆盖轮为最新轮、存储已热）带 hook 约 83.3k gas，无 hook 的同流动性静态池约 73.3k，多约 1 万；每多查一轮再多一次 `getRound` 外部调用。
+
 ## 4. 波动率口径与公开输入编码
 
 - 检查点：`t_k = startTime + k·Δ`，k = 0..N（当前 Δ = 300 s、N = 12，均为构造参数）。
@@ -133,6 +147,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - 池子回放：先用主网归档 `observe()` 读出每个 5 分钟网格时刻 t 起 [t, t + 300 s) 的真实段均 tick；在时间戳恰为 t 的区块里把 fork 上的池子 swap 到该 tick 并保持，合约读到的每个段均值都等于主网，脚本逐轮记录特征与 RV 是否与主网重算一致（`features_match_mainnet`、`rv_matches_mainnet`），swap 未落到目标 tick 即停止。
 - Chainlink 回放：区间内每笔真实 `transmit` 由原 transmitter（impersonate）在原时间戳重发，每次结算看到的喂价与喂价年龄都与主网一致。
 - 每小时一轮：开轮、提交、公开、两名下注者下注、每个检查点 `sample`、结算（任一 `ReputationWriteFailed` 即报错）、领取赔付与预测者分成、`collectFee`；第 0 轮做篡改证明检查并记录 `verifyProof` gas。
+- `V4_HOOK=1`（可选，`demo/v4_hook.py`）：在主网 v4 PoolManager 上建 WETH/USDC 动态费率池并挂 `VolFeeHook`（经 CREATE2 部署器挖地址），每轮开窗后做一笔 10,000 USDC → WETH 的 swap，写入该轮可选字段 `hook`（`hook_fee_pips`、`recorded`、`effective_fee_pips` 按 LP 手续费增长算出、`swap_gas`），`contracts.v4_hook` 记地址；看板单轮回放的“使用”一步显示 hook 实际收取。
 - 输出 `demo/out/fork_replay.json`（`schema: "vol-replay/v1"`，git-ignored）；`dashboard/index.html` 是无构建的静态页，只读该 JSON（缺省回退到提交的 `dashboard/sample-replay.json`，旧的单轮格式仍可用 `?data=sample-round.json` 打开），不连钱包、不调用任何写接口。
 
 ## 9. 未实现

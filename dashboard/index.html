@@ -1388,6 +1388,10 @@ function playerBody(d) {
         <span class="mono ${s > u ? "up" : "down"}">${s > u ? "▲" : "▼"} ${(s - u >= 0 ? "+" : "") + (s - u).toFixed(3)}</span>`}</li>`;
     }).join("")}</ul>
     <p class="pl-src dim">settle gas ${o.gas_used?.toLocaleString() ?? "—"} · 区块 ${o.settle_block ?? "—"}（fork，无浏览器链接）</p>`;
+  const hk = r.hook;
+  const hookLine = !hk ? "" : `<p>Uniswap V4 hook 实际收取 <b>${(hk.effective_fee_pips / 100).toFixed(2)} bps</b>
+    （hook 报价 ${(hk.hook_fee_pips / 100).toFixed(2)} bps，${hk.recorded ? "取自本轮记录的推荐费率" : "本轮无记录 → 回退费率"}）
+    <span class="pl-src dim">fork 上的 VolFeeHook 动态费率池，开窗后一笔 ${hk.swap_usdc.toLocaleString()} USDC 试算 swap，按 LP 手续费增长计；gas ${hk.swap_gas.toLocaleString()}</span></p>`;
   const use = f?.forecast_bps == null ? `<p>这份回放没有记录消费方（动态手续费）数据。</p>` : (() => {
     const e = Math.abs(f.forecast_bps - f.fair_bps), ef = Math.abs(f.fixed_bps - f.fair_bps);
     const shares = f.mirror?.weights?.length !== d.agents.length ? "" : (STATE.model?.rounds[STATE.round]?.agents ?? [])
@@ -1396,7 +1400,7 @@ function playerBody(d) {
       <p>hindsight fair fee ${f.fair_bps.toFixed(2)} bps（参照，事前无法得到）· forecast 误差 <b>${e.toFixed(2)}</b> vs fixed ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
         ${e <= ef ? ok(`本轮优于 fixed ${f.fixed_bps} bps`) : mute(`本轮 fixed ${f.fixed_bps} bps 更近`)}</p>
       <p class="pl-src dim">${f.mirror?.equal_weight_fallback ? "声誉权重尚未形成 → 等权混合" : `声誉权重 ${shares || "—"}`}
-        <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>`;
+        <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>${hookLine}`;
   })();
   const stage = (k, n, zh, en, body) => `<li class="pl-stage" data-stage="${k}"><div class="pl-h"><span class="n">${n}</span>${zh}<span class="en">${en}</span></div><div class="pl-b">${body}</div></li>`;
   return `<ol class="pl-stages">
@@ -1775,7 +1779,7 @@ function pageHeads(d, live = d) {
     + head("agents", "预测者与信誉", "任何预测者都可以无许可参与：在 ERC-8004 注册身份，按三档之一证明预测的来历，得分由合约写进链上声誉。案例 #1 里是 6 个示例 agent。", [])
     + head("fee", "消费方示例 · AMM 动态手续费", fs
       ? `协议的输出要有人用。案例 #1 的消费方 VolFeeConsumer 按 ERC-8004 声誉加权各 agent 的预测，每小时开始前在链上算出推荐手续费。
-        Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；真正按它收费需要 Uniswap V4 动态手续费 hook（下一步）。`
+        Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；按它真正收费的是 Uniswap V4 动态手续费 hook VolFeeHook，${d.contracts?.v4_hook ? "本回放在 fork 上的 V4 池里逐轮实测（单轮回放的“使用”一步）" : "已有合约与 fork 测试，本回放未开启（V4_HOOK=1）"}，未部署到主网。`
       : "这份回放没有记录消费方（动态手续费）数据。", [])
     + head("chain", "每一步都能在链上查", `mainnet 行链接 Etherscan；fork 行发生在本地分叉上（fork 自主网区块 ${d.fork_block.toLocaleString()}）。`,
       [stat(mainTx, "条主网交易链接"), stat(Object.keys(d.contracts).length, "个合约地址")]);

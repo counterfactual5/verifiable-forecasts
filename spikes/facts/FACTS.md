@@ -68,6 +68,12 @@ Optimism 主网一行的核实（2026-10-24，区块约 158,588,016）：公开 
 - `0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`，8 位小数，`latestRoundData` 正常（2435.09，与池子 tick 换算的 ≈2436 一致），调用约 3.7 万 gas。
 - 心跳 1h、偏离阈值 0.5% 是公开参数，未在链上核实。
 
+## 6. Uniswap v4 PoolManager（主网）
+
+- `0x000000000004444c5dc75cB358380D2e3dE08A90`。来源：Uniswap 官方文档 [v4 Deployments](https://docs.uniswap.org/contracts/v4/deployments)（Ethereum: 1 表，2026-10-24 读取），证据等级 A（官方一手）。
+- 链上核实（2026-10-24，tenderly gateway，区块约 26,260,425）：`eth_getCode` 约 24 KB 运行时代码，`owner()` = `0x1a9C8182C09F50C8318d769245beA52c32BE35BC`。
+- `contracts/test/VolFeeHookFork.t.sol` 在区块 26,260,000 的 fork 上对它初始化 WETH/USDC 动态费率池并 swap 通过。
+
 ## 建议（供实施计划阶段采用）
 
 1. **窗口参数**：Δ=300s，N=12（1h 窗口、13 个观测点），合约内部调用约 32 万 gas，0.05% 池在最坏 2.4h 下限内也能覆盖。
