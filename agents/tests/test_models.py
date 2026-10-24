@@ -21,23 +21,26 @@ def test_two_to_three_distinct_models():
 HOLDOUT = json.loads((ROOT / "tests" / "fixtures" / "real_holdout.json").read_text())
 
 
-def test_holdout_matches_the_current_bounds():
-    assert tuple(HOLDOUT["bounds"]) == cm.BOUNDS
-    assert len(HOLDOUT["bucket"]) >= 100
+def test_holdout_matches_the_quantile_levels():
+    assert tuple(HOLDOUT["quantile_levels"]) == cm.QUANTILE_LEVELS
+    assert len(HOLDOUT["rv"]) >= 100
+
+
+def _holdout_quantiles(model):
+    x = (np.array(HOLDOUT["features"]) * cm.MULT / cm.SCALE).astype(np.float32)
+    sess = ort.InferenceSession(str(paths(model)["onnx"]))
+    return np.concatenate([sess.run(None, {"x": row[None]})[0] for row in x])
 
 
 @pytest.mark.parametrize("model", MODELS)
-def test_model_beats_baselines_on_real_test_rounds(model):
-    """Mean log score on held-out real rounds of the test period, which the bounds and the
-    weights never saw, against the uniform forecast and the training-period bucket frequencies."""
-    y = np.array(HOLDOUT["bucket"])
-    x = (np.array(HOLDOUT["features"]) * cm.MULT / cm.SCALE).astype(np.float32)
-    sess = ort.InferenceSession(str(paths(model)["onnx"]))
-    probs = np.concatenate([sess.run(None, {"x": row[None]})[0] for row in x])
-    score = np.mean(np.log(np.maximum(probs[np.arange(len(y)), y], 1e-12)))
-    prior = np.mean(np.log(np.array(HOLDOUT["prior"])[y]))
-    assert score > np.log(1 / cm.BUCKETS) + 0.1, score
-    assert score > prior + 0.1, (score, prior)
+def test_model_beats_climatological_baseline_on_real_test_rounds(model):
+    """Mean pinball loss on held-out real rounds of the test period, which the baseline and the
+    weights never saw, against the training-period climatological quantiles createRound uses."""
+    y = np.array([cm.ln_rv(rv) for rv in HOLDOUT["rv"]])
+    q = _holdout_quantiles(model)
+    loss = np.mean([cm.pinball(v, row) for v, row in zip(y, q, strict=True)])
+    base = np.mean([cm.pinball(v, HOLDOUT["baseline_quantiles"]) for v in y])
+    assert loss < base - 0.02, (loss, base)
 
 
 @pytest.mark.parametrize("model", MODELS)
@@ -46,14 +49,12 @@ def test_models_export_to_ezkl(model):
     m = onnx.load(p["onnx"])
     onnx.checker.check_model(m)
     assert [o.name for o in m.graph.output] == ["y"]
-    assert m.graph.node[-1].op_type == "Softmax"
 
     sess = ort.InferenceSession(str(p["onnx"]))
     x = np.random.default_rng(1).uniform(-2, 2, (20, cm.N_FEATURES)).astype(np.float32)
-    probs = np.stack([sess.run(None, {"x": row[None]})[0][0] for row in x])
-    assert probs.shape == (20, cm.BUCKETS)
-    assert np.all(probs >= 0)
-    np.testing.assert_allclose(probs.sum(axis=1), 1.0, atol=1e-5)
+    q = np.stack([sess.run(None, {"x": row[None]})[0][0] for row in x])
+    assert q.shape == (20, cm.K)
+    assert np.all(np.diff(q, axis=1) >= 2 / 4096 - 1e-6), "monotone head keeps two grid steps"
 
     committed = VERIFIER_DIR / f"{verifier_name(model)}.sol"
     before = committed.read_text() if committed.exists() else None
@@ -67,6 +68,7 @@ def test_models_export_to_ezkl(model):
     ra = s["run_args"]
     assert ra["input_scale"] == 12
     assert ra["logrows"] <= 15
+    assert s["model_output_scales"] == [cm.OUTPUT_SCALE_BITS]
     assert (ra["input_visibility"], ra["output_visibility"], ra["param_visibility"]) == (
         "Public", "Public", "Fixed")
     assert p["compiled"].exists() and p["pk"].exists() and p["vk"].exists()
@@ -80,6 +82,7 @@ def test_models_export_to_ezkl(model):
     run_step(model, "witness", work)
     w = json.loads((work / "witness.json").read_text())
     assert [cm.le_hex_to_int(h) for h in w["inputs"][0]] == [cm.encode(v) for v in x_int]
-    outs = np.array([cm.le_hex_to_int(h) for h in w["outputs"][0]], float) / cm.SCALE
+    outputs = [cm.decode(cm.le_hex_to_int(h)) for h in w["outputs"][0]]
+    assert cm.valid_outputs(outputs), outputs
     ref = sess.run(None, {"x": np.asarray([xin], np.float32)})[0][0]
-    np.testing.assert_allclose(outs, ref, atol=0.02)
+    np.testing.assert_allclose(np.array(outputs) / 2**cm.OUTPUT_SCALE_BITS, ref, atol=0.02)

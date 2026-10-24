@@ -1,29 +1,31 @@
 {
   "name": "linear_abs",
-  "description": "softmax(W |x| + b): linear in absolute feature values",
+  "description": "W |x| + b -> monotone quantile head",
   "params": 85,
-  "bounds": [
-    202,
-    474,
-    856,
-    1712
+  "quantile_levels": [
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    0.9
   ],
-  "test_log_score": -1.4177,
-  "test_accuracy": 0.3504,
+  "output_scale_bits": 12,
+  "head_gap": 0.00048828125,
+  "test_mean_pinball": 0.28738,
+  "test_coverage50": 0.5504,
+  "test_coverage80": 0.8274,
   "test_period": {
     "rounds": 10437,
     "t_open_first": "2026-10-15T01:25:00Z",
     "t_open_last": "2026-10-22T07:21:00Z"
   },
-  "logit_clip": 3.0,
-  "onnx_sha256": "5771090f6d25506c39b7fe4586cfe0aca876316b2920bc2d811f112ba429dd84",
+  "onnx_sha256": "848f8065bcee533157cab6d3b55b08fad8f55d3781c54937470224fafc968767",
   "train": {
     "period": {
       "rounds": 39910,
       "t_open_first": "2026-09-10T05:45:00Z",
       "t_open_last": "2026-10-07T22:54:00Z"
     },
-    "synthetic_rounds": 0,
     "steps": 3000,
     "l2": 1e-06,
     "seed": 100

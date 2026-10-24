@@ -1,29 +1,31 @@
 {
   "name": "mlp16",
-  "description": "16->16 ReLU->5 softmax on signed features",
+  "description": "16->16 ReLU->5 -> monotone quantile head, signed features",
   "params": 357,
-  "bounds": [
-    202,
-    474,
-    856,
-    1712
+  "quantile_levels": [
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    0.9
   ],
-  "test_log_score": -1.4233,
-  "test_accuracy": 0.342,
+  "output_scale_bits": 12,
+  "head_gap": 0.00048828125,
+  "test_mean_pinball": 0.29166,
+  "test_coverage50": 0.5148,
+  "test_coverage80": 0.817,
   "test_period": {
     "rounds": 10437,
     "t_open_first": "2026-10-15T01:25:00Z",
     "t_open_last": "2026-10-22T07:21:00Z"
   },
-  "logit_clip": 3.0,
-  "onnx_sha256": "bb405dcd2efb2dfdffbd4d1c332717811b6d885de3bb4e64383255ef57e5a855",
+  "onnx_sha256": "bac8a6b4fba1560ef5c51dada4e38bd3dc2809088c2562dbbcdaded2b576995a",
   "train": {
     "period": {
       "rounds": 39910,
       "t_open_first": "2026-09-10T05:45:00Z",
       "t_open_last": "2026-10-07T22:54:00Z"
     },
-    "synthetic_rounds": 0,
     "steps": 3000,
     "l2": 1e-06,
     "seed": 101

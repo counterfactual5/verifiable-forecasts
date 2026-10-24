@@ -1,29 +1,31 @@
 {
   "name": "mlp32_abs",
-  "description": "|x| -> 32 ReLU -> 5 softmax",
+  "description": "|x| -> 32 ReLU -> 5 -> monotone quantile head",
   "params": 709,
-  "bounds": [
-    202,
-    474,
-    856,
-    1712
+  "quantile_levels": [
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    0.9
   ],
-  "test_log_score": -1.4692,
-  "test_accuracy": 0.3244,
+  "output_scale_bits": 12,
+  "head_gap": 0.00048828125,
+  "test_mean_pinball": 0.28603,
+  "test_coverage50": 0.4741,
+  "test_coverage80": 0.7718,
   "test_period": {
     "rounds": 10437,
     "t_open_first": "2026-10-15T01:25:00Z",
     "t_open_last": "2026-10-22T07:21:00Z"
   },
-  "logit_clip": 3.0,
-  "onnx_sha256": "e9b2d11cbb604f65cded932b60a11ace636fd9f2b9b52bea9b75eee913f54dd3",
+  "onnx_sha256": "7656778f7b68be5f869f5a74a52a3eb80490fe83b84cb99bc2f2776b228389db",
   "train": {
     "period": {
       "rounds": 39910,
       "t_open_first": "2026-09-10T05:45:00Z",
       "t_open_last": "2026-10-07T22:54:00Z"
     },
-    "synthetic_rounds": 0,
     "steps": 3000,
     "l2": 1e-06,
     "seed": 102
