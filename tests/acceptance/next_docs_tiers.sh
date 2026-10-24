@@ -32,7 +32,7 @@ check(any(l.startswith("|") and re.search(r"registerModel\([^)]*modelHash", l) a
 check(any(l.startswith("| `registerModel(") and "modelHash" in l for l in arch.splitlines()),
       "ARCHITECTURE interface table row for registerModel carries modelHash")
 demo = arch.split("## 8.", 1)[1].split("\n## ", 1)[0] if "## 8." in arch else ""
-check(bool(demo) and "演示比离线回合多一个仅承诺 agent（`api_agent.py`" not in demo and "可复现" in demo
+check(bool(demo) and "演示比离线回合多一个仅提交 agent（`api_agent.py`" not in demo and "可复现" in demo
       and all(n in demo for n in ("agent-timesfm-3.0", "agent-timestral-209m", "agent-chronos-2")),
       "ARCHITECTURE demo section names the three reproducible model agents, not the API placeholder")
 trust = arch.split("## 10.", 1)[1].split("\n## ", 1)[0] if "## 10." in arch else ""
@@ -47,7 +47,7 @@ check("ModelHashSet" in arch, "ARCHITECTURE names the ModelHashSet event")
 
 tiers = {int(v): k for k, v in re.findall(r"uint8\s+(?:public\s+)?constant\s+TIER_(\w+)\s*=\s*(\d+)", sol)}
 check(len(tiers) == 3, f"VolMarket tier constants found {tiers}")
-words = {"COMMIT_ONLY": r"仅承诺|commit-only", "REPRODUCIBLE": r"可复现|reproducible", "ZK": r"\bzk\b"}
+words = {"COMMIT_ONLY": r"仅提交|commit-only", "REPRODUCIBLE": r"可复现|reproducible", "ZK": r"\bzk\b"}
 para = next((p for p in re.split(r"\n\s*\n", arch) if "verificationTier" in p), "")
 check(bool(tiers) and all(re.search(rf"{v}\s*[=：:]\s*({words[k]})|({words[k]})\s*[=：:（(]\s*{v}", para, re.I) for v, k in tiers.items()),
       "ARCHITECTURE maps every verificationTier value to its tier as the contract constants do")

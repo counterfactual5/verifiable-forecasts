@@ -2,7 +2,7 @@
 # R6 acceptance: the 24-hour replay runs the three reproducible time-series model agents
 # (timesfm-3.0, timestral-209m, chronos-2), records tier / model_hash / per-round probs_e18 and the
 # real tolerance recompute verdict (every bucket within the recorded tolerance), the
-# dashboard shows zk / 可复现-已核验 / 仅承诺 badges (and a visible failure badge), and README / DEMO
+# dashboard shows zk / 可复现-已核验 / 仅提交 badges (and a visible failure badge), and README / DEMO
 # numbers follow the new run; the R2 / R3 acceptance keeps passing.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"

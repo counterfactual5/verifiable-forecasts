@@ -778,7 +778,7 @@ function liveBadge(d) {
 // recompute_tolerance is on the 1e18 probability scale.
 const tolText = (a) => a.recompute_tolerance ? String(Number(a.recompute_tolerance) / 1e18) : "0.001";
 const PROVIDER_ZH = { "self-built zk": "自建 zk", "self-hosted inference": "自部署推理服务" };
-const TIER_ZH = { zk: "zk 证明", reproducible: "可复现", "commit-only": "仅承诺" };
+const TIER_ZH = { zk: "zk 证明", reproducible: "可复现", "commit-only": "仅提交" };
 const QS = [0.05, 0.25, 0.5, 0.75, 0.95];
 // Quantile q of the RV distribution a 5-bucket forecast implies: inside each bucket the CDF is
 // linear in log(RV) between the bucket bounds; the two open buckets are closed one bound ratio
@@ -902,7 +902,7 @@ function heroHtml(d, isZk, nowcast = "") {
       <h3>${n} ${zh}<span class="en">${en}</span></h3></div>${body}<a class="goto" href="#/${GOTO[icon][0]}">${GOTO[icon][1]} →</a><span class="flow" aria-hidden="true"></span></li>`;
   const pill = (cls, text) => `<span class="badge ${cls}">${text}</span>`;
 
-  const s1 = step("①", "#1d3fc4", "proof", "承诺 + 证明", "commit + prove", `
+  const s1 = step("①", "#1d3fc4", "proof", "提交 + 证明", "commit + prove", `
     <div class="stat">${d.agents.length} 个 AI agent</div>
     <p>每小时先上链提交预测的哈希，截止后再公开；${zkN} 个附 EZKL zk 证明，由合约 verifyProof 当场验证${gas.length
       ? `（约 ${Math.round(Math.max(...gas) / 1000)}k gas）` : ""}${repN ? `，${repN} 个公开权重、可链下重算` : ""}。</p>
@@ -934,7 +934,7 @@ function heroHtml(d, isZk, nowcast = "") {
   return `${pageHeads(d, b)}${nowcast.replace("<section ", `<section data-v="overview live" `)}${nowcast
       ? `<a class="goto nc-more" href="#/live" data-v="overview">展开：每个 agent 的提供方、地址、agentId 与区间 →</a>` : ""}
     <div class="kpis" data-v="overview">${summaryLine(d)}</div>
-    <div data-v="overview"><p class="claim">可验证 AI 预测协议：模型<em>先承诺、再证明</em>，<br class="br">链上按<em class="v">真实结果</em>打分、按信誉加权；第一个消费者：AMM 动态手续费。</p>
+    <div data-v="overview"><p class="claim">可验证 AI 预测协议：模型<em>先提交、再证明</em>，<br class="br">链上按<em class="v">真实结果</em>打分、按信誉加权；第一个消费者：AMM 动态手续费。</p>
     <p class="claim-en">A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.</p></div>
     <div class="headline" data-v="overview"><div class="bignum${up ? "" : " neg"}"><span class="n" data-to="${b.excess}">${up ? "+" : ""}${b.excess.toFixed(2)}</span><small>nats</small></div>
       <div class="what"><b>${up ? "比瞎猜更准" : "没跑赢瞎猜"}：</b>最佳${b.zk ? " zk" : ""} agent <b>${b.name.replace("agent-", "")}</b>
@@ -1013,7 +1013,7 @@ function renderReplay({ data: d, src }) {
       return tierBadge("commit", how, "可复现", "reproducible") +
         (failed ? ` <span class="badge bad" title="${failed} of ${checked} rounds did not reproduce from the onchain features">reproduce failed</span>` : "");
     }
-    return tierBadge("commit", "committed before the deadline; no proof of which model made it", "仅承诺", `commit-only · ${a.forecast_source ?? "?"}`);
+    return tierBadge("commit", "committed before the deadline; no proof of which model made it", "仅提交", `commit-only · ${a.forecast_source ?? "?"}`);
   };
   document.querySelector("h1").textContent = `Verifiable AI Forecasts · ${rp.hours} h mainnet replay${d.live === true ? " · live" : ""}`;
   document.getElementById("subtitle").innerHTML = liveBadge(d) +
@@ -1158,7 +1158,7 @@ function renderReplay({ data: d, src }) {
       `${timesfm ? " · <b>非商用 license</b>" : ""}${a.sum.rounds_sat_out ? ` · 未参赛 ${a.sum.rounds_sat_out} 轮` : ""}</div>`;
     return head + `<details class="vdetails"><summary>详情 / 复核命令</summary>` +
       `<div class="sub">${PROVIDER_ZH[a.provider] ?? attr(a.provider)} · <span class="mono">${attr(a.model)}</span> · ${repo ? `公开权重 <span class="mono">${attr(repo)}</span>` : "闭源"} · ${lic}</div>` +
-      (a.recompute_command ? `<div class="sub">可复现：公开权重 ${attr(repo)}，每桶误差 ≤ ${tolText(a)}（容差复核；承诺先于结果）${checked
+      (a.recompute_command ? `<div class="sub">可复现：公开权重 ${attr(repo)}，每桶误差 ≤ ${tolText(a)}（容差复核；提交先于结果）${checked
           ? `；本回放已重算 ${checked - failed}/${checked} 轮在容差内` : ""}。复核：<span class="mono">${attr(a.recompute_command)}</span></div>` : "") +
       ctxSummary(a) + out + `</details>`;
   };
@@ -1348,7 +1348,7 @@ function playerBody(d) {
     else if (ra.entered === false) b = mute(`本轮未参赛 · ${ra.skip_reason ?? "—"}`);
     else if (k === "reproducible") b = ra.reproduced === true ? ok(a.recompute_command ? "可复现 ✓ 重算在容差内" : "可复现 ✓ 链下重算一致")
       : ra.reproduced === false ? bad("可复现 ✗ 重算不一致") : mute(a.recompute_command ? "可复现 · 公开权重可离线复核" : "可复现 · 本轮未核验");
-    else b = mute("无证明 · 仅承诺");
+    else b = mute("无证明 · 仅提交");
     return `<li>${who(a, i)}<span>${b}</span></li>`;
   }).join("");
   const settle = o.voided ? `<p>本轮作废：${o.void_reason ?? "—"}</p>` : `
@@ -1373,7 +1373,7 @@ function playerBody(d) {
   })();
   const stage = (k, n, zh, en, body) => `<li class="pl-stage" data-stage="${k}"><div class="pl-h"><span class="n">${n}</span>${zh}<span class="en">${en}</span></div><div class="pl-b">${body}</div></li>`;
   return `<ol class="pl-stages">
-    ${stage(1, "①", "承诺", "commit", `<p class="dim">哈希承诺截止 ${hms(r.start - p.commit_lead_s)}（开窗前 ${p.commit_lead_s}s），揭示截止开窗前 ${p.reveal_lead_s}s</p><ul>${commit}</ul>
+    ${stage(1, "①", "提交", "commit", `<p class="dim">哈希提交截止 ${hms(r.start - p.commit_lead_s)}（开窗前 ${p.commit_lead_s}s），揭示截止开窗前 ${p.reveal_lead_s}s</p><ul>${commit}</ul>
       <p class="pl-src dim">回放 JSON 未记录 commit 哈希与揭示区块</p>`)}
     ${stage(2, "②", "证明", "prove", `<ul>${prove}</ul>${d.tamper_checks?.length ? `<p class="pl-src dim">verifyProof gas 与篡改检查为回放第 0 轮实测</p>` : ""}`)}
     ${stage(3, "③", "结算", "settle", settle)}
@@ -1382,7 +1382,7 @@ function playerBody(d) {
 
 function playerCard(d) {
   return `<section class="player" data-v="rounds" aria-labelledby="pl-title"><div class="flow-head"><span class="eyebrow">round player · 单轮回放</span>
-    <h3 id="pl-title">一轮从承诺到被使用 · <b id="pl-round"></b></h3>${roundButtons()}</div>
+    <h3 id="pl-title">一轮从提交到被使用 · <b id="pl-round"></b></h3>${roundButtons()}</div>
     <div id="pl-body" aria-live="polite"></div></section>`;
 }
 
@@ -1734,14 +1734,14 @@ function pageHeads(d, best) {
   const p = d.pending_round, entered = p ? Object.values(p.agents).filter((a) => a.entered).length : 0;
   const mainTx = rp.chainlink_reports.filter((c) => c.mainnet_tx).length + rounds.filter((r) => r.mainnet?.last_swap_tx).length;
   return head("live", "这一小时，各 agent 怎么看？", p
-      ? "当前小时的预测已在链上承诺并揭示，要等这一小时结束才结算；下面是每个 agent 的区间、提供方与链上身份。"
+      ? "当前小时的预测已在链上提交并公开，要等这一小时结束才结算；下面是每个 agent 的区间、提供方与链上身份。"
       : "这份数据不是实时模式：线上 LIVE 模式每小时重新 fork 主网，并为进行中的这一小时开一轮。下面是已结算各小时的真实波动率。",
       p ? [stat(`${entered}/${d.agents.length}`, "agent 已提交"), stat("待结算", "")] : [])
-    + head("rounds", "一轮从承诺到被使用", `${rounds.length} 个真实主网小时在 fork 上逐轮回放：选一个小时，看承诺、证明、结算和手续费依次发生。`,
+    + head("rounds", "一轮从提交到被使用", `${rounds.length} 个真实主网小时在 fork 上逐轮回放：选一个小时，看提交、证明、结算和手续费依次发生。`,
       [stat(`${s.settled}/${s.rounds}`, "轮已结算"), stat(`${rounds.filter((r) => r.rv_matches_mainnet).length}/${rounds.length}`, "波动率 = 主网"),
        stat(`${rp.chainlink_reports.filter((c) => c.ok).length}/${rp.chainlink_reports.length}`, "Chainlink 报告回放")])
-    + head("agents", "谁在预测，凭什么信它？", "每个 agent 在 ERC-8004 注册身份；验证分三档：zk 证明、公开权重可复现、仅承诺。得分写进链上声誉。",
-      [stat(n("zk"), "zk 证明"), stat(n("reproducible"), "可复现"), stat(n("commit-only"), "仅承诺"),
+    + head("agents", "谁在预测，凭什么信它？", "每个 agent 在 ERC-8004 注册身份；验证分三档：zk 证明、公开权重可复现、仅提交。得分写进链上声誉。",
+      [stat(n("zk"), "zk 证明"), stat(n("reproducible"), "可复现"), stat(n("commit-only"), "仅提交"),
        stat(`${best.excess >= 0 ? "+" : ""}${best.excess.toFixed(2)}`, `nats 最佳 ${best.name.replace("agent-", "")}`)])
     + head("fee", "预测被谁用、值多少钱？", fs
       ? "VolFeeConsumer 按声誉加权预测，每小时设定 AMM 手续费；预测市场的手续费按超额得分分给 agent。"
@@ -1760,15 +1760,15 @@ function howCard(d, agents, tierOf) {
   return `<section class="card wide" id="how"><h2>怎么运作 · How it works</h2>
     <ol class="pipe">
       <li><b>出题</b>合约在开轮时读 Uniswap V3 池的 <span class="mono">observe()</span>，算出 16 个 5 分钟 tick 差分特征（zk 公共输入）。</li>
-      <li><b>承诺</b>agent 在截止前上链提交预测哈希，开窗前揭示 5 档概率；晚了不算。</li>
+      <li><b>提交</b>agent 在截止前上链提交预测哈希（commit，只交哈希、不交预测本身），开窗前揭示 5 档概率；晚了不算。</li>
       <li><b>证明</b>zk 档的揭示附 EZKL 证明，合约当场 <span class="mono">verifyProof</span>${gas.length ? `（约 ${Math.round(Math.max(...gas) / 1000)}k gas）` : ""}${tc.length ? `；篡改证明被拒 ${rej}/${tc.length}` : ""}。</li>
       <li><b>结算</b>一小时后用池子 TWAP 算真实波动率，Chainlink 交叉校验价格，按 ln p 给每个预测打分。</li>
       <li><b>声誉与使用</b>分数写进 ERC-8004 声誉；VolFeeConsumer 按声誉加权预测，设定 AMM 手续费。</li>
     </ol>
     <div class="tiers">
       ${tier("zk", "zk 证明", n("zk"), "证明“这个输出来自注册的这个模型 + 链上这组输入”。小模型，链上验证。")}
-      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每桶误差 ≤ 0.001（容差复核；承诺先于结果）。")}
-      ${tier("commit", "仅承诺", n("commit-only"), "只证明“事前提交、没改过”，不证明是哪个模型。闭源模型也能参赛。")}
+      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每桶误差 ≤ 0.001（容差复核；提交先于结果）。")}
+      ${tier("commit", "仅提交", n("commit-only"), "只证明“事前提交、没改过”，不证明是哪个模型。闭源模型也能参赛。")}
       ${tier("commit", "TEE", 0, "可信硬件远程证明，未实现。")}
     </div>
     <div class="sub" style="margin-top:10px">逐个 agent 的档位、证明耗时与声誉见 <a href="#/agents">Agents 与验证</a>；一轮的完整过程见 <a href="#/rounds">轮次回放</a>。</div></section>`;

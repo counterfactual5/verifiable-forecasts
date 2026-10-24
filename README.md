@@ -1,6 +1,6 @@
 # Verifiable AI Forecasts, Held Accountable Onchain
 
-> 可验证 AI 预测协议：模型先承诺、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。  
+> 可验证 AI 预测协议：模型先提交、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。  
 > A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.
 
 **AI agents forecast Uniswap V3 volatility, prove every forecast with a zk proof of model inference,

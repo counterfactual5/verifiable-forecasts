@@ -2,7 +2,7 @@
 
 ETH Shenzhen 2026 · Verifiable AI + Agent Infra · 3-minute pitch and slide outline.
 
-> 可验证 AI 预测协议：模型先承诺、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。  
+> 可验证 AI 预测协议：模型先提交、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。  
 > A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.
 
 Evidence grades follow `AGENTS.md`: **A** = primary source (regulator release, standard text,
@@ -50,15 +50,15 @@ about skill. Next: live rounds with outside agents.
 
 ## 3 分钟讲稿（中文）
 
-**问题（25 秒）**：可验证 AI 预测协议：模型先承诺、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。美国 SEC、CFTC 和司法部已多次处理“宣称用 AI、实际没有”的案件。一份 AI 预测战绩是否事前做的、是否出自声称的模型和输入，外部无从核实。
+**问题（25 秒）**：可验证 AI 预测协议：模型先提交、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。美国 SEC、CFTC 和司法部已多次处理“宣称用 AI、实际没有”的案件。一份 AI 预测战绩是否事前做的、是否出自声称的模型和输入，外部无从核实。
 
-**方案（35 秒）**：以太坊上的公开考场：Uniswap V3 ETH/USDC 池子下一小时波动率落在 5 个区间的哪一个。输入由合约从池子预言机算出；agent 先提交哈希承诺，窗口开始前公开。一小时后用同一池子算实际波动率，用 Chainlink ETH/USD 交叉校验（偏差超过 2% 作废退款），再把对数分以市场合约身份写入 agent 的 ERC-8004 信誉，agent 无法自刷。
+**方案（35 秒）**：以太坊上的公开考场：Uniswap V3 ETH/USDC 池子下一小时波动率落在 5 个区间的哪一个。输入由合约从池子预言机算出；agent 先只提交预测哈希（commit），窗口开始前再公开预测本身。一小时后用同一池子算实际波动率，用 Chainlink ETH/USD 交叉校验（偏差超过 2% 作废退款），再把对数分以市场合约身份写入 agent 的 ERC-8004 信誉，agent 无法自刷。
 
 **agent 与 keeper（25 秒）**：`settle`、`createRound` 是 keeper 活，无许可，谁都能调。预测者才是 ERC-8004 意义上的 agent：在不确定性下做判断、要担责、需要信誉。agent 经济在消费方：消费方按信誉挑预测者；按次 x402 付费是路线图。
 
 **谁在用（35 秒）**：`VolFeeConsumer` 把已公开的预测按 ERC-8004 信誉加权合成，按 LVR 设定池子的动态手续费。回放里对比各策略与公平 LVR 费率（均值 3.71 bps）的平均绝对误差：固定 5 bps 误差最低，为 1.84 bps。预报定费 2.06，好过上一小时波动定费 2.81，没赢过固定档；模拟，不真实收费。
 
-**三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记模型由合约输入得出这组输出。可复现（已实现）：三个开源权重时序模型登记 `modelHash`，任何人用 `vol_agents.tsfm_recompute` 从链上数据重算，每桶误差 ≤ 0.001，均 24/24 轮。仅承诺：只证明时间。可复现证明出处不证明准确；零样本 timestral-209m 总分 −34.8，高于均匀基线 −38.6。
+**三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记模型由合约输入得出这组输出。可复现（已实现）：三个开源权重时序模型登记 `modelHash`，任何人用 `vol_agents.tsfm_recompute` 从链上数据重算，每桶误差 ≤ 0.001，均 24/24 轮。仅提交：只证明时间。可复现证明出处不证明准确；零样本 timestral-209m 总分 −34.8，高于均匀基线 −38.6。
 
 **演示与局限（25 秒）**：主网 fork、真实池子与 Chainlink 喂价，回放 24 个真实小时：24 轮全部结算、0 作废，特征与波动率都与主网重算一致。`linear_abs` −35.5、`mlp32_abs` −35.8 跑赢均匀基线 −38.6，`mlp16` −39.2 没有。一天说明不了能力；下一步开放外部 agent 跑真实轮次。
 
@@ -118,7 +118,7 @@ about skill. Next: live rounds with outside agents.
    ERC-8004 Validation Registry once the spec settles; a TEE tier and submission stake (roadmap, not
    implemented; see "Tiered verification" below).
 
-## Tiered verification / 分级验证（zk、可复现、仅承诺已实现，TEE 为路线图）
+## Tiered verification / 分级验证（zk、可复现、仅提交已实现，TEE 为路线图）
 
 Accountability has four layers. Three of them do not need zk at all:
 
@@ -176,17 +176,17 @@ accepts; a reader tells reproducible from commit-only by the onchain `modelHash`
 own design: "Trust models are pluggable and tiered", listing client-feedback reputation,
 stake-secured re-execution, zkML proofs and TEE oracles (grade A, EIP-8004).
 
-问责分四层：事前承诺（哈希承诺 + 公开截止）、客观结算（`observe()` + Chainlink 交叉校验）、成绩可携带
+问责分四层：事前提交（提交哈希 + 公开截止）、客观结算（`observe()` + Chainlink 交叉校验）、成绩可携带
 （ERC-8004）都不依赖 zk；只有“出处：确实是该模型算的”需要 zk 证明或公开重算。出处分级：zk（已实现，小模型）；
 可复现（已实现，开源权重 + 固定推理代码，`registerModel` 登记 `modelHash`，任何人用 `vol_agents.tsfm_recompute`
 从链上数据重算，每桶误差 ≤ 0.001，回放三个模型均 24/24 轮；只证明出处不证明准确）；
-仅承诺（已实现，任意模型，`verifier = 0` 且无 `modelHash`，只证明时间不证明出处）；TEE 远程证明（大模型 / LLM，
+仅提交（已实现，任意模型，`verifier = 0` 且无 `modelHash`，只证明时间不证明出处）；TEE 远程证明（大模型 / LLM，
 需信任硬件厂商，未实现）。不做 opML：它需要挑战窗口和链上单步 VM，长于一小时一轮，且依赖 1-of-N 诚实假设
 （至少一个诚实验证者在盯并愿意发起挑战）。本项目最大的 zk 模型 709 个参数；链上 zkML 实用规模的通行说法见上表，
-标为待证据。所有 agent（含 zk）都先承诺后公开：承诺为
-`keccak256(abi.encode(roundId, modelId, outputs, salt, msg.sender))`，绑定发送者，抄来的承诺无法被他人公开；
+标为待证据。所有 agent（含 zk）都先提交后公开：提交的哈希为
+`keccak256(abi.encode(roundId, modelId, outputs, salt, msg.sender))`，绑定发送者，抄来的提交哈希无法被他人公开；
 公开阶段在窗口开始前结束，zk 模型在公开时验证证明；未公开的预测不计分、不分钱。写入 ERC-8004 时 zk 用
-tag2 `vol-300s-12`，可复现与仅承诺用 `vol-300s-12-commit`、靠链上 `modelHash` 区分，读取方按自己接受的等级过滤。
+tag2 `vol-300s-12`，可复现与仅提交用 `vol-300s-12-commit`、靠链上 `modelHash` 区分，读取方按自己接受的等级过滤。
 
 ## Economics without a token / 不发币的经济模型
 
@@ -253,8 +253,8 @@ slashing, and only once outside payers exist.
 `predictorShareBps`（构造参数，≤ 10000，演示为 50%）归得分严格高于均匀基线 `ln 0.2` 的预测者，按超出
 基线的分数比例分配，各自用 `claimPredictorReward` 领取，最后一位领取者拿取整余数，总额精确守恒；没人
 超过基线时整笔手续费归 owner。分成来自下注者的手续费，合约不增发任何代币，下注量小时分成也小。
-防作弊已实现的是 EZKL 绑定模型输出、绑定发送者的哈希承诺与公开截止、只许已登记 operator 承诺、仅高于
-基线才分钱、未公开不计分，以及可复现与仅承诺通道（单独的 ERC-8004 tag）；当前 `owner` 负责登记模型、设喂价与
+防作弊已实现的是 EZKL 绑定模型输出、绑定发送者的提交哈希与公开截止、只许已登记 operator 提交、仅高于
+基线才分钱、未公开不计分，以及可复现与仅提交通道（单独的 ERC-8004 tag）；当前 `owner` 负责登记模型、设喂价与
 ERC-8004 注册表并收取扣除分成后的手续费，`createRound` 无许可。以下均为未验证的设想：未来付费方是
 LP 区间管理、Uniswap v4 动态费率 hook、期权做市、Agent 金库，按订阅或 x402 按次付费（“DeFi 已在为小时级
 分档概率付费”[待证据]；Synth 的付费订阅只说明存在类似需求）；冷启动靠团队自注彩池、自跑 3 个 agent、
