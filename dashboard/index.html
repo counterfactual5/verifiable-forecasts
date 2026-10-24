@@ -358,6 +358,16 @@
   .scroll-hint { display: none; color: var(--muted); font-size: 12px; text-align: right; margin-bottom: 4px; }
   .scroll-hint.on { display: block; }
   .table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .agent-toggle { border: 0; background: none; padding: 2px 4px; margin-left: -4px; cursor: pointer; color: var(--accent); font-size: 13px; line-height: 1;
+                  transition: transform .15s; }
+  .agent-toggle[aria-expanded="true"] { transform: rotate(90deg); }
+  .agent-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .agent-vshort { margin-top: 4px; }
+  .agent-rounds-note { margin: 4px 0 8px; }
+  tr.agent-detail > td { background: var(--panel-2); border-radius: 10px; }
+  .agent-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 24px; font-size: 12.5px; color: var(--muted);
+                       white-space: normal; overflow-wrap: anywhere; }
+  .agent-detail-grid h4 { margin: 0 0 4px; font: 600 12px/1.3 var(--sans, inherit); color: var(--text); }
   .vdetails summary { cursor: pointer; width: fit-content; margin-top: 2px; color: var(--accent); font-size: 12px; }
   .vdetails summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .vdetails:not([open]) > :not(summary) { display: none; }
@@ -1462,61 +1472,66 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       on ? `16 点链上（${rs.every((x) => x.context_source !== "onchain" || /reproducible/.test(x.context_reason ?? ""))
         ? "可复现档只读链上输入" : "回退"}）× ${on} 轮` : ""].filter(Boolean).join(" / ")}</div>`;
   };
-  const tsfmInfo = (a) => {
-    const repo = a.weights ? a.weights.split("@")[0] : null;
-    const timesfm = /^TimesFM/i.test(a.license ?? "");
-    const lic = timesfm ? `<b>TimesFM license: non-commercial</b>` : `license ${attr(a.license ?? "?")}`;
-    const out = a.sum.rounds_sat_out ? `<div class="sub">未参赛 ${a.sum.rounds_sat_out} 轮（推理失败，可复现档不提交替身）</div>` : "";
-    const { checked, failed } = repro(a);
-    const verdict = a.recompute_command
-      ? `可复现 · ${checked ? `${checked - failed}/${checked} 轮重算在容差内` : "离线可复核"}`
-      : "no proof; reveal checked against commit only";
-    const head = `<div class="sub">${verdict} · <span class="mono">${attr(a.model)}</span>` +
-      `${timesfm ? " · <b>非商用 license</b>" : ""}${a.sum.rounds_sat_out ? ` · 未参赛 ${a.sum.rounds_sat_out} 轮` : ""}</div>`;
-    return head + `<details class="vdetails"><summary>详情 / 复核命令</summary>` +
-      `<div class="sub">${PROVIDER_ZH[a.provider] ?? attr(a.provider)} · <span class="mono">${attr(a.model)}</span> · ${repo ? `公开权重 <span class="mono">${attr(repo)}</span>` : "闭源"} · ${lic}</div>` +
-      (a.recompute_command ? `<div class="sub">可复现：公开权重 ${attr(repo)}，${v2 ? "每个分位数误差 ≤ " + tolText(a) + "（ln RV）" : "每桶误差 ≤ " + tolText(a)}（容差复核；提交先于结果）${checked
-          ? `；本回放已重算 ${checked - failed}/${checked} 轮在容差内` : ""}。复核：<span class="mono">${attr(a.recompute_command)}</span></div>` : "") +
-      ctxSummary(a) + out + `</details>`;
-  };
-  const agentRows = agents.map((a) => {
-    const m = a.sum, rep = m.erc8004, t = tamper[a.agent];
+  const nScored = s.settled;
+  const spanH = rounds.length ? Math.round((Math.max(...rounds.map((r) => r.end ?? 0)) - Math.min(...rounds.map((r) => r.start ?? 0))) / 3600) : 0;
+  const missing = agents.filter((a) => (a.sum.rounds_scored ?? 0) < nScored);
+  const roundsNote = `<p class="sub agent-rounds-note">${spanH > 0 && spanH < 1000 ? `过去 ${spanH} 小时` : "本回放"}共 ${nScored} 轮，${missing.length
+    ? `${missing.length} 个 agent 有缺席（名字旁标出实际参与轮数）` : "全部 agent 每轮都参与"}。</p>`;
+  const verifyInfo = (a) => {
+    const t = tamper[a.agent];
     const proves = rounds.map((r) => r.agents[a.agent]?.prove_seconds).filter((v) => v != null);
     const prove = proves.length ? (proves.reduce((x, y) => x + y, 0) / proves.length).toFixed(1) + " s" : "–";
+    const { checked, failed } = repro(a);
+    const repo = a.weights ? a.weights.split("@")[0] : null;
+    const timesfm = /^TimesFM/i.test(a.license ?? "");
+    if (isZk(a)) return {
+      short: t ? badge(!t.tampered_output_verifies, "zk 证明 · 篡改证明被拒", "篡改证明被接受！") : `<span class="sub">zk 证明</span>`,
+      full: `${t ? `<div>${t.tampered_output_verifies ? "篡改证明被接受！tamper accepted" : "篡改输出的证明被链上验证器拒绝（tampered proof rejected）"}</div>` : ""}
+        <div>平均证明耗时 prove ${prove}${t?.verify_proof_gas ? ` · verifyProof ${t.verify_proof_gas.toLocaleString()} gas` : ""}</div>` };
+    const recompute = checked ? `本回放已重算 ${checked - failed}/${checked} 轮在容差内（recompute ${checked - failed}/${checked}）` : "";
+    if (a.provider === "self-hosted inference" || tierOf(a) === "reproducible") return {
+      short: (checked ? badge(!failed, `可复现 · 重算 ${checked - failed}/${checked}`, `${failed}/${checked} 轮未复现`) : `<span class="sub">可复现 · 离线可复核</span>`) +
+        (timesfm ? ` <span class="sub"><b>非商用 license</b></span>` : ""),
+      full: `<div>${a.provider ? `${PROVIDER_ZH[a.provider] ?? attr(a.provider)} · ` : ""}${a.model ? `<span class="mono">${attr(a.model)}</span> · ` : ""}${repo
+          ? `公开权重 <span class="mono">${attr(repo)}</span>` : "公开权重"} · ${timesfm ? "<b>TimesFM license: non-commercial</b>" : `license ${attr(a.license ?? "?")}`}</div>
+        <div>无证明；${v2 ? "每个分位数误差 ≤ " + tolText(a) + "（ln RV）" : "每桶误差 ≤ " + tolText(a)}的容差复核，提交先于结果。${recompute}</div>` +
+        (a.sum.rounds_sat_out ? `<div>未参赛 ${a.sum.rounds_sat_out} 轮（推理失败，可复现档不提交替身）</div>` : "") +
+        (a.recompute_command ? `<div>详情复核命令：<span class="mono">${attr(a.recompute_command)}</span></div>` : "") + ctxSummary(a) };
+    return { short: `<span class="sub">仅提交 · 无证明</span>`, full: `<div>无证明；只核对 reveal 与 commit 一致（no proof; reveal checked against commit only）</div>` };
+  };
+  const signed = (x) => x == null ? "–" : (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(3);
+  const agentRows = agents.map((a) => {
+    const m = a.sum, rep = m.erc8004, v = verifyInfo(a);
     const repVal = Number(rep.summary_value) / 10 ** rep.summary_decimals;
     const prov = a.provider ? PROVIDER_ZH[a.provider] ?? a.provider : isZk(a) ? "自建 zk" : "自建";
     const mh = !a.model_hash || /^0x0*$/.test(a.model_hash) ? "" : ` · modelHash <span class="mono">${short(a.model_hash)}</span>`;
-    return `<tr data-agent="${a.agent}" data-provider="${attr(prov)}"><td><span style="color:${a.color}">●</span> <b class="nowrap">${a.agent}</b> ${typeBadge(a)}
-      <div class="sub mono nowrap" title="fork 上的演示账户（anvil 测试私钥），不在主网上活动">${short(a.address)}</div><div class="sub nowrap">${attr(prov)}${mh}</div></td>
-      <td class="num">${m.rounds_scored}</td>${v2
-        ? `<td class="num"><b>${m.mean_pinball_loss != null ? m.mean_pinball_loss.toFixed(3) : "–"}</b></td>
-      <td class="num">${m.mean_excess != null ? (m.mean_excess >= 0 ? "+" : "") + m.mean_excess.toFixed(3) : "–"}</td>`
-        : `<td class="num"><b>${m.total_log_score.toFixed(3)}</b></td>
-      <td class="num">${m.mean_log_score != null ? m.mean_log_score.toFixed(3) : "–"}</td>`}
-      <td class="num">${m.beat_baseline_rounds}</td><td class="num">${eth(m.predictor_reward_wei)}</td>
-      <td>${isZk(a) ? `${t ? badge(!t.tampered_output_verifies, "tampered proof rejected", "tamper accepted!") : ""}
-        <div class="sub">prove ${prove} avg${t?.verify_proof_gas ? ` · verifyProof ${t.verify_proof_gas.toLocaleString()} gas` : ""}</div>`
-        : a.provider === "self-hosted inference" ? tsfmInfo(a)
-        : tierOf(a) === "reproducible" ? (({ checked, failed }) => `${checked
-          ? badge(!failed, `${checked}/${checked} reveals recomputed`, `${failed} of ${checked} not reproduced`) : ""}
-        <div class="sub">no proof; public weights, model <span class="mono">${a.model_hash ? short(a.model_hash) : "?"}</span></div>`)(repro(a))
-        : `<div class="sub">no proof; reveal checked against commit only</div>`}</td>
-      <td class="nowrap">agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}<br>
-        <span class="mono">${rep.tag1} / ${rep.tag2}</span></div></td></tr>`;
+    const id = `agent-detail-${a.agent.replace(/[^\w-]/g, "_")}`;
+    const n = m.rounds_scored ?? 0;
+    return `<tr data-agent="${a.agent}" data-provider="${attr(prov)}"><td><button type="button" class="agent-toggle" aria-expanded="false" aria-controls="${id}"
+        aria-label="展开 ${a.agent} 的验证与 ERC-8004 详情">▸</button> <span style="color:${a.color}">●</span> <b class="nowrap">${a.agent}</b> ${typeBadge(a)}${n < nScored
+        ? ` <span class="badge warn" data-missed>${n}/${nScored} 轮</span>` : ""}
+      <div class="agent-vshort">${v.short}</div></td>${v2
+        ? `<td class="num"><b>${m.mean_pinball_loss != null ? m.mean_pinball_loss.toFixed(3) : "–"}</b></td><td class="num">${signed(m.mean_excess)}</td>`
+        : `<td class="num"><b>${m.total_log_score.toFixed(3)}</b></td><td class="num">${signed(m.mean_log_score != null ? m.mean_log_score - uniform : null)}</td>`}
+      <td class="num">${m.beat_baseline_rounds}/${n}</td><td class="num">${eth(m.predictor_reward_wei)}</td></tr>
+    <tr class="agent-detail" id="${id}" data-detail-for="${a.agent}" hidden><td colspan="5"><div class="agent-detail-grid">
+      <div><h4>验证</h4>${v.full}<div class="mono">${short(a.address)}</div><div>${attr(prov)}${mh}</div></div>
+      <div><h4>ERC-8004 声誉</h4><div>agentId <b>${a.agent_id}</b></div>
+        <div>getSummary：${rep.count} 条记录 × 平均分 ${repVal.toFixed(3)}</div>
+        <div>tags <span class="mono">${rep.tag1} / ${rep.tag2}</span></div></div></div></td></tr>`;
   }).join("");
+  const head = (cols) => `<tr><th>Agent · ERC-8004 ${link(d.contracts.erc8004_reputation)}</th>${cols.map((c) => `<th class="num">${c}</th>`).join("")}</tr>`;
   const agentsHead = v2
-    ? `<p class="takeaway" style="margin-top:0">平均 pinball 损失越低越准（ln RV 单位）；气候基线 ${s.baseline_mean_pinball_loss != null ? s.baseline_mean_pinball_loss.toFixed(3) : "–"}。
-    损失低于基线的 agent 按超额（基线损失 − 自身损失）分走预测者手续费，得分（= −损失）同时写入 ERC-8004 声誉。</p>` + scrollTable(`<tr><th>Agent</th><th class="num">Scored</th>
-    <th class="num">Mean pinball loss</th><th class="num">Mean excess</th><th class="num">Rounds &gt; baseline</th><th class="num">Fee share (WETH)</th>
-    <th>Verification</th><th>ERC-8004 ${link(d.contracts.erc8004_reputation)}</th></tr>
-    <tr><td class="sub">climatology baseline</td><td class="num">${s.settled}</td><td class="num">${s.baseline_mean_pinball_loss != null ? s.baseline_mean_pinball_loss.toFixed(3) : "–"}</td>
-    <td class="num">0</td><td></td><td></td><td></td><td></td></tr>${agentRows}`, 980)
-    : `<p class="takeaway" style="margin-top:0">Σ ln p 越接近 0 越准；
-    瞎猜基线 ${s.uniform_total_log_score.toFixed(1)}。高于基线的 agent 按超出部分分走预测者手续费，得分同时写入 ERC-8004 声誉。</p>` + scrollTable(`<tr><th>Agent</th><th class="num">Scored</th>
-    <th class="num">Σ ln p</th><th class="num">Mean</th><th class="num">Rounds &gt; baseline</th><th class="num">Fee share (WETH)</th>
-    <th>Verification</th><th>ERC-8004 ${link(d.contracts.erc8004_reputation)}</th></tr>
-    <tr><td class="sub">uniform baseline</td><td class="num">${s.settled}</td><td class="num">${s.uniform_total_log_score.toFixed(3)}</td>
-    <td class="num">${uniform.toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>${agentRows}`, 980);
+    ? `<p class="takeaway" style="margin-top:0">平均分位数损失越低越准（ln RV 单位）；气候基线 ${s.baseline_mean_pinball_loss != null ? s.baseline_mean_pinball_loss.toFixed(3) : "–"}。
+    损失低于基线的 agent 按超额（基线损失 − 自身损失）分走预测者手续费，得分（= −损失）同时写入 ERC-8004 声誉。</p>` + roundsNote + scrollTable(
+      head(["平均分位数损失（越低越好）", "相对气候基线（+ = 优于基线）", `跑赢基线 x/${nScored}`, "分到手续费 (WETH)"]) +
+      `<tr class="agent-baseline"><td class="sub">气候基线 · climatology baseline</td><td class="num">${s.baseline_mean_pinball_loss != null ? s.baseline_mean_pinball_loss.toFixed(3) : "–"}</td>
+      <td class="num">0</td><td class="num">–</td><td class="num">–</td></tr>${agentRows}`, 640)
+    : `<p class="takeaway" style="margin-top:0">Σ ln p 越接近 0 越准；瞎猜基线 ${s.uniform_total_log_score.toFixed(1)}。
+    高于基线的 agent 按超出部分分走预测者手续费，得分同时写入 ERC-8004 声誉。</p>` + roundsNote + scrollTable(
+      head(["总对数得分 Σ ln p（越接近 0 越好）", "相对瞎猜基线（每轮平均，+ = 优于基线）", `跑赢基线 x/${nScored}`, "分到手续费 (WETH)"]) +
+      `<tr class="agent-baseline"><td class="sub">瞎猜基线 · uniform baseline</td><td class="num">${s.uniform_total_log_score.toFixed(3)}</td>
+      <td class="num">0</td><td class="num">–</td><td class="num">–</td></tr>${agentRows}`, 640);
   const agentsCard = card("Agents · 得分、证明与 ERC-8004 声誉", agentsHead +
     (d.skipped_agents ?? []).map((x) => `<div class="sub" style="margin-top:8px">未参赛 · not run: <span class="mono">${attr(x.agent)}</span>
     (${attr(x.tier)}) — ${attr(x.reason)}</div>`).join(""), "wide");
@@ -1615,6 +1630,13 @@ function roundButtons() {
     <button type="button" data-rc="play" aria-label="play or pause the round replay">${STATE.playing ? "❚❚" : "▶"}</button>
     <button type="button" data-rc="next" aria-label="next round">▶▶</button></span>`;
 }
+document.addEventListener("click", (e) => {
+  const t = e.target.closest?.(".agent-toggle");
+  if (!t) return;
+  const open = t.getAttribute("aria-expanded") !== "true";
+  t.setAttribute("aria-expanded", String(open));
+  document.getElementById(t.getAttribute("aria-controls")).hidden = !open;
+});
 document.addEventListener("click", (e) => {
   const b = e.target.closest?.("[data-rc]");
   if (!b) return;

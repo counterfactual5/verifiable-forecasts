@@ -156,7 +156,8 @@ const fs = require("fs");
     await page.evaluate(() => { location.hash = "#/agents"; });
     await page.waitForTimeout(300);
     const rows = await page.evaluate(() => [...document.querySelectorAll("#app tr[data-provider]")].filter((tr) => tr.getClientRects().length)
-      .map((tr) => ({ agent: tr.dataset.agent, provider: tr.dataset.provider, text: tr.textContent.replace(/\s+/g, " ") })));
+      .map((tr) => ({ agent: tr.dataset.agent, provider: tr.dataset.provider,
+        text: (tr.textContent + " " + (document.querySelector(`tr[data-detail-for="${tr.dataset.agent}"]`)?.textContent ?? "")).replace(/\s+/g, " ") })));
     check(rows.length === d.agents.length, `@${width}: #/agents: one provider row per agent (${rows.length}/${d.agents.length})`);
     const ok = d.agents.every((a) => {
       const row = rows.find((x) => x.agent === a.agent);
@@ -165,7 +166,7 @@ const fs = require("fs");
       return row && (!prov || row.provider === prov) && row.text.includes(String(a.agent_id)) && row.text.includes(a.address.slice(0, 6))
         && (!a.model_hash || /^0x0*$/.test(a.model_hash) || row.text.includes(a.model_hash.slice(0, 6)));
     });
-    check(ok, `@${width}: #/agents provider rows carry provider, address, agentId, modelHash`);
+    check(ok, `@${width}: #/agents provider rows (with their detail row) carry provider, address, agentId, modelHash`);
     await page.evaluate(() => { location.hash = "#/overview"; });
     await page.waitForTimeout(300);
     const ov = await page.evaluate(() => {
