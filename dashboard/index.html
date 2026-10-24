@@ -180,7 +180,7 @@
                left: calc(var(--h) * 100% / var(--n)); border: 1.5px solid var(--vermil); border-radius: 3px; transition: left .3s var(--ease); }
   .heat .hm { --h: inherit; }
   .hm i { position: relative; cursor: pointer; background: rgba(29, 63, 196, var(--p)); }
-  .hm i:not([style*="--p:0.0"]):hover { outline: 1px solid var(--ink); }
+  .hm i:not([style*="--p:0.0"]):hover { box-shadow: inset 0 0 0 1px var(--accent); }
   .hm i.w::after, .hm-dot { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
                      background: #fff; box-shadow: 0 0 0 1.5px var(--ink); }
   .hm-dot { position: relative; display: inline-block; left: 0; top: 0; margin: 0 2px 0 0; vertical-align: 0; }
@@ -352,7 +352,11 @@
          background: rgba(251,248,241,.97); border: 1px solid var(--line-2); box-shadow: 0 10px 24px -12px rgba(60,45,20,.4);
          font: 12px/1.6 var(--mono); color: var(--text); opacity: 0; transform: translateY(4px);
          transition: opacity .12s, transform .12s; backdrop-filter: blur(6px); }
-  .chart.hover .tip { opacity: 1; transform: none; }
+  .chart.hover .tip, #tipbox.on { opacity: 1; transform: none; }
+  .chart .tip { max-width: 100%; }
+  #tipbox { position: fixed; z-index: 50; left: 0; top: 0; max-width: min(340px, calc(100vw - 16px)); }
+  #tipbox .r { white-space: normal; }
+  #tipbox .r b { white-space: nowrap; }
   .tip .t { color: var(--faint); margin-bottom: 3px; letter-spacing: .06em; }
   .tip .r { display: flex; justify-content: space-between; gap: 14px; white-space: nowrap; }
   .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
@@ -369,6 +373,13 @@
   .fee-tile.main { border-color: color-mix(in srgb, var(--vermil) 45%, var(--line)); background: color-mix(in srgb, var(--vermil) 6%, var(--panel)); }
   .fee-tile.ref { border-style: dashed; background: var(--panel); }
   .fee-mae { font: 600 22px/1.3 var(--mono); }
+  .fee-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 4px 0 2px; font-size: 12.5px; color: var(--muted); }
+  .fee-stats div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+  .fee-stats dt, .fee-stats dd { margin: 0; }
+  .fee-stats b { font: 600 13px/1.3 var(--mono); color: var(--text); }
+  #fee-resid { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .fee-resid-lead { margin: 0 0 6px; font-size: 12.5px; color: var(--muted); }
+  .fee-resid-lead b { color: var(--text); font-weight: 600; }
   .role { display: inline-block; font: 10px/1.5 var(--mono); letter-spacing: .04em; color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 2px; white-space: nowrap; vertical-align: 1px; }
   @media (max-width: 600px) {
     header { padding: 18px 16px 4px; }
@@ -617,7 +628,8 @@ function segmentChart(fork, real, label) {
   const x = (i) => P + i * (W - 2 * P) / (fork.length - 1);
   const y = (v) => H - 22 - (v - lo) * (H - 40) / (hi - lo);
   const path = (s) => s.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
-  const dots = (s, c) => s.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${c}"/>`).join("");
+  const dots = (s, c) => s.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${c}"
+    data-tip="${attr(tipLines(`segment ${i + 1}`, [`fork mean tick: ${v}`, ...(real?.[i] != null ? [`mainnet TWAP tick: ${real[i]}`] : [])]))}"/>`).join("");
   const labels = fork.map((_, i) => `<text x="${x(i)}" y="${H - 4}" text-anchor="middle">${i + 1}</text>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">
     <text x="0" y="${y(hi - 2) + 4}">${hi - 2}</text><text x="0" y="${y(lo + 2) + 4}">${lo + 2}</text>
@@ -753,7 +765,7 @@ const CHARTS = [];
 
 // min / max bound the axis, never the data, and only when every value already respects them.
 // rankLegend orders the legend by each series' last value, highest first; drawing order is unchanged.
-function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 240, min = null, max = null, label = "", rankLegend = false } = {}) {
+function lineChart(series, labels, { zero = null, fmt = null, tip = null, unit = "", H = 240, min = null, max = null, label = "", rankLegend = false } = {}) {
   const vals = series.flatMap((s) => s.values).filter((v) => v != null).concat(zero ?? []);
   const dmin = Math.min(...vals), dmax = Math.max(...vals);
   let lo = dmin, hi = dmax;
@@ -788,14 +800,14 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-opacity=".7" stroke-dasharray="5 4"/>` : "";
   const last = (s) => s.values.reduce((x, v) => v ?? x, -Infinity);
   const legend = (rankLegend ? series.slice().sort((a, b) => last(b) - last(a)) : series).map((s) => `<span class="nowrap">${swatch(s.color, s.dash)} ${s.name}${s.role ? ` ${roleTag(s.role)}` : ""}</span>`).join(" &nbsp; ");
-  CHARTS.push({ W, n, L, R, x, labels, series: series.map((s) => ({ name: s.name, color: s.color, values: s.values })), tipFmt });
-  return `<div class="chart" data-chart="${id}"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}<g class="series">${lines}</g>${xl}
+  CHARTS.push({ W, n, L, R, x, labels, unit, series: series.map((s) => ({ name: s.name, color: s.color, values: s.values })), tipFmt });
+  return `<div class="chart" data-chart="${id}" data-unit="${attr(unit)}"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}<g class="series">${lines}</g>${xl}
     <line class="guide" x1="0" x2="0" y1="${T}" y2="${H - B}"/></svg><div class="tip" aria-hidden="true"></div></div><div class="sub">${legend}</div>`;
 }
 
 function chartHover(app) {
   const clear = (keep) => app.querySelectorAll(".chart.hover").forEach((c) => c !== keep && c.classList.remove("hover"));
-  app.addEventListener("pointermove", (e) => {
+  const show = (e) => {
     const wrap = e.target.closest?.(".chart");
     clear(wrap);
     const c = wrap && CHARTS[wrap.dataset.chart];
@@ -807,16 +819,53 @@ function chartHover(app) {
     const guide = svg.querySelector(".guide");
     guide.setAttribute("x1", gx); guide.setAttribute("x2", gx);
     const tipEl = wrap.querySelector(".tip");
-    tipEl.innerHTML = `<div class="t">${c.labels[i]} UTC</div>` + c.series.filter((s) => s.values[i] != null)
+    tipEl.innerHTML = `<div class="t">${c.labels[i]} UTC${c.unit ? ` · ${c.unit}` : ""}</div>` + c.series.filter((s) => s.values[i] != null)
       .sort((a, b) => b.values[i] - a.values[i]).map((s) => `<div class="r"><span><i style="background:${s.color}"></i>${s.name}</span><b>${c.tipFmt(s.values[i])}</b></div>`).join("");
-    const px = gx * k, flip = px > r.width / 2;
-    tipEl.style.left = flip ? "" : `${px + 14}px`;
-    tipEl.style.right = flip ? `${r.width - px + 14}px` : "";
+    const px = gx * k, tw = tipEl.offsetWidth, room = wrap.clientWidth;
+    const left = px > r.width / 2 ? px - 14 - tw : px + 14;
+    tipEl.style.left = `${Math.max(0, Math.min(room - tw, left))}px`;
+    tipEl.style.right = "";
     tipEl.style.top = "8px";
     wrap.classList.add("hover");
-  });
-  app.addEventListener("pointerleave", () => clear(null));
+  };
+  app.addEventListener("pointermove", show);
+  // A tap has no hover: it pins the read-out until the next tap elsewhere.
+  app.addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") show(e); });
+  app.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") clear(null); });
 }
+
+// Shared read-out for chart marks outside lineChart. A mark carries data-tip = "header\nname: value\n…";
+// a provider may also compute the text from the pointer position (the flow canvas). A tap pins it until the next tap.
+const TIP_PROVIDERS = [(e) => e.target.closest?.("[data-tip]")?.dataset.tip ?? null];
+const tipLines = (head, rows) => [head, ...rows].join("\n");
+function tipBox() {
+  let box = document.getElementById("tipbox");
+  if (!box) {
+    box = Object.assign(document.createElement("div"), { id: "tipbox", className: "tip" });
+    box.setAttribute("aria-hidden", "true");
+    document.body.appendChild(box);
+  }
+  return box;
+}
+function showTip(e) {
+  const text = TIP_PROVIDERS.reduce((t, f) => t ?? f(e), null), box = tipBox();
+  if (!text) { box.classList.remove("on"); return; }
+  const [head, ...rows] = text.split("\n");
+  box.innerHTML = `<div class="t">${attr(head)}</div>` + rows.map((r) => {
+    const k = r.lastIndexOf(": ");
+    return k < 0 ? `<div class="r"><span>${attr(r)}</span></div>` : `<div class="r"><span>${attr(r.slice(0, k))}</span><b>${attr(r.slice(k + 2))}</b></div>`;
+  }).join("");
+  const vw = document.documentElement.clientWidth, w = box.offsetWidth, h = box.offsetHeight;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > vw - 8) x = e.clientX - 14 - w;
+  if (y + h > innerHeight - 8) y = e.clientY - 14 - h;
+  box.style.left = `${Math.max(8, Math.min(vw - 8 - w, x))}px`;
+  box.style.top = `${Math.max(8, y)}px`;
+  box.classList.add("on");
+}
+document.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse") showTip(e); });
+document.addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") showTip(e); });
+addEventListener("scroll", () => document.getElementById("tipbox")?.classList.remove("on"), { passive: true });
 
 const feeNames = (fixedBps) => ({ fair: "hindsight fair fee", forecast: "forecast", fixed: `fixed ${fixedBps} bps`, prev_hour: "prev-hour RV" });
 const roleTag = (role) => `<span class="role">${role}</span>`;
@@ -944,21 +993,23 @@ function nowcastHtml(d, agents, tierOf) {
   const pbw = stack ? Math.max(3, gap * 0.5) : dx * 0.72, ptw = stack ? Math.max(4, gap * 0.75) : dx * 0.95;
   const marks = past.map((x, i) => x.fc.map(({ a, k, q }) => {
     const cx = px(i) + (k - (agents.length - 1) / 2) * dx, [q05, q25, q50, q75, q95] = q;
-    return `<g class="nc-past" data-forecaster="${a.agent}" data-round="${x.id}" data-q50="${q50}"><title>${a.agent} · ${x.t} UTC: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, ${band} ${fmt(q05)}–${fmt(q95)} tick² · realized ${x.v}</title>` +
+    const tip = tipLines(`${x.t} UTC · ${a.agent}`, [`median: ${fmt(q50)} tick²`, `50%: ${fmt(q25)}–${fmt(q75)} tick²`,
+      `${band}: ${fmt(q05)}–${fmt(q95)} tick²`, `realized RV: ${x.v} tick²`]);
+    return `<g class="nc-past" data-forecaster="${a.agent}" data-round="${x.id}" data-q50="${q50}" data-tip="${attr(tip)}">` +
       glyph(cx, pbw, ptw, q, a.color, stack ? ".05" : ".14", stack ? ".14" : ".45", stack ? 1.4 : 2) + `</g>`;
   }).join("")).join("");
   const line = past.map((x, i) => `${i ? "L" : "M"}${px(i).toFixed(1)},${y(x.v).toFixed(1)}`).join("");
   const step = Math.ceil(past.length / Math.max(2, Math.floor((split - L) / 46)));
-  const dots = past.map((x, i) => `<circle cx="${px(i).toFixed(1)}" cy="${y(x.v).toFixed(1)}" r="3" fill="#1b1a17"><title>${x.t} UTC: RV ${x.v} tick²</title></circle>` +
+  const dots = past.map((x, i) => `<circle cx="${px(i).toFixed(1)}" cy="${y(x.v).toFixed(1)}" r="3" fill="#1b1a17" data-tip="${attr(tipLines(`${x.t} UTC`, [`realized RV: ${x.v} tick²`]))}"/>` +
     (i % step ? "" : `<text class="ax" x="${px(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${x.t}</text>`)).join("");
+  const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
   const colW = (W - R - split - 8) / Math.max(1, fc.length), bw = Math.max(6, Math.min(26, colW * 0.6));
   const bands = fc.map((a, k) => {
     const cx = split + 4 + (k + 0.5) * colW, [q05, q25, q50, q75, q95] = a.q;
-    return `<g data-agent="${a.agent}" ${(v2 ? LEVELS(d) : QS).map((q, i) => `data-q${String(Math.round(q * 100)).padStart(2, "0")}="${a.q[i]}"`).join(" ")}>
-      <title>${a.agent}: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, ${band} ${fmt(q05)}–${fmt(q95)} tick²</title>
+    const tip = tipLines(`${hour} · ${a.agent} (pending)`, [`median: ${fmt(q50)} tick²`, `50%: ${fmt(q25)}–${fmt(q75)} tick²`, `${band}: ${fmt(q05)}–${fmt(q95)} tick²`]);
+    return `<g data-agent="${a.agent}" ${(v2 ? LEVELS(d) : QS).map((q, i) => `data-q${String(Math.round(q * 100)).padStart(2, "0")}="${a.q[i]}"`).join(" ")} data-tip="${attr(tip)}">
       ${glyph(cx, bw, bw + 6, a.q, a.color, ".2", ".5", 3)}</g>`;
   }).join("");
-  const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
   const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(`Realized volatility of the last ${past.length} hours and, for the hour ${hour} (pending), each agent's median with 50% and ${band} intervals, log scale`)}">
     <rect x="${split.toFixed(1)}" y="${T - 20}" width="${(W - R - split).toFixed(1)}" height="${H - B - T + 20}" rx="8" fill="var(--accent)" opacity=".06"/>
     ${grid}${marks}<path d="${line}" fill="none" stroke="#1b1a17" stroke-width="2.2" stroke-linejoin="round"/>${dots}
@@ -1017,7 +1068,9 @@ function caseCard(d, live = d) {
     const q = v2 && mixQ ? mixQ : QS.map((x) => bucketQuantile(mix, b, x));
     const lo = b[0] * b[0] / b[1], hi = b[3] * b[3] / b[2], W = 240, H = 26;
     const x = (v) => 4 + (Math.log(Math.min(hi, Math.max(lo, v))) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)) * (W - 8);
-    const bar = `<svg class="cs-bar" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${attr(`consensus median ${fmt(q[2])}, 50% ${fmt(q[1])}–${fmt(q[3])}, ${band} ${fmt(q[0])}–${fmt(q[4])} tick²`)}">
+    const barTip = tipLines(`${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC · consensus (pending)`,
+      [`median: ${fmt(q[2])} tick²`, `50%: ${fmt(q[1])}–${fmt(q[3])} tick²`, `${band}: ${fmt(q[0])}–${fmt(q[4])} tick²`]);
+    const bar = `<svg class="cs-bar" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" data-tip="${attr(barTip)}" aria-label="${attr(`consensus median ${fmt(q[2])}, 50% ${fmt(q[1])}–${fmt(q[3])}, ${band} ${fmt(q[0])}–${fmt(q[4])} tick²`)}">
       ${b.map((v) => `<line x1="${x(v).toFixed(1)}" x2="${x(v).toFixed(1)}" y1="2" y2="${H - 2}" stroke="rgba(27,26,23,.18)" stroke-dasharray="2 3"/>`).join("")}
       <rect x="${x(q[0]).toFixed(1)}" y="8" width="${(x(q[4]) - x(q[0])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".18"/>
       <rect x="${x(q[1]).toFixed(1)}" y="8" width="${(x(q[3]) - x(q[1])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".45"/>
@@ -1122,7 +1175,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const outcomeCard = !v2 ? "" : card(lnTitle,
     lineChart([{ name: "realized ln RV", color: "#1b1a17", width: 2.2, values: rounds.map((r) => r.outcome.voided ? null : r.ln_rv) },
       { name: "climatology median", color: "#a8a194", width: 1.4, dash: "2 3", values: rounds.map((r) => r.baseline_quantiles?.[2] ?? null) }],
-      labels, { tip: (v) => v.toFixed(2), label: `${lnTitle}, ${rounds.length} rounds` }) +
+      labels, { tip: (v) => v.toFixed(2), unit: "ln tick²", label: `${lnTitle}, ${rounds.length} rounds` }) +
     `<div class="sub">ln RV = 自然对数（RV 单位 tick²，RV = 0 记为 0）；灰虚线 = 训练期气候基线的中位数（每轮相同，开轮时写进合约）。
       ${settledR.length} settled rounds; realized ln RV vs the climatological median, natural log of tick².</div>` +
     scrollTable(`<tr><th>Interval coverage · 区间覆盖率</th><th class="num">50% (25–75)</th><th class="num">80% (10–90)</th></tr>
@@ -1132,7 +1185,8 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     "", "outcome-card");
   const bucketCard = v2 ? outcomeCard : card("真实结果落在哪档 · Winning buckets", `<div style="display:flex;gap:6px;align-items:flex-end;height:120px"
     role="img" aria-label="${attr(bucketLabel)}">
-    ${counts.map((c, i) => `<div style="flex:1;text-align:center"><div class="sub">${c}</div>
+    ${counts.map((c, i) => `<div style="flex:1;text-align:center" data-bucket-bar="${i}"
+      data-tip="${attr(tipLines(`#${i} ${names[i]} tick²`, [`winning rounds: ${c} of ${counts.reduce((a, b) => a + b, 0)}`]))}"><div class="sub">${c}</div>
       <div style="height:${c / maxC * 90}px;background:var(--win);opacity:.75;border-radius:4px 4px 0 0"></div></div>`).join("")}</div>
     <div class="buckets">${names.map((n, i) => `<div>#${i}<br>${n}</div>`).join("")}</div>
     <div class="sub" style="margin-top:8px">Bounds in tick², calibrated on training-period swaps only.</div>`);
@@ -1154,7 +1208,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const excessCard = card(excessTitle,
     `<p class="takeaway" style="margin-top:0">${tierBeat}（累计 &gt; 0${v2 ? "" : " nats"}）。${agents.filter((a) => repro(a).failed).map((a) =>
       ` <span class="badge bad">${a.agent}: reproduce failed × ${repro(a).failed}</span>`).join("")}</p>` +
-    lineChart(excess, labels, { zero: 0, rankLegend: true, label: chartLabel(excessTitle, excess) }) +
+    lineChart(excess, labels, { zero: 0, rankLegend: true, unit: v2 ? "ln RV" : "nats", label: chartLabel(excessTitle, excess) }) +
     (v2 ? `<div class="sub">每轮超额 = 气候基线的 pinball 损失 − agent 的 pinball 损失（ln RV 单位，5 个分位数平均）；曲线在虚线 0 之上 = 累计比气候基线更准。
     Per round: climatology pinball loss minus the agent's (mean over the 5 quantile levels, ln RV units); above 0 = more accurate than climatology. Voided rounds are not scored.`
     : `<div class="sub">nats：自然对数单位。每轮得分 = ln(agent 给真实结果所在档位的概率)，瞎猜每档 1/5 每轮得
@@ -1171,9 +1225,9 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     values: rolling(rounds.map((r) => v2 ? lossOf(r, a) : scoreOf(r, a))) }));
   const rollTitle = v2 ? `最近谁更准？ Rolling ${W}-round mean pinball loss (ln RV)` : `最近谁更准？ Rolling ${W}-round mean log score`;
   const rollCard = v2
-    ? card(rollTitle, lineChart(roll, labels, { zero: s.baseline_mean_pinball_loss ?? null, min: 0, rankLegend: true, tip: (v) => v.toFixed(3), label: chartLabel(rollTitle, roll) }) +
+    ? card(rollTitle, lineChart(roll, labels, { zero: s.baseline_mean_pinball_loss ?? null, min: 0, rankLegend: true, tip: (v) => v.toFixed(3), unit: "ln RV", label: chartLabel(rollTitle, roll) }) +
       `<div class="sub">最近 ${W} 轮的平均 pinball 损失，越低越准；虚线 = 气候基线在本回放的平均损失。Lower is better; dashed line: climatology mean loss.</div>`, "wide")
-    : card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, rankLegend: true, label: chartLabel(rollTitle, roll) }) +
+    : card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, rankLegend: true, unit: "nats", label: chartLabel(rollTitle, roll) }) +
     `<div class="sub">最近 ${W} 轮的平均得分；虚线是瞎猜 ln(1/5)。Dashed line: uniform baseline.</div>`, "wide");
 
   const pUniform = 1 / (L.params.bounds.length + 1);
@@ -1190,12 +1244,12 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const pwin = lagents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a), width: 1.8, values: L.rounds.map((r) => lv2 ? edgeOf(r, a) : pwinOf(r, a)) }));
   const pwinTitle = lv2 ? "每轮比气候基线好多少 · Per-round pinball excess vs climatology (ln RV)" : "每轮押中程度 · Probability on the realized bucket";
   const pwinCard = lv2 ? card(pwinTitle,
-    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: 0, rankLegend: true, tip: (v) => v.toFixed(3),
+    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: 0, rankLegend: true, tip: (v) => v.toFixed(3), unit: "ln RV",
       label: `${pwinTitle}: ${pwin.map((x) => x.name).join(", ")}, ${L.rounds.length} rounds` }) +
     `<div class="sub">每轮 = 气候基线的 pinball 损失 − agent 的 pinball 损失（ln RV 单位，开窗前揭示的 5 个分位数）；点在虚线 0 之上 = 这一轮比气候基线更准。真实 RV 见上方实时预测图。
     Climatology's pinball loss minus the agent's, per round; above 0 = beat climatology that round. Voided rounds are not shown.</div>`, "wide", "pwin-card")
   : card(pwinTitle,
-    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: pUniform, min: 0, max: 1, rankLegend: true,
+    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: pUniform, min: 0, max: 1, rankLegend: true, unit: "probability",
       fmt: (v) => `${Math.round(v * 100)}%`, tip: pct, label: `${pwinTitle}: ${pwin.map((x) => x.name).join(", ")}, ${L.rounds.length} rounds` }) +
     `<div class="sub">每轮各 agent 给真实结果所在档位的概率（p_win，开窗前揭示）；虚线 = 瞎猜每档 ${pct(pUniform)}，
     点在虚线之上 = 这一轮比瞎猜更准。每轮得分 = ln p_win。真实 RV 见上方实时预测图。
@@ -1215,10 +1269,23 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       { key: "forecast", name: nm.forecast, role: "protocol output", color: "#d8431b", width: 3, dash: "7 4", values: fee("forecast_bps") },
     ];
     const byKey = (k) => feeSeries.find((s) => s.key === k);
+    const fair = byKey("fair").values;
+    const residual = (k) => byKey(k).values.map((v, i) => (v == null || fair[i] == null ? null : v - fair[i]));
+    const signed = (v) => (Math.abs(v) < 0.005 ? "0.00" : `${v > 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`);
+    const residSeries = ["fixed", "prev_hour", "forecast"].map((k) => ({ ...byKey(k), role: null, values: residual(k) }));
+    const resid = Object.fromEntries(residSeries.map((s) => [s.key, s.values]));
+    const bias = (k) => { const v = resid[k].filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const beat = (k) => {
+      const pairs = resid[k].map((v, i) => [v, resid.fixed[i]]).filter(([a, b]) => a != null && b != null);
+      return `${pairs.filter(([a, b]) => Math.abs(a) < Math.abs(b)).length}/${pairs.length}`;
+    };
     const tileHead = (s) => `<div class="sub"><span class="nowrap">${swatch(s.color, s.dash)} ${s.name} ${roleTag(s.role)}</span></div>`;
     const tiles = ["forecast", "fixed", "prev_hour"].map((k) => `<div class="fee-tile${k === "forecast" ? " main" : ""}">${tileHead(byKey(k))}
         <div><span class="fee-mae" data-mae="${k}">${fs.mae_bps[k].toFixed(2)}</span> <span class="sub">bps MAE vs reference</span></div>
+        <dl class="fee-stats"><div><dt>bias</dt><dd><b data-bias="${k}">${bias(k) == null ? "—" : signed(bias(k))}</b> bps</dd></div>
+          <div><dt>rounds beating ${nm.fixed}</dt><dd><b data-beat="${k}">${k === "fixed" ? "—" : beat(k)}</b></dd></div></dl>
         <div class="sub">mean ${fs.mean_bps[k].toFixed(2)} bps</div></div>`).join("");
+    const residTitle = "Residual: strategy fee − hindsight fair fee (bps)";
     const fallback = fs.equal_weight_fallback_rounds ? ` ${fs.equal_weight_fallback_rounds} of ${fs.rounds} rounds used the equal-weight fallback.` : "";
     const feeTitle = "AMM 能用它定手续费吗？ Forecast vs hindsight fair fee (bps)";
     const low = lowestFee(fs);
@@ -1227,7 +1294,9 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       ${nm.forecast} 偏离参照 <b>${fs.mae_bps.forecast.toFixed(2)}</b> bps，${nm.fixed} 为
       <b>${fs.mae_bps.fixed.toFixed(2)}</b> bps，${nm.prev_hour} 为 <b>${fs.mae_bps.prev_hour.toFixed(2)}</b> bps：${low.key === "forecast" ? `${nm.forecast} 最贴近参照。`
         : `暂未赢过 ${nm[low.key]}（如实展示）。`}</p>` +
-      lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), label: chartLabel(feeTitle, feeSeries) }) +
+      lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), unit: "bps", label: chartLabel(feeTitle, feeSeries) }) +
+      `<div id="fee-resid"><p class="fee-resid-lead"><b>${residTitle}</b><br>残差 = 策略费率 − 事后参照；高于 0 表示收费偏高，低于 0 表示偏低。</p>` +
+      lineChart(residSeries, labels, { zero: 0, H: 180, tip: signed, unit: "bps", label: chartLabel(residTitle, residSeries) }) + `</div>` +
       `<div class="fee-tiles"><div class="fee-tile ref">${tileHead(byKey("fair"))}
         <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div></div>${tiles}</div>
       <div class="sub" style="margin-top:8px">LVR（loss-versus-rebalancing）是套利者从 LP 身上拿走的损失；参照线（hindsight fair fee）= 事后看刚好补偿这一小时 LVR 的费率，
@@ -1242,7 +1311,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
   const rewardTitle = "预测者分到的手续费 · Cumulative predictor fee share (WETH)";
-  const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, rankLegend: true, label: chartLabel(rewardTitle, rewards) }) +
+  const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, rankLegend: true, unit: "WETH", label: chartLabel(rewardTitle, rewards) }) +
     `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters ${v2
       ? "with a lower pinball loss than the climatological baseline, pro rata to their excess (baseline loss − own loss)"
       : "above the uniform baseline, pro rata to their excess log score"}.</div>
@@ -1622,7 +1691,7 @@ function heatmap(d) {
       for (let k = 4; k >= 0; k--) {
         const v = ps?.[k];
         cells.push(`<i data-h="${h}" class="${k === win ? "w" : ""}" style="--p:${v == null ? 0 : Math.min(1, v / 0.6).toFixed(3)}"
-          title="${attr(`${s.name} · ${hm} · #${k} ${names[k]}: ${v == null ? "—" : v.toFixed(3)}${k === win ? " · 实际" : ""}`)}"></i>`);
+          data-tip="${attr(tipLines(`${hm} UTC · ${s.name}`, [`#${k} ${names[k]}${k === win ? "（实际）" : ""}: ${v == null ? "—" : v.toFixed(3)}`]))}"></i>`);
       }
     });
     return `<div class="hm-row"><span class="hm-name"><b style="--c:${s.color}"></b>${s.name}${s.sub ? `<small>${s.sub}</small>` : ""}</span>
@@ -1656,6 +1725,28 @@ function flowGeom(w, h, n) {
   const by = (k) => 22 + (k + 0.5) * (h - 44) / 5;
   return { narrow, ax, bx, bw, bh, fx, fy, fr, ay, by };
 }
+
+TIP_PROVIDERS.push((e) => {
+  if (e.target.id !== "flow" || !STATE.model) return null;
+  const c = e.target, b = c.getBoundingClientRect(), px = e.clientX - b.left, py = e.clientY - b.top;
+  const m = STATE.model, r = m.rounds[STATE.round], g = flowGeom(c.clientWidth, c.clientHeight, r.agents.length);
+  const pct = (p) => `${(p * 100).toFixed(1)}%`, head = `${r.label} UTC · round #${r.h}`;
+  const k = m.names.findIndex((_, k) => Math.abs(px - g.bx) <= g.bw / 2 && Math.abs(py - g.by(k)) <= g.bh / 2);
+  if (k >= 0) {
+    const mix = r.agents.reduce((s, a) => s + a.share * a.probs[k], 0);
+    return tipLines(`${head} · #${k} ${m.names[k]} tick²`, [...r.agents.map((a) => `${a.name}: ${pct(a.probs[k])}`),
+      `weighted mix: ${pct(mix)}`, ...(k === r.win ? [`realized RV (settled here): ${r.rv} tick²`] : [])]);
+  }
+  const i = r.agents.findIndex((_, i) => Math.hypot(px - g.ax, py - g.ay(i)) <= Math.max(12, FLOW.radii[i] ?? 0) + 4);
+  if (i >= 0) {
+    const a = r.agents[i];
+    return tipLines(`${head} · ${a.name}`, [`weight share: ${pct(a.share)}`, `cumulative score: ${a.cum >= 0 ? "+" : ""}${a.cum.toFixed(3)}`,
+      ...m.names.map((nm, k) => `#${k} ${nm}: ${pct(a.probs[k])}`)]);
+  }
+  if (r.fee != null && Math.hypot(px - g.fx, py - g.fy) <= g.fr + 6)
+    return tipLines(`${head} · AMM fee`, [`forecast: ${r.fee.toFixed(2)} bps`, ...(r.fair != null ? [`hindsight fair fee: ${r.fair.toFixed(2)} bps`] : [])]);
+  return null;
+});
 
 function bez(p0, p1, p2, p3, t) {
   const s = 1 - t;
