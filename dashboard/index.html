@@ -469,6 +469,7 @@
   .pipe li b .en { display: block; margin-top: 2px; font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
   .pipe .goto { margin-top: 8px; }
   .uses-lead { margin: 0 0 14px; max-width: 980px; }
+  .uses-more { margin: 12px 0 0; font-size: 12.5px; }
   .uses { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 12px; }
   .uses li { padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--line-2); background: var(--panel-2); font-size: 13px; color: var(--muted); }
   .uses h3 { margin: 0 0 6px; font: 700 15px/1.3 var(--display); color: var(--text); display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
@@ -2167,7 +2168,8 @@ function usesCard() {
       ${use("期权与波动率金库", "用预测的波动率分布给期权定价，按预测区间调整金库卖出的行权价。")}
       ${use("保险与协议国库", "按预测设定对冲比例与备付金规模，波动预期高时多留缓冲。")}
       ${use("Uniswap V4 动态手续费 hook", "把案例 #1 中 VolFeeConsumer 算出的推荐费率真正用于收费；今天只计算、记录与对照，不改池子。")}
-    </ul></section>`;
+    </ul>
+    <p class="sub uses-more">链下使用：交易机器人、AI agent 可以通过 x402 按次付费读取信誉加权预测，收入按信誉分给预测者（设想，未实现）。</p></section>`;
 }
 
 function tiersCard(agents, tierOf) {

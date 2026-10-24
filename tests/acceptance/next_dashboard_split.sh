@@ -3,7 +3,7 @@
 # re-forked hourly) and is labelled 实时 · 每小时更新; 概览 / 单轮回放 / 预测者与信誉 / 消费方示例 / 链上记录 read the fixed
 # 24 h replay sample-replay.json, so their numbers match the deck, and are labelled 固定回放 · 过去 24 小时主网（生成时间 …）.
 # The live file served here is synthetic (20 rounds, a marker total) so each number shows which file it came from.
-# The overview carries one "同一协议还能用在哪" card: lending, options / vol vaults, insurance / treasury and a
+# The overview carries one "同一协议还能用在哪" card (plus one muted off-chain x402 line, 设想): lending, options / vol vaults, insurance / treasury and a
 # Uniswap V4 dynamic-fee hook, each marked 尚未实现, plus the sentence that the contract only implements the
 # Uniswap V3 observe() data source, said once. The deploy serves and ships the fixed file and its /vf/ fallback does not
 # pin ?data to the live file. DASH_DIR overrides the dashboard directory so the checks can be run against an older index.html.
@@ -86,7 +86,9 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
       const t = (el) => el ? el.textContent.replace(/\s+/g, " ").trim() : "";
       const card = document.querySelector("#usecases");
       const items = card ? [...card.querySelectorAll("li")].map(t) : [];
+      const x402 = card ? [...card.querySelectorAll("p, div")].filter((e) => /x402/.test(e.textContent)) : [];
       return { kpi: t(document.querySelector("#summary")), items, card: t(card), visible: !!card?.getClientRects().length,
+        x402: x402.map((e) => ({ text: t(e), inLi: !!e.closest("li"), muted: e.classList.contains("sub") })),
         body: document.body.innerText.replace(/\s+/g, " "), snap: t(document.querySelector("#case-snap")) };
     });
     const v2 = fixed.schema === "vol-replay/v2";
@@ -95,6 +97,9 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
     check(ov.visible && /同一协议还能用在哪/.test(ov.card), `@${width}: overview shows the 同一协议还能用在哪 card`);
     check(ov.items.length >= 3 && ov.items.length <= 4 && ov.items.every((x) => /尚未实现/.test(x)), `@${width}: 3-4 use cases, each marked 尚未实现 (${ov.items.length})`);
     check([/借贷/, /期权|波动率金库/, /保险|国库/, /V4/].every((re) => ov.items.some((x) => re.test(x))), `@${width}: lending, options / vaults, insurance / treasury, V4 hook listed`);
+    check(ov.x402.length === 1 && !ov.x402[0].inLi && ov.x402[0].muted && /设想/.test(ov.x402[0].text) && /未实现/.test(ov.x402[0].text)
+      && /交易机器人/.test(ov.x402[0].text) && /按信誉分给预测者/.test(ov.x402[0].text),
+      `@${width}: one muted off-chain x402 line below the use cases (not a case card), marked 设想 (${ov.x402.map((x) => x.text).join(" | ")})`);
     check(/observe\(\)/.test(ov.card) && /只实现/.test(ov.card), `@${width}: card keeps that the contract only implements the V3 observe() source`);
     check((ov.body.match(/目前合约只实现/g) ?? []).length === 1, `@${width}: the only-implemented sentence appears once on the overview`);
     check(!/合作|赞助|sponsor|partner/i.test(ov.card) && !/出题|考题|考试/.test(ov.body), `@${width}: no partner claims, no exam wording`);
