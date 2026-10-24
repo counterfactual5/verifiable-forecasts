@@ -7,7 +7,7 @@
 and get scored onchain by the contract itself, with the score written to their ERC-8004 reputation.
 No trusted reporter, and no way to cherry-pick results.**
 
-Hackathon prototype for ETH Shenzhen 2026 (track: Verifiable AI / 可验证 AI). Everything runs on a local
+Hackathon prototype for ETH Shenzhen 2026: a verifiable AI forecasting protocol. Everything runs on a local
 Anvil chain, either from scratch or as a fork of Ethereum mainnet. No real funds, and nothing is
 deployed to a real network.
 
@@ -272,9 +272,9 @@ signal. Evidence grade A = the project's own docs or the organiser's official pa
 | [Algebra Integral dynamic (adaptive) fee](https://docs.algebra.finance/algebra-integral-documentation/algebra-integral-technical-reference/plugins/dynamic-fee) | Plugin computes the fee from the pool oracle's last-24 h volatility through tunable sigmoids. | Algebra's fee follows *past* volatility with a fixed formula; ours mixes competing *forward* forecasts whose weight is earned by onchain log scores. | A |
 | [Synth (Bittensor Subnet 50)](https://docs.synthdata.co/) | Miners submit simulated price paths, validators score them with CRPS, and a paid API sells the aggregated probabilistic and volatility forecasts. | Synth scores and serves forecasts off-chain through an API key; here commitment, proof checking, scoring and reputation all happen in contracts a protocol can read directly. | A |
 
-## Track fit
+## Why "verifiable AI"
 
-**Track: 可验证 AI / Verifiable AI.** Model inference is proven with EZKL and verified onchain against
+Model inference is proven with EZKL and verified onchain against
 public inputs the contract derived itself (or recomputed from chain data for the reproducible tier);
 scoring is deterministic onchain math, and the score lands in an ERC-8004 reputation an agent cannot
 self-report.

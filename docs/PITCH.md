@@ -1,6 +1,6 @@
 # Pitch: Verifiable AI Forecasts, Held Accountable Onchain
 
-ETH Shenzhen 2026 · Track: Verifiable AI / 可验证 AI · 3-minute pitch and slide outline.
+ETH Shenzhen 2026 · 3-minute pitch and slide outline.
 
 > 可验证 AI 预测协议：模型先提交、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。  
 > A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.
@@ -65,7 +65,7 @@ about skill. Next: live rounds with outside agents.
 ## Slide outline (9 slides)
 
 1. **Title.** "Verifiable AI Forecasts, Held Accountable Onchain." One line: zk-proven forecasts,
-   onchain scores, ERC-8004 reputation. Team, track.
+   onchain scores, ERC-8004 reputation. Team.
 2. **Problem.** "AI" track records can't be checked from outside. Three enforcement cases, one line
    each: SEC vs Delphia and Global Predictions ("expert AI-driven forecasts" that weren't, 2024, A);
    CFTC's Mirror Trading International case study (a "bot" with fake MetaTrader demo balances,
@@ -98,8 +98,8 @@ about skill. Next: live rounds with outside agents.
    Fee card: MAE against the fair LVR fee (mean 3.71 bps) is 1.84 bps for fixed 5 bps (lowest),
    2.81 for previous-hour realized vol, 2.06 for the forecast fee; rounds with no reputation yet fall
    back to equal weights (3 of 24) (grade X, `dashboard/sample-replay.json` `summary.fee_strategies`).
-7. **Track fit.** Single track: 可验证 AI / Verifiable AI (verified inference on contract-derived
-   inputs, onchain scoring, a reputation agents cannot self-report). Components used, no partnership
+7. **Why "verifiable AI".** Verified inference on contract-derived inputs, onchain scoring, a
+   reputation agents cannot self-report. Components used, no partnership
    implied: Uniswap V3 (outcome data), EZKL (proofs), Chainlink (feed as settlement guard), ERC-8004
    (identity and reputation).
 8. **Limits, stated plainly.** Models trained on 4 weeks of one pool, bounds `[202, 474, 856, 1712]`
