@@ -115,7 +115,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 
 - agent 调 Identity 的 `register(agentURI)` 得到 agentId（ERC-721），模型 operator 调 `linkAgent(modelId, agentId)` 绑定；调用者必须是该模型的 operator 且拥有该 agentId。
 - `settle` 对每个已绑定且 agentId 非零的预测者，取已存的 `logScore`（不重算），以 try/catch 调用
-  `giveFeedback(agentId, int128(logScore), 18, "logScore", tag2, "", "", bytes32(0))`。`tag2` 由构造参数派生为 `vol-<delta>s-<nSegments>`（如 `vol-300s-12`），没有验证合约的模型（可复现与仅提交）附加 `-commit`（如 `vol-300s-12-commit`）；未公开的预测不写。注册表调用失败发 `ReputationWriteFailed`，不回滚结算与赔付。
+  `giveFeedback(agentId, int128(logScore), 18, "logScore", tag2, "", "", bytes32(0))`。`tag2` 由构造参数派生为 `vol-<delta>s-<nSegments>`（如 `vol-300s-12`），没有验证合约的模型（可复现与仅提交）附加 `-commit`（如 `vol-300s-12-commit`）；已提交但未公开的预测按该轮最差可公开损失写入（见第 9a 节，作废轮不写）。注册表调用失败发 `ReputationWriteFailed`，不回滚结算与赔付。
 - 低 gas 防护：每次调用最多转发 `EXTERNAL_CALL_GAS = 500_000` gas（主网实测 `giveFeedback` 约 19.7 万，含 21000 基础费）。按 EIP-150，被调方最多拿到剩余 gas 的 63/64。调用失败时，如果调用前剩余的 gas 不到 `500_000 × (1 + 1/32)`（被调方可能没拿到完整上限），`settle` 以 `InsufficientGas` revert。不能改用“调用后剩余 ≤ 1/64”来判断：已部署的注册表是代理，内部还会调用 Identity，内层调用缺 gas 时外层会带着自己那 1/64 正常 revert，主网 fork 演示中这种情况确实出现过。因此没人能靠压低 gas 上限让写入被跳过；在拿满 50 万的情况下仍然 revert 的注册表只触发事件。gas 足够时写入成功，所以估算出的 gas 上限不会因为这条防护而变高。
 - 读取方以市场合约为唯一 client 过滤：`getSummary(agentId, [market], "logScore", tag2)`；第三方写的反馈不会混入。已部署的 Reputation 禁止 agent 的 owner/operator 自评，市场合约作为提交者不受影响。
 - 主网 fork 演示中四个 agent 在已部署的 Identity 上注册（agentId 仅存在于 fork 上），24 轮回放结束后每个 agent 的 `getSummary` 计数为 24，均值等于各轮链上 logScore 的平均。
@@ -174,7 +174,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 - **可复现**（已实现）：`registerModel(address(0), operator, modelHash)` 登记，适用于权重公开的模型，大小不受电路限制。`modelHash` 是 `tsfm_forecast.model_hash_preimage` 规范 JSON 的 keccak256（权重 `repo@revision`、上下文长度、推理与后处理参数、揭示网格与容差、运行代码的 sha256），固定权重、配置与运行代码；公开时不验证证明，任何人可用 `python -m vol_agents.tsfm_recompute` 从链上数据（16 个特征；512 点模型另用池子 Swap 日志重建上下文）重算并与公开值逐桶比对，每桶误差 ≤ 0.001 为一致（容差复核；揭示先量化到 1e-3 网格并在结果出现前提交），哈希不符、缺公开或任一桶超差即非零退出。演示中的 `agent-timesfm-3.0`、`agent-timestral-209m`、`agent-chronos-2` 在 24 轮回放中各 24/24 轮重算在容差内（72 次均完全一致）。它证明的是出处（确实是这组权重对这些输入算的），不证明预测准确；容差覆盖不同机器与软件栈之间的浮点差异。
 - **仅提交**（已实现）：`verifier = 0` 且不带 `modelHash` 登记，任意模型，只证明预测在事前定下，不保证是哪个模型算的。`agents/vol_agents/api_agent.py` 中无法在 CPU 上复现的模型（以及通用预测 API）走这一档；回放里的三个时序模型均可复现，不走此档。
 - **TEE 远程证明**（未实现）：适用于权重不公开的闭源大模型 / LLM，需要信任硬件厂商及其证明服务。
-- **opML**（乐观验证 + 欺诈证明）：不做每轮结算路径：它需要挑战窗口和链上单步 VM，长于一小时一轮，且依赖 1-of-N 诚实假设（至少一个诚实验证者在盯并愿意发起挑战）。计划作为可复现档的事后争议层（押金 + 挑战，不阻塞结算，未实现），见下文“验证档位与押金”。
+- **opML**（乐观验证 + 欺诈证明）：不做每轮结算路径：它需要挑战窗口和链上单步 VM，长于一小时一轮，且依赖 1-of-N 诚实假设（至少一个诚实验证者在盯并愿意发起挑战）。作为可复现档的事后争议层（押金 + 挑战，不阻塞结算；已实现乐观挑战，裁决暂由仲裁方承担），见下文“验证档位与押金”。
 
 所有等级都走 commit-reveal：提交的哈希 `keccak256(abi.encode(roundId, modelId, outputs, salt, msg.sender))` 绑定发送者，抄来的提交哈希别人无法公开；公开阶段在窗口开始前结束，所以预测在提交截止前不可见。zk 模型在公开时验证证明；证明本身不绑定发送者，只有模型 operator 能为该模型提交（第 3 节 `registerModel`）。
 
@@ -182,52 +182,32 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 
 写入 ERC-8004 时 tag1 = `logScore`，zk 模型 tag2 = `vol-<delta>s-<nSegments>`；没有验证合约的模型（可复现与仅提交）都附加 `-commit`，如 `vol-300s-12-commit`，读取方用链上 `modelHash`（或 `verificationTier`）区分两者，再用 `getSummary` 按自己接受的等级过滤。这与 ERC-8004 原文一致：“Trust models are pluggable and tiered”，列出的信任模型为客户反馈信誉、质押保障的重新执行、zkML 证明和 TEE 预言机（A，<https://eips.ethereum.org/EIPS/eip-8004>）。是否改用 Validation 注册表待定。
 
-### 验证档位与押金（设计，未实现）
+### 验证档位与押金（部分实现）
 
-本节是设计与实施计划，**合约中均未实现**；现状一节描述的是当前代码（`contracts/src/VolMarket.sol`、`contracts/src/VolFeeConsumer.sol`）。
+本节记录 `accountability` 分支上已实现的问责机制与仍为设计的部分。合约：`contracts/src/VolMarket.sol`、`contracts/src/VolFeeConsumer.sol`、`contracts/src/ForecasterBond.sol`。
 
-**现状（已实现）**
+**已实现**
 
-- 三档由 `verificationTier(modelId)` 读出：`TIER_COMMIT_ONLY = 0`、`TIER_REPRODUCIBLE = 1`、`TIER_ZK = 2`。
-- 计分与 50% 预测者分成三档完全相同：按对数分超出均匀基线 ln(1/5)（`baselineLogScore`，1e18 刻度）的部分按比例分，基线及以下分 0；没有任何押金。
-- 未公开的预测保持 `logScore = 0`、`recorded = false`，不进分成，也**不写入信誉**：提供方可以只公开预计得分高的轮次，信誉只留下好轮次（选择性公开漏洞）。
-- 信誉 tag2：zk 模型为 `vol-<delta>s-<nSegments>`；可复现与仅提交共用 `-commit` 后缀，信誉层不区分这两档。
-- 可复现档的重算在链下进行（看板 / 回放的 `tsfm_recompute`），结果不上链，合约不知道某次揭示是否通过重算。
-- `VolFeeConsumer` 按信誉均值超出基线的部分加权，按 `isZkModel` 选读 tag2，没有档位门槛或档位系数。
-- opML 与 TEE 均未实现。
+- 三档由 `verificationTier(modelId)` 读出：`TIER_COMMIT_ONLY = 0`、`TIER_REPRODUCIBLE = 1`、`TIER_ZK = 2`；计分与 50% 预测者分成三档相同（对数分超出均匀基线 ln(1/5) 的部分按比例分）。
+- **不公开按最低分写信誉**：已提交但未公开、且绑定了 agent 的预测，结算时以该轮最差可公开损失的负值写入 ERC-8004（−max(L(全部分位 = Q_MIN), L(全部分位 = Q_MAX))，1e18 ln 单位，约 −20 到 −40，远差于任何实际公开），tag2 规则不变；市场侧分数仍为 0、`recorded` 仍为 false，不进分成；作废轮不写。写入次数上限与 32 个已公开绑定预测者相同，结算 gas 上界不变。
+- **押金（`ForecasterBond`）**：押金用市场的结算代币（构造时读 `market.token()`），按模型计。所需金额为构造参数：仅提交 `bondCommitOnly` > 0、可复现 `bondReproducible` > 0、zk 为 0。operator 调 `postBond(modelId)` 补足到所需金额；`requestWithdraw` 后模型立即不再算“已押”，经 `withdrawDelay` 秒，且无未决挑战、请求前 `lockScanRounds` 轮内该模型的提交都已结算、已公开或已被罚、并已过挑战窗口，才能 `withdraw`。
+- **提交门槛**：`VolMarket.setBondGate(gate)`（owner，只能设一次；零地址表示不检查，旧部署与测试不受影响）后，`commitPrediction` 对 `isBonded(modelId)` 为假的模型 revert `NotBonded`。zk 模型所需押金为 0，不受影响。每轮 `MAX_PREDICTORS = 32` 个名额因此每个都要锁一份押金，挤占名额不再免费。
+- **不公开罚没**：轮次结算后任何人可调 `slashNonReveal(roundId, modelId)`，每轮每模型一次，扣押金的 `nonRevealSlashBps`。
+- **可复现档挑战（opML 式、乐观）**：在轮次窗口结束后 `challengeWindow` 秒内，任何人可对已公开的可复现档预测调 `challenge(roundId, modelId, claim)`，附 `challengerBond`，`claim` 为挑战者重算结果的哈希。裁决方 `arbiter`（构造参数）在 `resolveTimeout` 内、轮次结算后调 `resolve`：成立则罚 `challengeSlashBps`，挑战者取回押金并得报告者份额；不成立则挑战押金归被挑战模型的 operator。超时未裁决：任何人调 `expire`，挑战者全额退回，不罚。
+- **临时信任假设：仲裁方**。大模型无法链上重算，“复算对不上”由 `arbiter` 链下判定（`vol_agents.tsfm_recompute`，每桶容差 0.001）；它可以错判或不作为（不作为只导致退款，不会罚错人）。下一步换成链上欺诈证明或多方仲裁。
+- **罚没去向**：罚没额 = 押金 × bps / 10000（向下取整）；其中 `reporterShareBps` 给挑战者（不公开罚没时给调用者，作为触发激励），余下作为该轮奖励池，由该轮高于基线的其他预测者按超出基线的部分 `claimSlashReward` 领取，最后一位领取者拿余数，没有残留；轮次作废或没有其他人高于基线时，余下转给 `sink`（构造参数）。被罚模型不分自己的罚没。
+- **`VolFeeConsumer` 最短历史**：构造参数 `minRounds`，模型在本消费方 tag 下的信誉记录少于 `minRounds` 条时权重为 0（防“开很多号、只留运气好的”）；全部为 0 时沿用等权回退。演示部署传 1，与此前行为一致。
 
-**设计**
+**仍为设计（未实现）**
 
-| 档位 | 公开什么 | 押金 | 押金防什么 |
-|---|---|---|---|
-| zk 证明 | 模型承诺 + 证明 | 无 | 出处由证明保证 |
-| TEE（路线图） | 远程证明 | 无 | 出处由硬件证明保证（需信任硬件厂商） |
-| opML（路线图） | 模型 + 输入，可链上挑战 | 有 | 被挑战且复算对不上就扣 |
-| 可复现 | 权重哈希 + 输入，链下任何人可复算 | 有 | 复算对不上（链下发现；接上 opML 式挑战后链上扣） |
-| 仅提交（黑盒） | 不公开策略/模型（本来就不要求），只公开每轮预测 | 有 | 开很多号、只留运气好的（幸存者偏差 / 女巫攻击） |
-
-所有档位共用的规则：
-
-- **不公开按最低分记信誉**：已提交但未公开的轮次按 `MIN_LOG_SCORE`（−18，1e18 刻度即 −18e18）写入信誉；分成照旧为 0。选择性公开从此变成每轮 −18 的代价。
-- **罚没去向**：被扣的押金分给成功的挑战者和该轮高于基线的预测者（后者按超出基线的部分按比例分，与现有分成口径一致）。
-- **分成不分档**：commit-reveal 让每一档的分数同样诚实（事前定下、合约结算、谁都改不了），所以三档按同一规则分钱；档位只标注出处，用不用、给多大权重由消费方决定（例如 `minTier` 或每档系数）。
-- **仅提交是设计上的黑盒**：它本来就不要求公开策略或模型，押金针对的不是出处，而是“开很多号、只留运气好的”：每个号都要锁一份押金并等提取延迟，弃号也有成本；配合“不公开按最低分”，留号就要背着全部轮次的成绩。押金只把女巫成本按号数线性抬高，不能根除；消费方仍可要求最短历史长度。当前 `registerModel` 仅 owner 可调，本身限制了开号，押金在开放登记后才是主要约束。
+- 信誉 tag2 拆成三个后缀（可复现 `-repro`）与 `VolFeeConsumer` 的 `minTier` / 每档系数（原计划第 2、3 步）。
+- 挑战成立后撤回或追加该轮的 ERC-8004 记录（`ForecasterBond` 不是该反馈的 client，需市场合约配合）。
+- 链上欺诈证明或 k-of-m 复算委员会替代 `arbiter`；选项与信任假设：链上二分到单步 VM（信任 1-of-N 诚实挑战者与 VM 实现，要求推理逐位确定，现有容差复核不满足）[待证据]；k-of-m 委员会签名（信任诚实多数）；对复算做 zk 证明（只对小模型可行，而小模型本来就走 zk 档）。
+- TEE 档（新档位常量、enclave 度量值登记、远程证明验证合约，押金为 0）。
+- `MAX_PREDICTORS` 改为构造参数、结算与信誉写入分页：押金让挤占名额有成本，但不消除名额上限本身。
+- 押金只把女巫成本按号数线性抬高，不能根除；当前 `registerModel` 仅 owner 可调，本身也限制开号。
 
 这与 ERC-8004 原文列出的信任模型一致：其中“stake-secured re-execution”（质押保障的重新执行）正对应可复现档加押金（A，<https://eips.ethereum.org/EIPS/eip-8004>）。
-
-**实施计划（按顺序，均未实现）**
-
-1. **不公开按最低分写入信誉**（未实现）。范围：`_score` 对 `!p.recorded` 记 `MIN_LOG_SCORE`（`recorded` 仍为 false，`_excess` 仍为 0，不分钱），`_writeReputation` 对已绑定 agent 的未公开预测同样写入；核对 `getPrediction` 的读者（`VolFeeConsumer` 只认 `recorded`，看板与回放脚本的总分口径）。测试：未公开的绑定预测写入 −18e18；未公开仍不分钱；未绑定 agent 仍不写；32 个绑定预测者全部未公开时结算 gas 仍在上限内；作废轮不写；每条新测试先在旧代码上证明会失败。
-2. **信誉 tag2 拆成三个后缀**（未实现）。范围：zk `vol-<delta>s-<n>`、可复现 `…-repro`、仅提交 `…-commit`，`_writeReputation` 按 `verificationTier` 选；`VolFeeConsumer` 构造参数改为三个 tag2，按 `verificationTier` 读。旧市场里可复现模型在 `-commit` 下的历史不迁移（新部署从零累计）。测试：每档写入各自后缀；消费方按档读到对应分数；现有 ERC-8004 测试按新后缀更新断言而不放宽；同步 README、PITCH、MODEL_CARD 的 tag 描述。
-3. **`VolFeeConsumer` 档位门槛与每档系数**（未实现）。范围：构造参数 `minTier` 与 `tierWeightBps[3]`（10000 = 1 倍，在定义处注明刻度），权重 = (均值 − 基线) × `tierWeightBps[tier]` / 10000，低于 `minTier` 权重为 0；全部为 0 时沿用现有的等权回退。加入 TEE 后各档不再是全序（zk 与 TEE 的信任来源不同），届时改为接受档位的位掩码。测试：门槛排除低档；系数比例正确；全部被排除时回退；乘法不溢出的上界。
-4. **按档位的登记押金**（未实现）。范围：押金额为构造参数 `bondByTier`（zk 与 TEE 为 0），由 operator 调 `postBond(modelId)` 存入市场代币，押金不足时 `commitPrediction` revert；`requestWithdraw` 后经构造参数 `bondWithdrawDelay`（应不短于消费方回看的信誉窗口）才能提取，期间仍可被罚没；罚没钩子 `_slash(modelId, amount, challenger, roundId)` 按构造参数 `challengerShareBps` 分给挑战者，余下并入该轮高于基线者的分成；仅提交 / 可复现未公开时按构造参数比例扣押金。所有比例为基点整数运算。测试：无押金不能提交、zk 不需要；延迟前提取 revert、延迟后可提；罚没的分配与守恒（fuzz：总额不增不减）；提取延迟中被罚没；代币回调重入。
-5. **可复现档的 opML 式挑战**（未实现）。opML 不用作一小时一轮的每轮结算路径（理由见“分级验证”：挑战窗口、链上单步 VM、1-of-N 诚实假设）；这里计划把它作为可复现档的争议层：结算照常按揭示值进行，挑战只针对押金，挑战窗口（构造参数）可以长于一轮而不拖慢结算。可复现档已经把 `modelHash`、链上输入和每桶 0.001 容差固定下来，“复算对不上”是可判定的命题，所以它是可复现档的自然升级。范围：`challenge(roundId, predictor)` 附挑战押金；窗口内未决的模型不能提取押金；成功则罚没并用 ERC-8004 `revokeFeedback`（市场合约即该条反馈的 client）撤回或追加 −18 记录，失败则挑战押金归被挑战方。裁决的选项与信任假设：
-   - 链上欺诈证明（二分到单步，再由链上 VM 执行一步）：信任 1-of-N 诚实挑战者与 VM 实现；要求推理在整数 / 确定性算术下逐位一致（现有容差复核不满足），合约体量大、审计成本高 [待证据]。
-   - k-of-m 复算委员会签名裁决（各自跑 `tsfm_recompute`）：信任委员会诚实多数，可作过渡方案。
-   - owner 裁决：信任 owner，只适合演示。
-   - 对复算做 zk 证明：只对小模型可行，而小模型本来就走 zk 档。
-   测试：窗口内外的挑战；成功挑战的罚没与分配；失败挑战的押金去向；同一预测重复挑战；挑战未决时不能提取；结算与赔付不受挑战影响。
-6. **TEE 档**（未实现）。范围：新档位常量与登记方式（登记 enclave 度量值与链上远程证明验证合约），公开时附带对 `(roundId, modelId, outputs, 特征哈希)` 的远程证明报告；押金为 0；信任硬件厂商及其证明服务。测试：有效报告通过；度量值不符拒收；其他轮次的报告重放拒收；未配置验证合约时不能登记该档。
 
 ## 9a. 分位数预测与 pinball 评分（`quantile` 分支）
 
@@ -256,7 +236,7 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 | 观测缺失或喂价不符时作废并全额退款 | 验证合约的可信度依赖 EZKL 与 KZG SRS（构建时校验固定摘要） |
 | 信誉由市场合约写入，读取时可只认市场合约；结算 gas 不足以完成写入时整笔 revert，不会静默跳过 | 注册表自身 revert 或超过 50 万 gas 上限时只发 `ReputationWriteFailed`，该分数不进信誉 |
 
-另外：特征在 `createRound` 时快照，而提交截止在 `startTime − commitLead`，两者之间的价格变化不在模型输入里；下注是公开的，预测在公开阶段后公开；不公开只损失分数与分成，没有罚没，也不写信誉，所以可以只公开运气好的轮次（选择性公开；修补设计见第 9 节“验证档位与押金”，未实现）。
+另外：特征在 `createRound` 时快照，而提交截止在 `startTime − commitLead`，两者之间的价格变化不在模型输入里；下注是公开的，预测在公开阶段后公开；不公开的预测按最低分写信誉，配置了押金门槛时还会被罚没（见第 9 节“验证档位与押金”）；可复现档挑战的裁决目前依赖单一仲裁方。
 
 链上验证的出处保证只覆盖能放进 EZKL 电路的小模型。上表左列中的事前提交、合约内结算与作废、市场合约写信誉这几项不依赖 zk，已通过仅提交等级复用给任意模型；权重公开的大模型由可复现等级提供出处（登记 `modelHash`，链下重算）；只有权重不公开的闭源模型需要第 9 节的 TEE 等级，目前未实现。
 
