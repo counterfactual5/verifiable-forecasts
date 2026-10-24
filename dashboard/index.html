@@ -369,6 +369,13 @@
   .fee-tile.main { border-color: color-mix(in srgb, var(--vermil) 45%, var(--line)); background: color-mix(in srgb, var(--vermil) 6%, var(--panel)); }
   .fee-tile.ref { border-style: dashed; background: var(--panel); }
   .fee-mae { font: 600 22px/1.3 var(--mono); }
+  .fee-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 4px 0 2px; font-size: 12.5px; color: var(--muted); }
+  .fee-stats div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+  .fee-stats dt, .fee-stats dd { margin: 0; }
+  .fee-stats b { font: 600 13px/1.3 var(--mono); color: var(--text); }
+  #fee-resid { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .fee-resid-lead { margin: 0 0 6px; font-size: 12.5px; color: var(--muted); }
+  .fee-resid-lead b { color: var(--text); font-weight: 600; }
   .role { display: inline-block; font: 10px/1.5 var(--mono); letter-spacing: .04em; color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 2px; white-space: nowrap; vertical-align: 1px; }
   @media (max-width: 600px) {
     header { padding: 18px 16px 4px; }
@@ -1205,10 +1212,23 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       { key: "forecast", name: nm.forecast, role: "protocol output", color: "#d8431b", width: 3, dash: "7 4", values: fee("forecast_bps") },
     ];
     const byKey = (k) => feeSeries.find((s) => s.key === k);
+    const fair = byKey("fair").values;
+    const residual = (k) => byKey(k).values.map((v, i) => (v == null || fair[i] == null ? null : v - fair[i]));
+    const signed = (v) => (Math.abs(v) < 0.005 ? "0.00" : `${v > 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`);
+    const residSeries = ["fixed", "prev_hour", "forecast"].map((k) => ({ ...byKey(k), role: null, values: residual(k) }));
+    const resid = Object.fromEntries(residSeries.map((s) => [s.key, s.values]));
+    const bias = (k) => { const v = resid[k].filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const beat = (k) => {
+      const pairs = resid[k].map((v, i) => [v, resid.fixed[i]]).filter(([a, b]) => a != null && b != null);
+      return `${pairs.filter(([a, b]) => Math.abs(a) < Math.abs(b)).length}/${pairs.length}`;
+    };
     const tileHead = (s) => `<div class="sub"><span class="nowrap">${swatch(s.color, s.dash)} ${s.name} ${roleTag(s.role)}</span></div>`;
     const tiles = ["forecast", "fixed", "prev_hour"].map((k) => `<div class="fee-tile${k === "forecast" ? " main" : ""}">${tileHead(byKey(k))}
         <div><span class="fee-mae" data-mae="${k}">${fs.mae_bps[k].toFixed(2)}</span> <span class="sub">bps MAE vs reference</span></div>
+        <dl class="fee-stats"><div><dt>bias</dt><dd><b data-bias="${k}">${bias(k) == null ? "—" : signed(bias(k))}</b> bps</dd></div>
+          <div><dt>rounds beating ${nm.fixed}</dt><dd><b data-beat="${k}">${k === "fixed" ? "—" : beat(k)}</b></dd></div></dl>
         <div class="sub">mean ${fs.mean_bps[k].toFixed(2)} bps</div></div>`).join("");
+    const residTitle = "Residual: strategy fee − hindsight fair fee (bps)";
     const fallback = fs.equal_weight_fallback_rounds ? ` ${fs.equal_weight_fallback_rounds} of ${fs.rounds} rounds used the equal-weight fallback.` : "";
     const feeTitle = "AMM 能用它定手续费吗？ Forecast vs hindsight fair fee (bps)";
     const low = lowestFee(fs);
@@ -1218,6 +1238,8 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       <b>${fs.mae_bps.fixed.toFixed(2)}</b> bps，${nm.prev_hour} 为 <b>${fs.mae_bps.prev_hour.toFixed(2)}</b> bps：${low.key === "forecast" ? `${nm.forecast} 最贴近参照。`
         : `暂未赢过 ${nm[low.key]}（如实展示）。`}</p>` +
       lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), label: chartLabel(feeTitle, feeSeries) }) +
+      `<div id="fee-resid"><p class="fee-resid-lead"><b>${residTitle}</b><br>残差 = 策略费率 − 事后参照；高于 0 表示收费偏高，低于 0 表示偏低。</p>` +
+      lineChart(residSeries, labels, { zero: 0, H: 180, tip: signed, label: chartLabel(residTitle, residSeries) }) + `</div>` +
       `<div class="fee-tiles"><div class="fee-tile ref">${tileHead(byKey("fair"))}
         <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div></div>${tiles}</div>
       <div class="sub" style="margin-top:8px">LVR（loss-versus-rebalancing）是套利者从 LP 身上拿走的损失；参照线（hindsight fair fee）= 事后看刚好补偿这一小时 LVR 的费率，

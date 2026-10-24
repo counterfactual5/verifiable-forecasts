@@ -58,11 +58,12 @@ const check = (cond, msg) => { console.log(`${cond ? "ok" : "not ok"} - ${msg}`)
   const { page, pageErrors } = await open("sample-replay.json", 1280);
   const card = page.locator("#fee-card");
   check(await card.count() === 1, "fee comparison card #fee-card rendered");
-  const paths = await card.locator("svg path").count();
+  const main = card.locator(".chart").first();
+  const paths = await main.locator("svg path").count();
   check(paths === 4, `fee chart has 4 lines (found ${paths})`);
   const legend = (await card.count()) === 1 ? (await card.innerText()).toLowerCase() : "";
   for (const k of ["fair", "fixed", "prev", "forecast"]) check(legend.includes(k), `legend names the ${k} series`);
-  const titles = await card.locator("svg circle title").allTextContents();
+  const titles = await main.locator("svg circle title").allTextContents();
   const series = { fair: "fair_bps", fixed: "fixed_bps", prev: "prev_hour_bps", forecast: "forecast_bps" };
   const names = new Set(titles.map((s) => s.split(" · ")[0]));
   check(names.size === 4 && ["hindsight fair fee", "forecast", "fixed 5 bps", "prev-hour RV"].every((n) => names.has(n)),
