@@ -254,6 +254,7 @@ jt=$(stat -f %m "$json" 2>/dev/null || stat -c %Y "$json"); pt=$(stat -f %m "$pn
 
 python3 - "$json" <<'EOF' && ok "README / DEMO follow the new replay" || bad "README / DEMO follow the new replay"
 import json, re, sys
+from decimal import ROUND_HALF_UP, Decimal
 d = json.load(open(sys.argv[1]))
 readme = open("README.md", encoding="utf-8").read()
 demo = open("docs/DEMO.md", encoding="utf-8").read()
@@ -262,10 +263,74 @@ secs = re.split(r"(?m)^## ", readme)
 tiers = next((s for s in secs if "verification tiers" in s.split("\n", 1)[0].lower()), None)
 if not tiers or "reproducible" not in tiers.lower() or "vol_agents.tsfm_recompute" not in tiers:
     errs.append("README Verification tiers section (reproducible + tsfm_recompute command)")
-for name, s in d["summary"]["agents"].items():
-    tot = f"{s['mean_pinball_loss']:.3f}"
-    for doc, t in (("README", readme), ("DEMO", demo)):
-        if tot not in t: errs.append(f"{doc} lacks {name} mean pinball loss {tot}")
+if d.get("schema") == "vol-replay/v2":
+    s, sa = d["summary"], d["summary"]["agents"]
+    # prose wraps lines and marks identifiers with backticks; compare on collapsed text
+    flat = lambda t: re.sub(r"\s+", " ", t.replace("`", ""))
+    fr, fd = flat(readme), flat(demo)
+    signed = lambda v: ("+" if v >= 0 else "\u2212") + f"{abs(v):.3f}"
+    # the docs round half up (0.625 -> 0.63); format() would round half to even on exact binary halves
+    hu = lambda v, n: str(Decimal(str(v)).quantize(Decimal(1).scaleb(-n), ROUND_HALF_UP))
+    rows = {}
+    for line in readme.splitlines():
+        if line.startswith("| ") and line.count("|") >= 7:
+            rows.setdefault(line.split("|")[1].strip().strip("`"), line)
+    for a in d["agents"]:
+        m, st = a["model"], sa[a["agent"]]
+        loss = f"{st['mean_pinball_loss']:.3f}"
+        cells = [a["tier"], loss, signed(st["mean_excess"]), f"{st['beat_baseline_rounds']} / {st['rounds_scored']}",
+                 f"{hu(st['coverage50'], 2)} / {hu(st['coverage80'], 2)}"]
+        row = rows.get(m)
+        if row is None or [c.strip() for c in row.split("|")[2:7]] != cells:
+            errs.append(f"README table row for {m}: want {cells}, got {row}")
+        if f"{m} {loss}" not in fd: errs.append(f"DEMO lacks '{m} {loss}'")
+    base = f"{s['baseline_mean_pinball_loss']:.3f}"
+    if f"baseline's {base} (50 % / 80 % coverage {hu(s['baseline_coverage50'], 2)} / {hu(s['baseline_coverage80'], 2)})" not in fr:
+        errs.append(f"README baseline {base} / coverage")
+    if f"baseline mean pinball loss {base}" not in fd: errs.append(f"DEMO baseline {base}")
+    below = [a["model"] for a in d["agents"] if sa[a["agent"]]["mean_excess"] > 0]
+    above = [a["model"] for a in d["agents"] if sa[a["agent"]]["mean_excess"] <= 0]
+    words = {0: "none", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+    if f"{words[len(below)].capitalize()} of {words[len(d['agents'])]} agents have a lower mean loss than the baseline; {' and '.join(above)} do not" not in fr:
+        errs.append(f"README below-baseline count {len(below)} / above {above}")
+    if f"{words[len(below)]} of {words[len(d['agents'])]} below the baseline, {' and '.join(above)} above it" not in fd:
+        errs.append(f"DEMO below-baseline count {len(below)} / above {above}")
+    rep = [r["agents"][a["agent"]] for r in d["rounds"] for a in d["agents"] if a["tier"] == "reproducible"]
+    ok_n = sum(ra.get("reproduced") is True for ra in rep)
+    ex = sum(ra.get("recompute_verdict") == "exact" for ra in rep)
+    to = sum(ra.get("recompute_verdict") == "tolerant" for ra in rep)
+    mx = max(int(ra["recompute_max_abs_diff"]) for ra in rep)
+    tol = {int(a["recompute_tolerance"]) for a in d["agents"] if a["tier"] == "reproducible"}
+    if ok_n != len(rep) or ex + to != len(rep) or tol != {10**15}:
+        errs.append(f"recompute rows {ok_n}/{len(rep)} exact {ex} tolerant {to} tolerance {tol}")
+    if f"matched {ok_n} of {len(rep)} reveals within 1e15 per quantile ({ex} exact, {to} tolerant, largest difference {mx:.2e}".replace("e+", "e") not in fr:
+        errs.append(f"README recompute {ok_n} of {len(rep)} ({ex} exact, {to} tolerant, max {mx:.2e})")
+    if f"Recompute: {ok_n} of {len(rep)} within tolerance ({ex} exact, {to} tolerant)" not in fd:
+        errs.append(f"DEMO recompute {ok_n} of {len(rep)} ({ex} exact, {to} tolerant)")
+    tc = d["tamper_checks"]
+    rej = sum(t["honest_proof_verifies"] is True and t["tampered_output_verifies"] is False for t in tc)
+    gas = round(max(t["verify_proof_gas"] for t in tc) / 1000)
+    for doc, t in (("README", fr), ("DEMO", fd)):
+        if f"{rej} of {len(tc)}" not in t or f"verifyProof ≈ {gas}k gas" not in t:
+            errs.append(f"{doc} tamper {rej} of {len(tc)} / verifyProof ≈ {gas}k gas")
+    if f"{s['settled']} of {s['rounds']} rounds settled, {s['voided']} voided" not in fr: errs.append("README settled / voided")
+    if f"{s['settled']} of {s['rounds']} rounds settled" not in fd: errs.append("DEMO settled")
+    if f"fork block {d['fork_block']:,}" not in fr or f"{round(d['elapsed_s'])} s wall time" not in fr:
+        errs.append(f"README fork block {d['fork_block']:,} / {round(d['elapsed_s'])} s")
+    if f"Each agent's ERC-8004 count is {s['rounds']}" not in fr or any(v["erc8004"]["count"] != s["rounds"] for v in sa.values()):
+        errs.append("README ERC-8004 count")
+    fs = s["fee_strategies"]
+    mae, mean = fs["mae_bps"], fs["mean_bps"]
+    for label, k in (("Fixed 5 bps", "fixed"), ("Previous-hour realized vol", "prev_hour"), ("Forecast, recorded on-chain", "forecast")):
+        if f"| {label} | {mean[k]:.2f} | {mae[k]:.2f} |" not in readme: errs.append(f"README fee row {label} {mean[k]:.2f} / {mae[k]:.2f}")
+    if f"| Hindsight fair LVR fee (reference) | {mean['fair']:.2f} |" not in readme: errs.append(f"README fair mean {mean['fair']:.2f}")
+    if f"(mean {mean['fair']:.2f} bps): forecast {mae['forecast']:.2f}, fixed 5 bps {mae['fixed']:.2f}, previous-hour {mae['prev_hour']:.2f}" not in fd:
+        errs.append("DEMO fee MAE line")
+else:
+    for name, s in d["summary"]["agents"].items():
+        tot = f"{s['total_log_score']:.3f}"
+        for doc, t in (("README", readme), ("DEMO", demo)):
+            if tot not in t: errs.append(f"{doc} lacks {name} total {tot}")
 for k, v in d["summary"]["fee_strategies"]["mae_bps"].items():
     if f"{v:.2f}" not in readme: errs.append(f"README lacks MAE {k} {v:.2f}")
 for doc, t in (("README", readme), ("DEMO", demo)):
