@@ -1,8 +1,8 @@
 """VolFeeHook on the fork: a WETH/USDC dynamic-fee pool of the real Uniswap v4 PoolManager whose
 hook charges the fee VolFeeConsumer recorded for the round in progress (V4_HOOK=1 in
 demo/fork_round.py). Each round, one USDC -> WETH swap inside the window measures the fee the
-pool actually charged from its LP fee growth; a WETH -> USDC swap buying the same USDC back then
-returns the price to where it was, so hourly probes never walk the price out of the LP range.
+pool actually charged from its LP fee growth; a WETH -> USDC swap for exactly the same USDC then
+puts the price back (up to the fee), so the pool's range never drains over a day of rounds.
 
 Simulation only: the pool, its liquidity and the swaps exist on the local fork.
 """

@@ -1255,6 +1255,12 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     点在虚线之上 = 这一轮比瞎猜更准。每轮得分 = ln p_win。真实 RV 见上方实时预测图。
     Each agent's revealed probability on the bucket that actually happened; dashed line: uniform 1/${L.params.bounds.length + 1}.
     Above the line = beat uniform that round. Voided rounds are not shown.</div>`, "wide", "pwin-card");
+  const hookRounds = L.rounds.filter((r) => r.hook);
+  const hookCard = !hookRounds.length ? "" : card("V4 hook 实际收取 · Hook fee charged",
+    `<table class="hook-tbl"><tr><th>小时 (UTC)</th><th>推荐费率</th><th>hook 实际收取</th><th>来源</th></tr>${hookRounds.map((r) =>
+      `<tr><td class="mono">${r.window_utc?.[0]?.slice(11, 16) ?? "—"}</td><td class="mono">${r.fee?.forecast_bps != null ? r.fee.forecast_bps.toFixed(2) + " bps" : "—"}</td>
+      <td class="mono"><b>${(r.hook.effective_fee_pips / 100).toFixed(2)} bps</b></td><td>${r.hook.recorded ? "本轮记录" : "回退费率"}</td></tr>`).join("")}</table>
+    <div class="sub">分叉上的 Uniswap V4 动态费率池挂 VolFeeHook，每轮开窗后一笔 ${hookRounds[0].hook.swap_usdc.toLocaleString()} USDC 试算 swap，按 LP 手续费增长计实收费率。未部署主网、未审计。</div>`, "wide", "hook-card");
 
   const fs = s.fee_strategies;
   let feeCard = "";
@@ -1449,7 +1455,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   // Every view needs a visible .card.wide: charts take their width from it.
   const v = (view, html) => html.replace(/^\s*<(section|div)/, `<$1 data-v="${view}"`);
   app.innerHTML = v("overview", howCard()) + v("overview", usesCard()) +
-    v("live", pwinCard) +
+    v("live", pwinCard) + (hookCard ? v("live", hookCard) : "") +
     v("rounds", heatCard) + v("rounds", roundsCard) + v("rounds", `<div class="trio">${overview}${bucketCard}</div>`) +
     v("agents", tiersCard(agents, tierOf)) + v("agents", agentsCard) + v("agents", excessCard) + v("agents", rollCard) +
     (feeCard ? v("fee", feeCard) : "") + v("fee", rewardCard) +
