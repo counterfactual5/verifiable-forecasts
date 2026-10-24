@@ -527,6 +527,47 @@ function markScrollHints() {
   });
 }
 
+// vol-replay/v2: each forecast is K quantiles of y = ln(max(RV, 1)) (natural log of tick²), scored by
+// the pinball loss against a climatological baseline. v1 (5 bucket probabilities, log score) still renders.
+const REPLAY_SCHEMAS = ["vol-replay/v1", "vol-replay/v2"];
+const isV2 = (d) => d.schema === "vol-replay/v2";
+const LEVELS = (d) => d.params.quantile_levels ?? [0.1, 0.25, 0.5, 0.75, 0.9];
+// Bucket probabilities a quantile forecast implies (only for the bucket views): the CDF is linear in
+// ln RV between the quantiles and keeps the outer slopes beyond them, clamped to [0, 1].
+function impliedProbs(q, levels, bounds) {
+  const n = q.length;
+  const cdf = (x) => {
+    let i = 0;
+    while (i < n - 2 && x > q[i + 1]) i++;
+    const t = levels[i] + (x - q[i]) * (levels[i + 1] - levels[i]) / Math.max(1e-9, q[i + 1] - q[i]);
+    return Math.min(1, Math.max(0, t));
+  };
+  const c = [0, ...bounds.map((b) => cdf(Math.log(b))), 1];
+  return c.slice(1).map((v, k) => Math.max(0, v - c[k]));
+}
+// One per-round "excess over the baseline" per agent row (v2: L_baseline − L in ln units; v1: log score
+// minus uniform), and one bucket view of every forecast, so the bucket and flow views read both schemas.
+function adaptReplay(d) {
+  if (!REPLAY_SCHEMAS.includes(d.schema) || d._adapted) return d;
+  d._adapted = true;
+  const v2 = isV2(d), lv = LEVELS(d), b = d.params.bounds, u = d.params.baseline_log_score_float;
+  const rows = (r) => Object.values(r.agents ?? {});
+  for (const r of [...d.rounds, ...(d.pending_round ? [d.pending_round] : [])]) {
+    for (const ra of rows(r)) {
+      if (v2) {
+        ra.probs = ra.quantiles ? impliedProbs(ra.quantiles, lv, b) : null;
+        ra.edge = ra.excess ?? null;
+      } else {
+        ra.edge = ra.log_score_float == null ? null : ra.log_score_float - u;
+      }
+    }
+    const m = r.fee?.mirror;
+    if (m) m.mix_probs = v2 ? (m.mix_quantiles_e18 ? impliedProbs(m.mix_quantiles_e18.map((x) => Number(x) / 1e18), lv, b) : null)
+      : m.mix_e18?.map((x) => Number(x) / 1e18) ?? null;
+  }
+  return d;
+}
+
 async function load() {
   const param = new URLSearchParams(location.search).get("data");
   if (param) {
@@ -772,14 +813,24 @@ const roleTag = (role) => `<span class="role">${role}</span>`;
 const lowestFee = (fs) => Object.entries(fs.mae_bps).map(([key, mae]) => ({ key, mae })).reduce((a, b) => (b.mae < a.mae ? b : a));
 
 function summaryLine(d) {
-  const s = d.summary, u = s.uniform_total_log_score, ag = Object.entries(s.agents);
-  const beat = ag.filter(([, v]) => v.total_log_score > u).length;
-  const [bestName, bestSum] = ag.reduce((a, b) => (b[1].total_log_score > a[1].total_log_score ? b : a));
-  const margin = bestSum.total_log_score - u;
+  const s = d.summary, ag = Object.entries(s.agents);
   const kpi = (v, label, cls = "") => `<div class="kpi"><span class="v ${cls}">${v}</span>${label}</div>`;
-  const tiles = [kpi(`${s.settled}/${s.rounds}`, "rounds settled · 轮已结算", s.settled === s.rounds ? "ok" : "warn"),
-    kpi(`${beat}/${ag.length}`, "agents beat uniform on total Σ ln p · 跑赢瞎猜"),
-    kpi(bestSum.total_log_score.toFixed(1), `best of all <b>${bestName.replace("agent-", "")}</b> <b>${margin >= 0 ? "+" : "-"}${Math.abs(margin).toFixed(2)}</b> nats vs uniform <b>${u.toFixed(1)}</b> · 全部 agent 最佳`, "ok")];
+  let tiles;
+  if (isV2(d)) {
+    const beat = ag.filter(([, v]) => (v.total_excess ?? 0) > 0).length;
+    const bl = s.baseline_mean_pinball_loss;
+    tiles = [kpi(`${s.settled}/${s.rounds}`, "rounds settled · 轮已结算", s.settled === s.rounds ? "ok" : "warn"),
+      kpi(`${beat}/${ag.length}`, "agents with lower pinball loss than climatology · 累计跑赢气候基线"),
+      kpi(bl != null ? bl.toFixed(3) : "–", "climatology mean pinball loss (ln RV) · 气候基线平均损失")];
+  } else {
+    const u = s.uniform_total_log_score;
+    const beat = ag.filter(([, v]) => v.total_log_score > u).length;
+    const [bestName, bestSum] = ag.reduce((a, b) => (b[1].total_log_score > a[1].total_log_score ? b : a));
+    const margin = bestSum.total_log_score - u;
+    tiles = [kpi(`${s.settled}/${s.rounds}`, "rounds settled · 轮已结算", s.settled === s.rounds ? "ok" : "warn"),
+      kpi(`${beat}/${ag.length}`, "agents beat uniform on total Σ ln p · 跑赢瞎猜"),
+      kpi(bestSum.total_log_score.toFixed(1), `best of all <b>${bestName.replace("agent-", "")}</b> <b>${margin >= 0 ? "+" : "-"}${Math.abs(margin).toFixed(2)}</b> nats vs uniform <b>${u.toFixed(1)}</b> · 全部 agent 最佳`, "ok")];
+  }
   const tc = d.tamper_checks ?? [];
   if (tc.length) {
     const rej = tc.filter((t) => t.tampered_output_verifies === false).length;
@@ -850,11 +901,14 @@ function nowcastHtml(d, agents, tierOf) {
   if (!pr) return "";
   const b = d.params.bounds;
   const fmt = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(1);
-  const quant = (ra) => ra && ra.entered !== false && ra.probs ? QS.map((q) => bucketQuantile(ra.probs, b, q)) : null;
+  // v2 draws the revealed quantiles themselves (exp of ln RV, so the log axis is linear in ln RV).
+  const v2 = isV2(d), band = v2 ? "80%" : "90%";
+  const quant = (ra) => !ra || ra.entered === false ? null
+    : v2 ? (ra.quantiles ? ra.quantiles.map((v) => Math.exp(v)) : null)
+    : ra.probs ? QS.map((q) => bucketQuantile(ra.probs, b, q)) : null;
   const past = d.rounds.slice(-24).map((r) => ({ id: r.id, t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol,
     fc: agents.map((a, k) => ({ a, k, q: quant(r.agents[a.agent]) })).filter((x) => x.q) })).filter((x) => x.v != null);
-  const fc = agents.filter((a) => pr.agents[a.agent]?.entered && pr.agents[a.agent].probs)
-    .map((a) => ({ ...a, q: QS.map((q) => bucketQuantile(pr.agents[a.agent].probs, b, q)) }));
+  const fc = agents.map((a) => ({ ...a, q: pr.agents[a.agent]?.entered ? quant(pr.agents[a.agent]) : null })).filter((a) => a.q);
   const W = Math.min(1200, chartWidth), H = W < 600 ? 240 : 280, L = 50, R = 10, T = 26, B = 26, narrow = W < 600;
   const split = L + (W - L - R) * (narrow ? 0.4 : 0.58);
   const vals = past.flatMap((x) => [Math.max(1, x.v), ...x.fc.flatMap((f) => f.q)]).concat(fc.flatMap((a) => a.q), b);
@@ -880,7 +934,7 @@ function nowcastHtml(d, agents, tierOf) {
   const pbw = stack ? Math.max(3, gap * 0.5) : dx * 0.72, ptw = stack ? Math.max(4, gap * 0.75) : dx * 0.95;
   const marks = past.map((x, i) => x.fc.map(({ a, k, q }) => {
     const cx = px(i) + (k - (agents.length - 1) / 2) * dx, [q05, q25, q50, q75, q95] = q;
-    return `<g class="nc-past" data-forecaster="${a.agent}" data-round="${x.id}" data-q50="${q50}"><title>${a.agent} · ${x.t} UTC: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, 90% ${fmt(q05)}–${fmt(q95)} tick² · realized ${x.v}</title>` +
+    return `<g class="nc-past" data-forecaster="${a.agent}" data-round="${x.id}" data-q50="${q50}"><title>${a.agent} · ${x.t} UTC: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, ${band} ${fmt(q05)}–${fmt(q95)} tick² · realized ${x.v}</title>` +
       glyph(cx, pbw, ptw, q, a.color, stack ? ".05" : ".14", stack ? ".14" : ".45", stack ? 1.4 : 2) + `</g>`;
   }).join("")).join("");
   const line = past.map((x, i) => `${i ? "L" : "M"}${px(i).toFixed(1)},${y(x.v).toFixed(1)}`).join("");
@@ -890,12 +944,12 @@ function nowcastHtml(d, agents, tierOf) {
   const colW = (W - R - split - 8) / Math.max(1, fc.length), bw = Math.max(6, Math.min(26, colW * 0.6));
   const bands = fc.map((a, k) => {
     const cx = split + 4 + (k + 0.5) * colW, [q05, q25, q50, q75, q95] = a.q;
-    return `<g data-agent="${a.agent}" ${QS.map((q, i) => `data-q${String(Math.round(q * 100)).padStart(2, "0")}="${a.q[i]}"`).join(" ")}>
-      <title>${a.agent}: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, 90% ${fmt(q05)}–${fmt(q95)} tick²</title>
+    return `<g data-agent="${a.agent}" ${(v2 ? LEVELS(d) : QS).map((q, i) => `data-q${String(Math.round(q * 100)).padStart(2, "0")}="${a.q[i]}"`).join(" ")}>
+      <title>${a.agent}: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, ${band} ${fmt(q05)}–${fmt(q95)} tick²</title>
       ${glyph(cx, bw, bw + 6, a.q, a.color, ".2", ".5", 3)}</g>`;
   }).join("");
   const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
-  const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(`Realized volatility of the last ${past.length} hours and, for the hour ${hour} (pending), each agent's median with 50% and 90% intervals, log scale`)}">
+  const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(`Realized volatility of the last ${past.length} hours and, for the hour ${hour} (pending), each agent's median with 50% and ${band} intervals, log scale`)}">
     <rect x="${split.toFixed(1)}" y="${T - 20}" width="${(W - R - split).toFixed(1)}" height="${H - B - T + 20}" rx="8" fill="var(--accent)" opacity=".06"/>
     ${grid}${marks}<path d="${line}" fill="none" stroke="#1b1a17" stroke-width="2.2" stroke-linejoin="round"/>${dots}
     <text class="ax" x="${L + 10}" y="${T - 8}">${narrow ? "预测 vs 实际" : `过去 ${past.length} 小时 · 预测 vs 链上实际 RV`}</text>
@@ -905,7 +959,7 @@ function nowcastHtml(d, agents, tierOf) {
   const rows = d.agents.map((a) => {
     const g = agents.find((x) => x.agent === a.agent), f = fc.find((x) => x.agent === a.agent), tier = tierOf(a);
     const pa = pr.agents[a.agent];
-    const range = f ? `<b>${fmt(f.q[2])}</b><div class="sub">50% ${fmt(f.q[1])}–${fmt(f.q[3])} · 90% ${fmt(f.q[0])}–${fmt(f.q[4])}</div>`
+    const range = f ? `<b>${fmt(f.q[2])}</b><div class="sub">50% ${fmt(f.q[1])}–${fmt(f.q[3])} · ${band} ${fmt(f.q[0])}–${fmt(f.q[4])}</div>`
       : `<span class="sub">本轮未参赛${pa?.skip_reason ? ` · ${attr(pa.skip_reason)}` : ""}</span>`;
     return `<tr data-agent="${a.agent}"><td class="nowrap"><span style="color:${g?.color ?? "inherit"}">●</span> <b>${a.agent}</b>
       <div class="sub mono">${attr(a.model ?? "")}</div></td><td>${TIER_ZH[tier] ?? tier}</td><td class="num">${range}</td></tr>`;
@@ -917,10 +971,11 @@ function nowcastHtml(d, agents, tierOf) {
     ${svg}
     <div class="sub nc-legend"><span class="nowrap">${swatch("#1b1a17")} 真实 RV · realized</span>
       ${agents.map((a) => `<span class="nowrap"><i style="background:${a.color}"></i>${a.agent.replace("agent-", "")}</span>`).join("")}</div>
-    <div class="sub">左右两侧是同一种图形：每个 agent 一个色块，淡色 = 90% 区间，深色 = 50% 区间，横线 = 预测中位数（tick²，对数轴，虚线为档位边界）。
+    <div class="sub">左右两侧是同一种图形：每个 agent 一个色块，淡色 = ${band} 区间，深色 = 50% 区间，横线 = 预测中位数（tick²，对数轴，虚线为档位边界）。
       左侧是各 agent 在过去每小时开窗前揭示的预测${stack ? "（同一小时的 agent 叠放在该小时上）" : ""}，黑线 = 链上结算的真实 RV，中位数横线越贴近黑线越准；右侧是当前小时的预测，尚未结算。
-      区间由每个 agent 揭示的 5 档概率按档内 log(RV) 线性插值得到（两端开放档各外延一个边界倍数）。
-      Same glyph on both sides, one per agent: faint band = 90% interval, darker band = 50% interval, tick = forecast median. Left: forecasts revealed before each past hour${stack ? " (overlaid on the hour)" : ""}, black line = realized RV settled on-chain; right: the current hour, not yet settled.</div>
+      ${v2 ? "色块直接画每个 agent 揭示的 5 个分位数（10% / 25% / 50% / 75% / 90%，ln RV 取 exp 后画在 tick² 对数轴上）。"
+        : "区间由每个 agent 揭示的 5 档概率按档内 log(RV) 线性插值得到（两端开放档各外延一个边界倍数）。"}
+      Same glyph on both sides, one per agent: faint band = ${band} interval, darker band = 50% interval, tick = forecast median. Left: forecasts revealed before each past hour${stack ? " (overlaid on the hour)" : ""}, black line = realized RV settled on-chain; right: the current hour, not yet settled.</div>
     ${scrollTable(`<tr><th>Agent</th><th>档位</th><th class="num">中位数 · 区间 (tick²)</th></tr>${rows}`, 420)}
     <div class="sub"><b>演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（无许可）。</b></div></section>`;
 }
@@ -943,12 +998,16 @@ function caseCard(d, live = d) {
   let snap;
   if (pr) {
     const entered = Object.values(pr.agents).filter((a) => a.entered && a.probs);
-    const m = pr.fee?.mirror, mix = m?.mix_e18?.map((x) => Number(x) / 1e18)
+    const m = pr.fee?.mirror, v2 = isV2(live), band = v2 ? "80%" : "90%";
+    // v2: the consensus is the Vincentized (per-level weighted mean) quantile mix the fee consumer read.
+    const mixQ = !v2 ? null : m?.mix_quantiles_e18?.map((x) => Math.exp(Number(x) / 1e18))
+      ?? (entered.length ? LEVELS(live).map((_, k) => Math.exp(entered.reduce((s, a) => s + a.quantiles[k], 0) / entered.length)) : null);
+    const mix = m?.mix_probs
       ?? [0, 1, 2, 3, 4].map((k) => entered.reduce((s, a) => s + a.probs[k], 0) / Math.max(1, entered.length));
-    const q = QS.map((x) => bucketQuantile(mix, b, x));
+    const q = v2 && mixQ ? mixQ : QS.map((x) => bucketQuantile(mix, b, x));
     const lo = b[0] * b[0] / b[1], hi = b[3] * b[3] / b[2], W = 240, H = 26;
     const x = (v) => 4 + (Math.log(Math.min(hi, Math.max(lo, v))) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)) * (W - 8);
-    const bar = `<svg class="cs-bar" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${attr(`consensus median ${fmt(q[2])}, 50% ${fmt(q[1])}–${fmt(q[3])}, 90% ${fmt(q[0])}–${fmt(q[4])} tick²`)}">
+    const bar = `<svg class="cs-bar" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${attr(`consensus median ${fmt(q[2])}, 50% ${fmt(q[1])}–${fmt(q[3])}, ${band} ${fmt(q[0])}–${fmt(q[4])} tick²`)}">
       ${b.map((v) => `<line x1="${x(v).toFixed(1)}" x2="${x(v).toFixed(1)}" y1="2" y2="${H - 2}" stroke="rgba(27,26,23,.18)" stroke-dasharray="2 3"/>`).join("")}
       <rect x="${x(q[0]).toFixed(1)}" y="8" width="${(x(q[4]) - x(q[0])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".18"/>
       <rect x="${x(q[1]).toFixed(1)}" y="8" width="${(x(q[3]) - x(q[1])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".45"/>
@@ -963,13 +1022,16 @@ function caseCard(d, live = d) {
   } else {
     const r = d.rounds[d.rounds.length - 1], o = r.outcome;
     snap = `<div class="cs-snap" id="case-snap"><span class="cs-k">最近一轮</span><b>#${r.id} ${r.window_utc[0].slice(11, 16)}–${r.window_utc[1].slice(11, 16)} UTC</b>
-      <span>${o.voided ? `<span class="badge bad">作废</span>` : `RV <b>${o.realized_vol ?? r.real_realized_vol}</b> tick² → 档位 #${o.winning_bucket}`}</span>
+      <span>${o.voided ? `<span class="badge bad">作废</span>` : isV2(d) && r.ln_rv != null
+        ? `RV <b>${o.realized_vol ?? r.real_realized_vol}</b> tick² · ln RV <b>${r.ln_rv.toFixed(2)}</b>（基线中位数 ${r.baseline_quantiles[2].toFixed(2)}）`
+        : `RV <b>${o.realized_vol ?? r.real_realized_vol}</b> tick² → 档位 #${o.winning_bucket}`}</span>
       <a class="goto" href="#/rounds">看单轮回放 →</a></div>`;
   }
   const item = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`;
   return `<section class="card case" id="case1" data-v="overview" aria-labelledby="case-title"><div class="flow-head"><span class="eyebrow">case #1 · 示例应用</span>
     <h3 id="case-title">案例 #1 · ETH/USDC 下一小时实际波动率</h3></div>
-    <dl class="cs-spec">${item("预测目标", `下一小时实际波动率落在哪一档（5 档概率，tick²）`)}
+    <dl class="cs-spec">${item("预测目标", isV2(d) ? `下一小时实际波动率 ln RV 的 5 个分位数（10% / 25% / 50% / 75% / 90%），按 pinball 损失对比气候基线结算`
+      : `下一小时实际波动率落在哪一档（5 档概率，tick²）`)}
       ${item("结算数据", `Uniswap V3 ETH/USDC 0.05% 池 <span class="mono">observe()</span> ${link(c.pool)}`)}
       ${item("防操纵", `Chainlink ETH/USD 与池价偏差 &gt; 2% 或报价过期 → 本轮作废退款`)}
       ${item("预测者", `<a href="#/agents">${n} 个示例 agent</a>（${tiers}）`)}
@@ -995,7 +1057,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const L = live.data, split = L !== d;
   const lagents = L.agents.map((a, i) => ({ ...a, color: agents.find((x) => x.agent === a.agent)?.color ?? PALETTE[i % PALETTE.length],
     sum: L.summary.agents[a.agent] }));
-  const uniform = p.baseline_log_score_float;
+  const v2 = isV2(d), uniform = v2 ? 0 : p.baseline_log_score_float;
   const card = (title, html, cls = "", id = "") =>
     `<section${id ? ` id="${id}"` : ""} class="card ${cls}"><h2>${title}</h2>${html}</section>`;
   const tierOf = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
@@ -1043,7 +1105,22 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const counts = s.bucket_counts, maxC = Math.max(1, ...counts);
   const bucketLabel = `Winning buckets over ${rounds.length} rounds: ` +
     counts.map((c, i) => `bucket #${i} (${names[i]}) ×${c}`).join(", ");
-  const bucketCard = card("真实结果落在哪档 · Winning buckets", `<div style="display:flex;gap:6px;align-items:flex-end;height:120px"
+  const lnTitle = "实际 ln RV vs 气候基线 · Realized ln RV vs climatology";
+  const settledR = rounds.filter((r) => !r.outcome.voided && r.ln_rv != null);
+  const covRow = (name, color, c50, c80, cls = "") => `<tr${cls ? ` class="${cls}"` : ""}><td>${color ? `<span style="color:${color}">●</span> ` : ""}${name}</td>
+    <td class="num">${c50 == null ? "–" : `${Math.round(c50 * 100)}%`}</td><td class="num">${c80 == null ? "–" : `${Math.round(c80 * 100)}%`}</td></tr>`;
+  const outcomeCard = !v2 ? "" : card(lnTitle,
+    lineChart([{ name: "realized ln RV", color: "#1b1a17", width: 2.2, values: rounds.map((r) => r.outcome.voided ? null : r.ln_rv) },
+      { name: "climatology median", color: "#a8a194", width: 1.4, dash: "2 3", values: rounds.map((r) => r.baseline_quantiles?.[2] ?? null) }],
+      labels, { tip: (v) => v.toFixed(2), label: `${lnTitle}, ${rounds.length} rounds` }) +
+    `<div class="sub">ln RV = 自然对数（RV 单位 tick²，RV = 0 记为 0）；灰虚线 = 训练期气候基线的中位数（每轮相同，开轮时写进合约）。
+      ${settledR.length} settled rounds; realized ln RV vs the climatological median, natural log of tick².</div>` +
+    scrollTable(`<tr><th>Interval coverage · 区间覆盖率</th><th class="num">50% (25–75)</th><th class="num">80% (10–90)</th></tr>
+      ${covRow("climatology baseline", null, s.baseline_coverage50, s.baseline_coverage80, "sub")}
+      ${agents.map((a) => covRow(a.agent, a.color, a.sum.coverage50, a.sum.coverage80)).join("")}`, 360) +
+    `<div class="sub">覆盖率 = 实际 ln RV 落在该区间内的轮次比例，校准良好时接近 50% / 80%。Share of settled rounds whose realized ln RV fell inside the interval; well calibrated ≈ 50% / 80%.</div>`,
+    "", "outcome-card");
+  const bucketCard = v2 ? outcomeCard : card("真实结果落在哪档 · Winning buckets", `<div style="display:flex;gap:6px;align-items:flex-end;height:120px"
     role="img" aria-label="${attr(bucketLabel)}">
     ${counts.map((c, i) => `<div style="flex:1;text-align:center"><div class="sub">${c}</div>
       <div style="height:${c / maxC * 90}px;background:var(--win);opacity:.75;border-radius:4px 4px 0 0"></div></div>`).join("")}</div>
@@ -1051,21 +1128,27 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     <div class="sub" style="margin-top:8px">Bounds in tick², calibrated on training-period swaps only.</div>`);
 
   const cumulative = (vals) => { let acc = 0; return vals.map((v) => v == null ? null : (acc += v)); };
-  const scoreOf = (r, a) => r.outcome.voided ? null : r.agents[a.agent]?.log_score_float ?? null;
+  // v2 score shown per round: L_baseline − L (ln units, > 0 = lower pinball loss than climatology); v1: log score.
+  const scoreOf = (r, a) => r.outcome.voided ? null : (v2 ? r.agents[a.agent]?.excess : r.agents[a.agent]?.log_score_float) ?? null;
+  const lossOf = (r, a) => r.outcome.voided ? null : r.agents[a.agent]?.pinball_loss ?? null;
   const excess = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => { const v = scoreOf(r, a); return v == null ? null : v - uniform; })) }));
   const chartLabel = (title, series) => `${title}: ${series.map((x) => x.name).join(", ")}, ${rounds.length} rounds`;
-  const excessTitle = "谁比瞎猜更准？ Cumulative log score minus uniform (nats)";
+  const excessTitle = v2 ? "谁比气候基线更准？ Cumulative pinball excess vs climatology (ln RV)"
+    : "谁比瞎猜更准？ Cumulative log score minus uniform (nats)";
   const tierBeat = [["zk", "zk 档"], ["reproducible", "可复现档"], ["commit-only", "仅提交档"]].map(([k, zh]) => {
     const pool = agents.filter((a) => tierOf(a) === k);
-    return pool.length ? `${zh} <b>${pool.filter((a) => a.sum.total_log_score > s.uniform_total_log_score).length}/${pool.length}</b> 累计跑赢瞎猜` : "";
+    const won = v2 ? pool.filter((a) => (a.sum.total_excess ?? 0) > 0) : pool.filter((a) => a.sum.total_log_score > s.uniform_total_log_score);
+    return pool.length ? `${zh} <b>${won.length}/${pool.length}</b> ${v2 ? "累计跑赢气候基线" : "累计跑赢瞎猜"}` : "";
   }).filter(Boolean).join(" · ");
   const excessCard = card(excessTitle,
-    `<p class="takeaway" style="margin-top:0">${tierBeat}（累计 &gt; 0 nats）。${agents.filter((a) => repro(a).failed).map((a) =>
+    `<p class="takeaway" style="margin-top:0">${tierBeat}（累计 &gt; 0${v2 ? "" : " nats"}）。${agents.filter((a) => repro(a).failed).map((a) =>
       ` <span class="badge bad">${a.agent}: reproduce failed × ${repro(a).failed}</span>`).join("")}</p>` +
     lineChart(excess, labels, { zero: 0, rankLegend: true, label: chartLabel(excessTitle, excess) }) +
-    `<div class="sub">nats：自然对数单位。每轮得分 = ln(agent 给真实结果所在档位的概率)，瞎猜每档 1/5 每轮得
-    ${uniform.toFixed(3)}；曲线在虚线 0 之上 = 累计比瞎猜更准。Voided rounds are not scored.
+    (v2 ? `<div class="sub">每轮超额 = 气候基线的 pinball 损失 − agent 的 pinball 损失（ln RV 单位，5 个分位数平均）；曲线在虚线 0 之上 = 累计比气候基线更准。
+    Per round: climatology pinball loss minus the agent's (mean over the 5 quantile levels, ln RV units); above 0 = more accurate than climatology. Voided rounds are not scored.`
+    : `<div class="sub">nats：自然对数单位。每轮得分 = ln(agent 给真实结果所在档位的概率)，瞎猜每档 1/5 每轮得
+    ${uniform.toFixed(3)}；曲线在虚线 0 之上 = 累计比瞎猜更准。Voided rounds are not scored.`) + `
     Agent lines: solid = zk proof, dotted = reproducible, dashed = commit-only.</div>`, "wide", "excess-card");
   const heatCard = card("预测分布 vs 实际 · Forecast heat strip", heatmap(d), "wide");
 
@@ -1075,9 +1158,12 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     return win.length ? win.reduce((x, y) => x + y, 0) / win.length : null;
   });
   const roll = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
-    values: rolling(rounds.map((r) => scoreOf(r, a))) }));
-  const rollTitle = `最近谁更准？ Rolling ${W}-round mean log score`;
-  const rollCard = card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, rankLegend: true, label: chartLabel(rollTitle, roll) }) +
+    values: rolling(rounds.map((r) => v2 ? lossOf(r, a) : scoreOf(r, a))) }));
+  const rollTitle = v2 ? `最近谁更准？ Rolling ${W}-round mean pinball loss (ln RV)` : `最近谁更准？ Rolling ${W}-round mean log score`;
+  const rollCard = v2
+    ? card(rollTitle, lineChart(roll, labels, { zero: s.baseline_mean_pinball_loss ?? null, min: 0, rankLegend: true, tip: (v) => v.toFixed(3), label: chartLabel(rollTitle, roll) }) +
+      `<div class="sub">最近 ${W} 轮的平均 pinball 损失，越低越准；虚线 = 气候基线在本回放的平均损失。Lower is better; dashed line: climatology mean loss.</div>`, "wide")
+    : card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, rankLegend: true, label: chartLabel(rollTitle, roll) }) +
     `<div class="sub">最近 ${W} 轮的平均得分；虚线是瞎猜 ln(1/5)。Dashed line: uniform baseline.</div>`, "wide");
 
   const pUniform = 1 / (L.params.bounds.length + 1);
@@ -1086,9 +1172,19 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     const ra = r.agents[a.agent];
     return r.outcome.voided || !ra || ra.entered === false || ra.p_win == null ? null : ra.p_win;
   };
-  const pwin = lagents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a), width: 1.8, values: L.rounds.map((r) => pwinOf(r, a)) }));
-  const pwinTitle = "每轮押中程度 · Probability on the realized bucket";
-  const pwinCard = card(pwinTitle,
+  const lv2 = isV2(L);
+  const edgeOf = (r, a) => {
+    const ra = r.agents[a.agent];
+    return r.outcome.voided || !ra || ra.entered === false || ra.excess == null ? null : ra.excess;
+  };
+  const pwin = lagents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a), width: 1.8, values: L.rounds.map((r) => lv2 ? edgeOf(r, a) : pwinOf(r, a)) }));
+  const pwinTitle = lv2 ? "每轮比气候基线好多少 · Per-round pinball excess vs climatology (ln RV)" : "每轮押中程度 · Probability on the realized bucket";
+  const pwinCard = lv2 ? card(pwinTitle,
+    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: 0, rankLegend: true, tip: (v) => v.toFixed(3),
+      label: `${pwinTitle}: ${pwin.map((x) => x.name).join(", ")}, ${L.rounds.length} rounds` }) +
+    `<div class="sub">每轮 = 气候基线的 pinball 损失 − agent 的 pinball 损失（ln RV 单位，开窗前揭示的 5 个分位数）；点在虚线 0 之上 = 这一轮比气候基线更准。真实 RV 见上方实时预测图。
+    Climatology's pinball loss minus the agent's, per round; above 0 = beat climatology that round. Voided rounds are not shown.</div>`, "wide", "pwin-card")
+  : card(pwinTitle,
     lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: pUniform, min: 0, max: 1, rankLegend: true,
       fmt: (v) => `${Math.round(v * 100)}%`, tip: pct, label: `${pwinTitle}: ${pwin.map((x) => x.name).join(", ")}, ${L.rounds.length} rounds` }) +
     `<div class="sub">每轮各 agent 给真实结果所在档位的概率（p_win，开窗前揭示）；虚线 = 瞎猜每档 ${pct(pUniform)}，
@@ -1137,11 +1233,12 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
   const rewardTitle = "预测者分到的手续费 · Cumulative predictor fee share (WETH)";
   const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, rankLegend: true, label: chartLabel(rewardTitle, rewards) }) +
-    `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters above the uniform
-    baseline, pro rata to their excess log score.</div>
-    <div class="sub"><b>手续费只奖励跑赢瞎猜的轮次，输了只是这一轮分不到、不扣分</b>，所以累计分成高 ≠ 平均得分高：一个 agent 可以靠几轮大胜多分钱，
+    `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters ${v2
+      ? "with a lower pinball loss than the climatological baseline, pro rata to their excess (baseline loss − own loss)"
+      : "above the uniform baseline, pro rata to their excess log score"}.</div>
+    <div class="sub"><b>手续费只奖励跑赢${v2 ? "气候基线" : "瞎猜"}的轮次，输了只是这一轮分不到、不扣分</b>，所以累计分成高 ≠ 平均得分高：一个 agent 可以靠几轮大胜多分钱，
     而几轮大败的代价只是那几轮拿 0。没有人押中结果的轮次全额退款、没有手续费可分。
-    Fee share rewards rounds that beat the baseline and losses cost nothing, so it is not the same as the average log score.</div>
+    Fee share rewards rounds that beat the baseline and losses cost nothing, so it is not the same as the average ${v2 ? "pinball loss" : "log score"}.</div>
     <div class="sub">回放中由 2 个脚本账户每轮下注，金额为分叉测试资金 · In the replay two scripted accounts bet every round, with fork-local test funds.</div>`, "wide");
 
   const tamper = Object.fromEntries((d.tamper_checks ?? []).map((t) => [t.agent, t]));
@@ -1180,8 +1277,11 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     const mh = !a.model_hash || /^0x0*$/.test(a.model_hash) ? "" : ` · modelHash <span class="mono">${short(a.model_hash)}</span>`;
     return `<tr data-agent="${a.agent}" data-provider="${attr(prov)}"><td><span style="color:${a.color}">●</span> <b class="nowrap">${a.agent}</b> ${typeBadge(a)}
       <div class="sub mono nowrap" title="fork 上的演示账户（anvil 测试私钥），不在主网上活动">${short(a.address)}</div><div class="sub nowrap">${attr(prov)}${mh}</div></td>
-      <td class="num">${m.rounds_scored}</td><td class="num"><b>${m.total_log_score.toFixed(3)}</b></td>
-      <td class="num">${m.mean_log_score != null ? m.mean_log_score.toFixed(3) : "–"}</td>
+      <td class="num">${m.rounds_scored}</td>${v2
+        ? `<td class="num"><b>${m.mean_pinball_loss != null ? m.mean_pinball_loss.toFixed(3) : "–"}</b></td>
+      <td class="num">${m.mean_excess != null ? (m.mean_excess >= 0 ? "+" : "") + m.mean_excess.toFixed(3) : "–"}</td>`
+        : `<td class="num"><b>${m.total_log_score.toFixed(3)}</b></td>
+      <td class="num">${m.mean_log_score != null ? m.mean_log_score.toFixed(3) : "–"}</td>`}
       <td class="num">${m.beat_baseline_rounds}</td><td class="num">${eth(m.predictor_reward_wei)}</td>
       <td>${isZk(a) ? `${t ? badge(!t.tampered_output_verifies, "tampered proof rejected", "tamper accepted!") : ""}
         <div class="sub">prove ${prove} avg${t?.verify_proof_gas ? ` · verifyProof ${t.verify_proof_gas.toLocaleString()} gas` : ""}</div>`
@@ -1193,12 +1293,20 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       <td class="nowrap">agentId <b>${a.agent_id}</b><div class="sub">getSummary: ${rep.count} × ${repVal.toFixed(3)}<br>
         <span class="mono">${rep.tag1} / ${rep.tag2}</span></div></td></tr>`;
   }).join("");
-  const agentsCard = card("Agents · 得分、证明与 ERC-8004 声誉", `<p class="takeaway" style="margin-top:0">Σ ln p 越接近 0 越准；
+  const agentsHead = v2
+    ? `<p class="takeaway" style="margin-top:0">平均 pinball 损失越低越准（ln RV 单位）；气候基线 ${s.baseline_mean_pinball_loss != null ? s.baseline_mean_pinball_loss.toFixed(3) : "–"}。
+    损失低于基线的 agent 按超额（基线损失 − 自身损失）分走预测者手续费，得分（= −损失）同时写入 ERC-8004 声誉。</p>` + scrollTable(`<tr><th>Agent</th><th class="num">Scored</th>
+    <th class="num">Mean pinball loss</th><th class="num">Mean excess</th><th class="num">Rounds &gt; baseline</th><th class="num">Fee share (WETH)</th>
+    <th>Verification</th><th>ERC-8004 ${link(d.contracts.erc8004_reputation)}</th></tr>
+    <tr><td class="sub">climatology baseline</td><td class="num">${s.settled}</td><td class="num">${s.baseline_mean_pinball_loss != null ? s.baseline_mean_pinball_loss.toFixed(3) : "–"}</td>
+    <td class="num">0</td><td></td><td></td><td></td><td></td></tr>${agentRows}`, 980)
+    : `<p class="takeaway" style="margin-top:0">Σ ln p 越接近 0 越准；
     瞎猜基线 ${s.uniform_total_log_score.toFixed(1)}。高于基线的 agent 按超出部分分走预测者手续费，得分同时写入 ERC-8004 声誉。</p>` + scrollTable(`<tr><th>Agent</th><th class="num">Scored</th>
     <th class="num">Σ ln p</th><th class="num">Mean</th><th class="num">Rounds &gt; baseline</th><th class="num">Fee share (WETH)</th>
     <th>Verification</th><th>ERC-8004 ${link(d.contracts.erc8004_reputation)}</th></tr>
     <tr><td class="sub">uniform baseline</td><td class="num">${s.settled}</td><td class="num">${s.uniform_total_log_score.toFixed(3)}</td>
-    <td class="num">${uniform.toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>${agentRows}`, 980) +
+    <td class="num">${uniform.toFixed(3)}</td><td></td><td></td><td></td><td></td></tr>${agentRows}`, 980);
+  const agentsCard = card("Agents · 得分、证明与 ERC-8004 声誉", agentsHead +
     (d.skipped_agents ?? []).map((x) => `<div class="sub" style="margin-top:8px">未参赛 · not run: <span class="mono">${attr(x.agent)}</span>
     (${attr(x.tier)}) — ${attr(x.reason)}</div>`).join(""), "wide");
 
@@ -1208,22 +1316,25 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       const v = scoreOf(r, a);
       const miss = r.agents[a.agent]?.reproduced === false
         ? ` <span class="badge bad" title="this reveal did not reproduce from the onchain features">✗</span>` : "";
-      return `<td class="num nowrap" style="color:${v == null ? "var(--muted)" : v > uniform ? "var(--ok)" : "var(--bad)"}">${v == null ? "–" : `${v > uniform ? "▲" : "▼"} ${v.toFixed(2)}`}${miss}</td>`;
+      const txt = v2 && v != null ? `${v > 0 ? "▲ +" : "▼ "}${v.toFixed(3)}` : v == null ? "–" : `${v > uniform ? "▲" : "▼"} ${v.toFixed(2)}`;
+      return `<td class="num nowrap" style="color:${v == null ? "var(--muted)" : v > uniform ? "var(--ok)" : "var(--bad)"}">${txt}${miss}</td>`;
     }).join("");
     return `<tr><td>#${r.id}</td><td class="mono nowrap">${r.window_utc[0].slice(5, 16)}</td>
       <td class="nowrap">${blockLink(m.block_from)}–${blockLink(m.block_to)}</td>
       <td class="num">${m.swap_count}${m.last_swap_tx ? `<div class="sub">last ${txLink(m.last_swap_tx)}</div>` : ""}</td>
       <td class="num">${o.realized_vol ?? r.real_realized_vol} ${badge(r.rv_matches_mainnet, "=", "≠")}</td>
-      <td>${o.voided ? `<span class="badge bad" title="${o.void_reason}">void</span><div class="sub">${o.void_reason}</div>` : `#${o.winning_bucket}`}</td>
+      <td>${o.voided ? `<span class="badge bad" title="${o.void_reason}">void</span><div class="sub">${o.void_reason}</div>` : v2 && r.ln_rv != null
+        ? `<span class="nowrap">ln RV ${r.ln_rv.toFixed(2)}</span><div class="sub nowrap" title="climatology pinball loss">base L ${r.baseline_loss.toFixed(3)}</div>` : `#${o.winning_bucket}`}</td>
       <td class="num">${r.chainlink?.feed_age_s ?? "–"} s<div class="sub">${r.chainlink?.deviation_bps ?? "–"} bps</div></td>
       ${scores}<td class="num">${o.gas_used?.toLocaleString() ?? "–"}</td></tr>`;
   }).join("");
   const roundsCard = card("Rounds · mainnet blocks, swaps and scores", `${scrollTable(`<tr><th>Round</th><th>Window (UTC)</th>
     <th>Mainnet blocks</th><th class="num">Swaps</th><th class="num">RV vs mainnet</th><th>Outcome</th><th class="num">Feed age / dev</th>
     ${agents.map((a) => `<th class="num"><span class="hdot" style="color:${a.color}">●</span>${a.agent.replace("agent-", "")}</th>`).join("")}<th class="num">Settle gas</th></tr>
-    ${roundRows}`, 1000, "pin-first")}
+    ${roundRows}`, v2 ? 1180 : 1000, "pin-first")}
     <div class="sub" style="margin-top:8px">Block and transaction links point at Ethereum mainnet: the window's real blocks and its
-    last pool swap. The market itself lives only on the local fork. Scores: ▲ above / ▼ at or below the uniform baseline.</div>`, "wide");
+    last pool swap. The market itself lives only on the local fork. ${v2 ? "Agent columns: pinball excess vs climatology (baseline loss − agent loss, ln RV); ▲ lower loss than the baseline / ▼ not lower."
+      : "Scores: ▲ above / ▼ at or below the uniform baseline."}</div>`, "wide");
 
   const c = d.contracts;
   const clRows = rp.chainlink_reports.map((x) => `<tr><td>${txLink(x.mainnet_tx)}</td><td>${blockLink(x.mainnet_block)}</td>
@@ -1309,15 +1420,15 @@ setInterval(() => {
 
 // Per-round inputs of the flow, all read from the replay JSON.
 function flowModel(d, colorOf) {
-  const u = d.params.baseline_log_score_float, names = BUCKET_NAMES(d.params.bounds);
+  const names = BUCKET_NAMES(d.params.bounds);
   const cum = Object.fromEntries(d.agents.map((a) => [a.agent, 0]));
   const rounds = d.rounds.map((r) => {
     const w = r.fee?.mirror?.weights?.map(Number);
     const agents = d.agents.map((a, i) => {
       const ra = r.agents[a.agent] ?? {};
-      if (!r.outcome.voided && ra.log_score_float != null) cum[a.agent] += ra.log_score_float - u;
+      if (!r.outcome.voided && ra.edge != null) cum[a.agent] += ra.edge;
       return { name: a.agent.replace("agent-", ""), color: colorOf(a), probs: ra.probs ?? [0.2, 0.2, 0.2, 0.2, 0.2],
-               weight: ra.entered === false ? 0 : w && w.length === d.agents.length ? w[i] : 1, cum: cum[a.agent], score: ra.log_score_float };
+               weight: ra.entered === false ? 0 : w && w.length === d.agents.length ? w[i] : 1, cum: cum[a.agent], score: ra.edge };
     });
     const tw = agents.reduce((x, a) => x + a.weight, 0) || 1;
     agents.forEach((a) => { a.share = a.weight / tw; });
@@ -1372,7 +1483,13 @@ function playerBody(d) {
     <div class="pl-big">RV ${o.realized_vol} <span>→ 档位 #${o.winning_bucket} <b class="win">${names[o.winning_bucket]}</b></span></div>
     <p class="pl-src">${r.rv_matches_mainnet ? ok("= 主网逐笔重算") : bad("≠ 主网")}
       ${mn ? ` 主网区块 ${blockLink(mn.block_from)}–${blockLink(mn.block_to)} · ${mn.swap_count} 笔 swap${mn.last_swap_tx ? ` · 末笔 ${txLink(mn.last_swap_tx)}` : ""}` : ""}</p>
+    ${isV2(d) && r.ln_rv != null ? `<p class="pl-src">ln RV <b>${r.ln_rv.toFixed(3)}</b> · 气候基线 pinball 损失 ${r.baseline_loss.toFixed(3)}（中位数 ${r.baseline_quantiles[2].toFixed(2)}）</p>` : ""}
     <ul>${d.agents.map((a, i) => {
+      if (isV2(d)) {
+        const ra = r.agents[a.agent], e = ra?.excess;
+        return `<li>${who(a, i)}${e == null ? mute("—") : `<span class="mono">L = ${ra.pinball_loss.toFixed(3)}</span>
+        <span class="mono ${e > 0 ? "up" : "down"}">${e > 0 ? "▲" : "▼"} ${(e >= 0 ? "+" : "") + e.toFixed(3)}</span>`}</li>`;
+      }
       const s = r.agents[a.agent]?.log_score_float;
       return `<li>${who(a, i)}${s == null ? mute("—") : `<span class="mono">ln p = ${s.toFixed(3)}</span>
         <span class="mono ${s > u ? "up" : "down"}">${s > u ? "▲" : "▼"} ${(s - u >= 0 ? "+" : "") + (s - u).toFixed(3)}</span>`}</li>`;
@@ -1480,7 +1597,7 @@ roundListeners.push((tick) => {
 // One column per hour, one row per bucket (#4 on top); cell alpha = forecast probability, ringed dot = the settled bucket.
 function heatmap(d) {
   const rounds = d.rounds, N = rounds.length, names = BUCKET_NAMES(d.params.bounds);
-  const mix = rounds.map((r) => r.fee?.mirror?.mix_e18?.map((x) => Number(x) / 1e18) ?? null);
+  const mix = rounds.map((r) => r.fee?.mirror?.mix_probs ?? null);
   const strips = (mix.every(Boolean) ? [{ name: "声誉加权混合", sub: "AMM 读到的", color: "#1b1a17", probs: mix }] : [])
     .concat(d.agents.map((a, i) => ({ name: a.agent.replace("agent-", ""), color: PALETTE[i % PALETTE.length],
       probs: rounds.map((r) => r.agents[a.agent]?.probs ?? null) })));
@@ -1810,7 +1927,9 @@ function tiersCard(agents, tierOf) {
 }
 
 load().then((x) => {
-  const draw = x.data.schema === "vol-replay/v1" ? renderReplay : render;
+  adaptReplay(x.data);
+  if (x.live) adaptReplay(x.live.data);
+  const draw = REPLAY_SCHEMAS.includes(x.data.schema) ? renderReplay : render;
   if (!calm) document.body.classList.add("intro");
   draw(x);
   const fit = () => {

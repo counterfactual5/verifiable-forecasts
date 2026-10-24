@@ -3,7 +3,15 @@
 Read-only, build-free view of the VolMarket demo. One static `index.html`, no dependencies, no
 wallet, no writes. It renders either JSON the demo writes:
 
-- **Multi-hour replay** (`schema: "vol-replay/v1"`, written by `demo/fork_round.py`): cumulative and
+- **Quantile replay** (`schema: "vol-replay/v2"`, written by `demo/fork_round.py`): every forecast is
+  5 quantiles of ln RV (levels 0.1/0.25/0.5/0.75/0.9) scored by the pinball loss against the
+  training-period climatological quantiles. Cumulative and per-round pinball excess vs climatology
+  (baseline loss − agent loss, ln RV units), rolling mean pinball loss, realized ln RV vs the baseline
+  median with each agent's 50% / 80% interval coverage, the nowcast glyph drawn from the revealed
+  quantiles (faint 10–90 band, darker 25–75 band, median tick), and the same fee, ERC-8004 and
+  per-round views as v1. The bucket views (flow, heat strip) show the bucket probabilities the
+  quantiles imply (CDF linear in ln RV between them).
+- **Multi-hour replay, v1** (`schema: "vol-replay/v1"`, older bucket-probability replays): cumulative and
   rolling log score of every agent against the uniform baseline, winning-bucket distribution,
   realized vol per round, cumulative forecaster fee share, per-agent totals with ERC-8004
   `getSummary`, and a per-round table with Etherscan links to the window's real mainnet blocks, its
