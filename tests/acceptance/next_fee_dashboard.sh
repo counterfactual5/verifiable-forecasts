@@ -84,6 +84,7 @@ const check = (cond, msg) => { console.log(`${cond ? "ok" : "not ok"} - ${msg}`)
     check(Math.abs(v - d.summary.fee_strategies.mae_bps[k]) < 0.006, `MAE ${k} shown ${txt || "none"} = ${d.summary.fee_strategies.mae_bps[k]}`);
   }
   const withFee = await page.locator("#app section.card").count();
+  const feeCards = await page.locator("#fee-card, #sel-card").count();
   check(pageErrors.length === 0, `no page errors (${pageErrors.join("; ")})`);
 
   const mob = await open("sample-replay.json", 375);
@@ -94,7 +95,8 @@ const check = (cond, msg) => { console.log(`${cond ? "ok" : "not ok"} - ${msg}`)
   const nf = await open("../docs/.local/tmp/fee_dashboard/nofee.json", 1280);
   check(await nf.page.locator("#fee-card").count() === 0, "no fee data: fee card absent");
   const without = await nf.page.locator("#app section.card").count();
-  check(without === withFee - 1 && without > 0, `no fee data: the other ${without} cards render (with fee ${withFee})`);
+  check(await nf.page.locator("#sel-card").count() === 0, "no fee data: consumer selector absent");
+  check(without === withFee - feeCards && without > 0, `no fee data: the other ${without} cards render (with fee ${withFee}, ${feeCards} fee cards)`);
   check(await nf.page.locator("#error").count() === 0 && nf.pageErrors.length === 0, "no fee data: no error");
   await browser.close();
   console.log(errs.length ? "FAIL" : "DONE");

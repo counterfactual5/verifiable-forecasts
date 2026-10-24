@@ -420,6 +420,13 @@
   .fee-tile.main { border-color: color-mix(in srgb, var(--vermil) 45%, var(--line)); background: color-mix(in srgb, var(--vermil) 6%, var(--panel)); }
   .fee-tile.ref { border-style: dashed; background: var(--panel); }
   .fee-mae { font: 600 22px/1.3 var(--mono); }
+  .sel-note { margin: 0 0 10px; color: var(--muted, inherit); line-height: 1.6; }
+  .sel-ctl { display: grid; gap: 8px; margin-bottom: 12px; padding: 10px 12px; background: var(--panel-2); border-radius: 12px; }
+  .sel-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-width: 0; }
+  .sel-k { color: var(--faint); font-size: 12px; letter-spacing: .06em; min-width: 2.5em; }
+  .sel-opt { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; overflow-wrap: anywhere; max-width: 100%; }
+  .sel-opt input { accent-color: #2f6fb0; margin: 0; flex: none; }
+  .sel-empty { padding: 24px 0; color: var(--faint); }
   .fee-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 4px 0 2px; font-size: 12.5px; color: var(--muted); }
   .fee-stats div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
   .fee-stats dt, .fee-stats dd { margin: 0; }
@@ -1455,6 +1462,9 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       "wide", "fee-card");
   }
 
+  STATE.selSrc = { fixed: d, live: L !== d && L.rounds?.some((r) => r.fee?.mirror) ? L : null, colorOf: (a) => agents.find((x) => x.agent === a)?.color };
+  const selCard = fs && v2 && rounds.some((r) => r.fee?.mirror?.weights) && p.fee_consumer?.levels_e18 ? `<section class="card wide" id="sel-card">${selHtml()}</section>` : "";
+
   const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
   const rewardTitle = "预测者分到的手续费 · Cumulative predictor fee share (WETH)";
@@ -1603,7 +1613,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     v("live", pwinCard) + (hookCard ? v("live", hookCard) : "") +
     v("rounds", heatCard) + v("rounds", roundsCard) + v("rounds", `<div class="trio">${overview}${bucketCard}</div>`) +
     v("agents", tiersCard(agents, tierOf)) + v("agents", agentsCard) + v("agents", excessCard) + v("agents", rollCard) +
-    (feeCard ? v("fee", feeCard) : "") + v("fee", rewardCard) +
+    (feeCard ? v("fee", feeCard) : "") + (selCard ? v("fee", selCard) : "") + v("fee", rewardCard) +
     v("chain", feedCard(d)) + v("chain", clCard) + v("chain", `<div class="trio">${contractsCard}</div>`);
   roundListeners.forEach((f) => f());
   const gen = (x) => x.generated_at ? new Date(x.generated_at * 1000).toISOString() : "?";
@@ -1654,6 +1664,92 @@ setInterval(() => {
   roundListeners.forEach((f) => f(true));
   if (STATE.elapsed >= ROUND_SECONDS) setRound(STATE.round + 1);
 }, 500);
+
+// VolFeeConsumer's quote for a subset of one round's revealed forecasts. Reputation weights are the recorded
+// fee.mirror.weights (mean score − baseline, 0 below it or under minRounds), one per revealed forecast in
+// predictor order. A round that fell back to equal weights recorded 1s and not the underlying reputations, so
+// any subset there is equal-weighted too; that is exact when the fallback came from all weights being 0 or no
+// registry, an approximation when one unrated model forced it and the subset leaves that model out.
+function selRoundFee(d, r, keep, equal) {
+  const fc = d.params.fee_consumer, m = r.fee?.mirror;
+  const tau = fc.levels_e18.map(BigInt), K = tau.length, WAD = 10n ** 18n;
+  if (!m?.weights) return null;
+  const revealed = d.agents.filter((a) => r.agents[a.agent]?.entered !== false && r.agents[a.agent]?.quantiles_e18?.length === K);
+  if (revealed.length !== m.weights.length) return null;
+  const rows = revealed.map((a, i) => ({ q: r.agents[a.agent].quantiles_e18.map(BigInt), w: equal ? 1n : BigInt(m.weights[i]), keep: keep(a) }))
+    .filter((x) => x.keep);
+  if (!rows.length) return null;
+  if (rows.every((x) => x.w === 0n)) rows.forEach((x) => { x.w = 1n; });
+  const W = rows.reduce((s, x) => s + x.w, 0n);
+  const qMin = -20n * WAD, qMax = 60n * WAD;
+  let num = 0, den = 0;
+  for (let k = 0; k < K; k++) {
+    let mix = rows.reduce((s, x) => s + x.w * x.q[k], 0n) / W;
+    if (mix < qMin) mix = qMin;
+    if (mix > qMax) mix = qMax;
+    const wk = Number((k + 1 < K ? tau[k + 1] : WAD) - (k ? tau[k - 1] : 0n));
+    num += wk * Math.exp(Number(mix) / 1e18); den += wk;
+  }
+  const raw = Math.floor((num / den) * Number(fc.fee_per_var_e18) / 1e18);
+  return { pips: Math.min(fc.max_fee_pips, Math.max(fc.min_fee_pips, raw)), fallback: !!m.equal_weight_fallback };
+}
+
+function selHtml() {
+  const src = STATE.selSrc, sel = STATE.sel ??= { mode: "all", weight: "rep", picks: null, src: "fixed" };
+  const d = sel.src === "live" && src.live ? src.live : src.fixed;
+  sel.picks ??= new Set(d.agents.map((a) => a.agent));
+  const tier = (a) => a.tier ?? a.model_type;
+  const keep = { all: () => true, zk: (a) => tier(a) === "zk", reproducible: (a) => tier(a) === "reproducible", custom: (a) => sel.picks.has(a.agent) }[sel.mode];
+  const opt = (name, value, label, on) => `<label class="sel-opt"><input type="radio" name="${name}" value="${value}"${on ? " checked" : ""}> ${label}</label>`;
+  const modes = [["all", "全部（按信誉加权，与链上 VolFeeConsumer 相同）"], ["zk", "只用 zk 档"], ["reproducible", "只用可复现档"], ["custom", "自选"]]
+    .map(([k, l]) => opt("sel-mode", k, l, sel.mode === k)).join("");
+  const weights = [["rep", "按信誉"], ["equal", "等权"]].map(([k, l]) => opt("sel-weight", k, l, sel.weight === k)).join("");
+  const boxes = sel.mode !== "custom" ? "" : `<div class="sel-row"><span class="sel-k">模型</span>${d.agents.map((a) =>
+    `<label class="sel-opt"><input type="checkbox" name="sel-agent" value="${attr(a.agent)}"${sel.picks.has(a.agent) ? " checked" : ""}> ${a.agent.replace("agent-", "")} <span class="dim">${tier(a)}</span></label>`).join("")}</div>`;
+  const srcRow = !src.live ? "" : `<div class="sel-row"><span class="sel-k">数据</span>${opt("sel-src", "fixed", "24 h 固定回放", sel.src !== "live")}${opt("sel-src", "live", "实时 live", sel.src === "live")}</div>`;
+
+  const rs = d.rounds, labels = rs.map((r) => r.window_utc?.[0]?.slice(11, 16) ?? String(r.h));
+  const res = rs.map((r) => (r.fee?.mirror ? selRoundFee(d, r, keep, sel.weight === "equal") : null));
+  const mine = res.map((x) => (x ? x.pips / 100 : null));
+  const onchain = rs.map((r) => (r.fee?.onchain?.fee_pips != null ? r.fee.onchain.fee_pips / 100 : null));
+  const fixedBps = d.params.fee_consumer.fixed_fee_pips / 100;
+  const fixed = rs.map((r) => (r.fee ? fixedBps : null));
+  const fair = rs.map((r) => r.fee?.fair_bps ?? null);
+  const idx = rs.map((_, i) => i).filter((i) => mine[i] != null && fair[i] != null && onchain[i] != null);
+  const mae = (v) => (idx.length ? (idx.reduce((s, i) => s + Math.abs(v[i] - fair[i]), 0) / idx.length).toFixed(2) : "—");
+  const fb = res.filter((x) => x?.fallback).length;
+  const name = { all: "全部", zk: "只用 zk 档", reproducible: "只用可复现档", custom: "自选" }[sel.mode] + " · " + (sel.weight === "equal" ? "等权" : "按信誉");
+  const series = [
+    { name: `固定 ${fixedBps} bps`, color: "#a8a194", width: 1.4, dash: "2 3", values: fixed },
+    { name: "hindsight fair fee", role: "reference", color: "#3a3630", width: 2, values: fair },
+    { name: `自选：${name}`, color: "#2f6fb0", width: 3, values: mine },
+    { name: "链上记录", color: "#d8431b", width: 2, dash: "7 4", values: onchain },
+  ];
+  const title = "消费方自选模型重算的手续费 (bps)";
+  const body = !idx.length ? `<p class="sel-empty" data-sel-empty>至少选一个模型才能算出费率。</p>`
+    : lineChart(series, labels, { min: 0, tip: (v) => v.toFixed(2), unit: "bps", label: `${title}: ${series.map((s) => s.name).join(", ")}, ${rs.length} rounds` }) +
+      `<div class="fee-tiles">${[["sel", `自选：${name}`, mine], ["onchain", "链上记录（全部 + 按信誉）", onchain], ["fixed", `固定 ${fixedBps} bps`, fixed]].map(([k, l, v]) =>
+        `<div class="fee-tile"><div class="sub">${l}</div><div><span class="fee-mae" data-sel-mae="${k}">${mae(v)}</span> <span class="sub">bps MAE vs fair</span></div></div>`).join("")}</div>
+      <div class="sub">${idx.length} 轮，三者在同一组轮次上对照 hindsight fair fee 算平均绝对误差。${fb && sel.weight === "rep"
+        ? ` 其中 ${fb} 轮链上走了等权回退，回放只记了等权、没记信誉值，子集在这些轮里一律等权（若回退原因是某个未评级模型而它不在子集内，则为近似）。` : ""}</div>`;
+  return `<h2>消费方自选模型 · Consumer-side model selection</h2>
+    <p class="sel-note"><b>前端用回放数据重算，不是链上输出；链上 VolFeeConsumer 目前只有“全部 + 按信誉”。</b>
+    按 VolFeeConsumer 的同一套规则重算：各分位数按权重平均（Vincentization），权重 = 信誉均值 − 气候基线（低于基线或记录轮数不足为 0，选中的全为 0 则选中者等权），
+    E[RV] 按中点法对 exp(分位数) 加权，费率 = E[RV] × k（k = 回放记录的 fee_per_var），截断到 ${d.params.fee_consumer.min_fee_pips / 100}–${d.params.fee_consumer.max_fee_pips / 100} bps。</p>
+    <div class="sel-ctl">${srcRow}<div class="sel-row"><span class="sel-k">模型</span>${modes}</div>${boxes}
+    <div class="sel-row"><span class="sel-k">权重</span>${weights}</div></div>
+    <div id="sel-body" data-sel-fees="${attr(JSON.stringify(mine))}">${body}</div>`;
+}
+document.addEventListener("change", (e) => {
+  const t = e.target, card = t.closest?.("#sel-card");
+  if (!card || !STATE.sel) return;
+  if (t.name === "sel-mode") STATE.sel.mode = t.value;
+  else if (t.name === "sel-weight") STATE.sel.weight = t.value;
+  else if (t.name === "sel-src") { STATE.sel.src = t.value; STATE.sel.picks = null; }
+  else if (t.name === "sel-agent") STATE.sel.picks[t.checked ? "add" : "delete"](t.value);
+  else return;
+  card.innerHTML = selHtml();
+});
 
 // Per-round inputs of the flow, all read from the replay JSON.
 function flowModel(d, colorOf) {
