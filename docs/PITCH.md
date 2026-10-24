@@ -32,9 +32,9 @@ who pick forecasters by reputation. Per-request x402 payment is roadmap.
 
 **1:25 Who consumes it (35 s).** `VolFeeConsumer` averages the revealed quantiles level by level,
 weighted by ERC-8004 reputation, into an expected variance and an LVR-based dynamic fee. Mean absolute
-error against the hindsight fair LVR fee (a reference known only after the hour, mean 4.06 bps):
-forecast 2.16 bps, fixed 5 bps 2.36, previous-hour 3.52. At 2.16 the forecast fee has the lowest
-error, though it runs low (mean 3.13 bps).
+error against the hindsight fair LVR fee (a reference known only after the hour, mean 3.94 bps):
+forecast 2.08 bps, fixed 5 bps 2.47, previous-hour 3.48. At 2.08 the forecast fee has the lowest
+error, though it runs low (mean 3.12 bps).
 Twenty-four rounds, no significance test. Simulated on a fork; the v4 hook is unaudited and undeployed.
 
 **2:00 Three verification tiers (35 s).** zk: small models attach an EZKL proof that the registered
@@ -57,7 +57,7 @@ are a persistent chain and outside agents.
 
 **agent 与 keeper（25 秒）**：`settle`、`createRound` 是 keeper 活，无许可，谁都能调。预测者才是 ERC-8004 意义上的 agent：在不确定性下做判断、要担责、需要信誉。消费方按信誉挑预测者；按次 x402 付费是路线图。
 
-**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的分位数按 ERC-8004 信誉加权、逐分位平均，得到期望方差，按 LVR 定动态手续费。与事后公平费率（参照，均值 4.06）的平均绝对误差：预测定费 2.16，固定 5 bps 2.36，上一小时 3.52。预测定费误差最低（2.16），但费率偏低（均值 3.13）。24 轮，未做显著性检验。分叉上模拟，v4 hook 未部署、未审计。
+**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的分位数按 ERC-8004 信誉加权、逐分位平均，得到期望方差，按 LVR 定动态手续费。与事后公平费率（参照，均值 3.94）的平均绝对误差：预测定费 2.08，固定 5 bps 2.47，上一小时 3.48。预测定费误差最低（2.08），但费率偏低（均值 3.12）。24 轮，未做显著性检验。分叉上模拟，v4 hook 未部署、未审计。
 
 **三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记模型由合约输入得出这组分位数。可复现（已实现）：三个开源权重时序模型登记 `modelHash`，任何人可从链上数据重算，每个分位在容差内。仅提交只证明时间。可复现证明出处，不证明准确。
 
@@ -90,11 +90,11 @@ are a persistent chain and outside agents.
    `sample()` fallback, voided under 90 % coverage; Chainlink cross-check (> 200 bps or > 3900 s stale
    voids). Plus: reputation written by the market and filtered by market address.
 6. **Demo.** Hourly mainnet fork on the demo server, real pool, deployed ERC-8004, real feed, the
-   last 24 real hours. window 2026-10-23 06:00 – 10-24 06:00 UTC, 24 settled / 0 voided, features and RV vs mainnet recompute,
+   last 24 real hours. window 2026-10-23 07:00 – 10-24 07:00 UTC, 24 settled / 0 voided, features and RV vs mainnet recompute,
    tampered proofs rejected, ERC-8004 `getSummary` counts, each agent's mean pinball loss against its
    round-matched climatological baseline, recompute verdicts (grade X, `dashboard/sample-replay.json`).
    Fee card: MAE against the hindsight fair LVR fee (reference, computable only after the hour,
-   assumes volume is unaffected by the fee, mean 4.06 bps): 2.16 / 2.36 / 3.52 bps for forecast / fixed 5 bps / previous-hour
+   assumes volume is unaffected by the fee, mean 3.94 bps): 2.08 / 2.47 / 3.48 bps for forecast / fixed 5 bps / previous-hour
    (grade X, `summary.fee_strategies`). 24 rounds, no significance test. Commits are simulated on the
    fork, not a real-time ex-ante proof.
 7. **Why "verifiable AI".** Verified inference on contract-derived inputs, onchain scoring, a
@@ -211,7 +211,7 @@ the contract mints nothing. It is small while betting volume is small.
 makers, agent vaults. Payment by subscription as Synth does, or per request for an aggregated forecast
 over x402 (roadmap). `VolFeeConsumer` is a simulated example of such a reader: it sets a dynamic
 fee from reputation-weighted quantile forecasts (MAE against the hindsight fair LVR fee, a reference:
-2.16 bps vs 2.36 for fixed 5 bps and 3.52 for the previous-hour fee; 24 rounds, no significance test). That DeFi already pays for hourly volatility forecasts is [待证据]. What is sourced: a
+2.08 bps vs 2.47 for fixed 5 bps and 3.48 for the previous-hour fee; 24 rounds, no significance test). That DeFi already pays for hourly volatility forecasts is [待证据]. What is sourced: a
 paid subscription for a similar product exists. Synth's API plans are $49 / $199 / $499 per month (A,
 [Synth docs](https://docs.synthdata.co/getting-started/credits-and-pricing)), and community reporting
 puts its Q1 2026 MRR at about $70k (C, [TAO Daily](https://taodaily.io/james-ross-gives-synths-q1-report-on-community-call/)).
@@ -226,7 +226,7 @@ and replays real mainnet prices on a fork.
 | EZKL proof binds outputs to the registered model on contract-computed inputs | implemented |
 | Forecasts committed as a sender-bound hash before `startTime − commitLead`, revealed before `startTime − revealLead`, one per predictor per round | implemented |
 | Only the model's registered operator may commit (`modelId → operator`) | implemented |
-| Fee share only for pinball loss below the climatological baseline; unrevealed forecasts earn nothing | implemented |
+| Fee share only for positive cumulative excess over the climatological baseline; losing rounds subtract, an unrevealed commit counts at the worst loss | implemented |
 | Submission stake and slashing; penalty for missed rounds, participation rate | roadmap |
 | Reproducible and commit-only channels for agents without proofs (open-weight or API time-series models), separate ERC-8004 tag; reproducible reveals recomputable from `modelHash` | implemented |
 | Diversity score in the style of Numerai MMC (A, [Numerai docs](https://docs.numer.ai/numerai-tournament/scoring/meta-model-contribution-mmc)) | roadmap |
@@ -251,11 +251,11 @@ slashing, and only once outside payers exist.
 已实现：下注者押注 ERC-20，赢家按比例分走扣除手续费后的整个彩池；`feeBps` 部署时固定（< 1000，演示为
 1%），`collectFee` 任何人可调、每轮一次、转给 `owner`，作废或无人押中的轮次全额退款不收费。每个已公开的预测在
 结算时由池子 TWAP 算出 5 个分位数的 pinball 损失，由市场合约把 −损失写入 ERC-8004，分数来自链上结算而非自评。手续费中
-`predictorShareBps`（构造参数，≤ 10000，演示为 50%）归 pinball 损失严格低于本轮气候基线的预测者，按超出
-（基线损失 − 自身损失）比例分配，各自用 `claimPredictorReward` 领取，最后一位领取者拿取整余数，总额精确守恒；没人
-超过基线时整笔手续费归 owner。分成来自下注者的手续费，合约不增发任何代币，下注量小时分成也小。
-防作弊已实现的是 EZKL 绑定模型输出、绑定发送者的提交哈希与公开截止、只许已登记 operator 提交、仅高于
-基线才分钱、未公开不计分，以及可复现与仅提交通道（单独的 ERC-8004 tag）；当前 `owner` 负责登记模型、设喂价与
+`predictorShareBps`（构造参数，≤ 10000，演示为 50%）按本轮预测者的至今累计超额（Σ（基线损失 − 自身损失），输的轮会扣掉累计；提交了不公开按最差损失计）的正值部分
+比例分配，各自用 `claimPredictorReward` 领取，最后一位领取者拿取整余数，总额精确守恒；没人
+累计为正时整笔手续费归 owner。分成来自下注者的手续费，合约不增发任何代币，下注量小时分成也小。
+防作弊已实现的是 EZKL 绑定模型输出、绑定发送者的提交哈希与公开截止、只许已登记 operator 提交、仅累计超额为正
+才分钱、未公开不计分，以及可复现与仅提交通道（单独的 ERC-8004 tag）；当前 `owner` 负责登记模型、设喂价与
 ERC-8004 注册表并收取扣除分成后的手续费，`createRound` 无许可。以下均为未验证的设想：未来付费方是
 LP 区间管理、Uniswap v4 动态费率 hook、期权做市、Agent 金库，按订阅或 x402 按次付费（“DeFi 已在为小时级
 波动率预测付费”[待证据]；Synth 的付费订阅只说明存在类似需求）；冷启动靠团队自注彩池、自跑 3 个 agent、
@@ -272,13 +272,13 @@ Synth is Bittensor subnet 50 (A, [synth-subnet](https://github.com/synthdataco/s
 |---|---|---|
 | Scoring | validators score offchain with CRPS | settled onchain from Uniswap `observe()` TWAP, integer pinball loss on 5 quantiles vs a climatological baseline |
 | Provenance | cannot prove which model produced a forecast | EZKL proof binds outputs to a registered model; weights are fixed in the circuit (`param_visibility = fixed`), not hidden |
-| Incentive | subnet Alpha emissions | no token: betting pool and protocol fee; forecasters above baseline share part of the fee and earn ERC-8004 reputation usable across apps |
+| Incentive | subnet Alpha emissions | no token: betting pool and protocol fee; forecasters with positive cumulative excess over the baseline share part of the fee and earn ERC-8004 reputation usable across apps |
 | Product | price-path distributions sold as an API | accountability layer for settlement and reputation; could give suppliers like Synth a verifiable track record |
 | Paying users | yes | none yet |
 
 Synth 由 validator 链下用 CRPS 打分，无法证明预测出自哪个模型，靠子网 Alpha 增发激励，卖价格路径分布
 API；我们链上按 `observe()` TWAP 结算、整数 pinball 损失（5 个分位数，对比气候基线），EZKL 证明绑定已登记模型（权重固定在电路里，不是隐藏
-模型），无代币，激励是彩池手续费（高于基线的预测者分一部分）与跨应用的 ERC-8004 信誉，定位是可问责的结算与信誉层，也可以反过来给
+模型），无代币，激励是彩池手续费（累计超额为正的预测者分一部分）与跨应用的 ERC-8004 信誉，定位是可问责的结算与信誉层，也可以反过来给
 Synth 这类供给方做可验证战绩。坦白说：Synth 已有真实付费用户，我们没有。
 
 ## Problem evidence / 痛点证据
@@ -323,9 +323,9 @@ BasisOS are grade C only and are deliberately not used.
 |---|---|---|
 | Proof time per model (laptop) | ≈ 4–7 s, 0.38–0.41 GB peak (4 proofs in parallel) | X, `agents/MODEL_CARD.md` §1 |
 | Verifier size / `verifyProof` gas | 13,440 B (< 24,576 B) / 550,870–552,682 gas over 6 real proofs | X, `agents/MODEL_CARD.md` §1 |
-| 24-hour live run | 24 settled / 0 voided (2026-10-23 06:00 – 10-24 06:00 UTC), 411 s wall time | X, `dashboard/sample-replay.json` |
-| 24-hour live run, mean pinball loss per agent vs round-matched climatological baseline (no significance test) | baseline 0.289; `linear_abs` 0.270, `mlp16` 0.264, `mlp32_abs` 0.263, timesfm-3.0 0.304, timestral-209m 0.261, chronos-2 0.311; 4 of 6 below baseline | X, `dashboard/sample-replay.json` `summary.agents` |
-| Consumer fee, MAE vs hindsight fair LVR fee (reference) | 2.16 / 2.36 / 3.52 bps forecast / fixed 5 bps / previous-hour (reference mean 4.06 bps; 2 of 24 rounds on the equal-weight fallback) | X, `dashboard/sample-replay.json` `summary.fee_strategies` |
+| 24-hour live run | 24 settled / 0 voided (2026-10-23 07:00 – 10-24 07:00 UTC), 392 s wall time | X, `dashboard/sample-replay.json` |
+| 24-hour live run, mean pinball loss per agent vs round-matched climatological baseline (no significance test) | baseline 0.298; `linear_abs` 0.273, `mlp16` 0.264, `mlp32_abs` 0.265, timesfm-3.0 0.304, timestral-209m 0.265, chronos-2 0.316; 4 of 6 below baseline | X, `dashboard/sample-replay.json` `summary.agents` |
+| Consumer fee, MAE vs hindsight fair LVR fee (reference) | 2.08 / 2.47 / 3.48 bps forecast / fixed 5 bps / previous-hour (reference mean 3.94 bps; 2 of 24 rounds on the equal-weight fallback) | X, `dashboard/sample-replay.json` `summary.fee_strategies` |
 | Reproducible timesfm-3.0 / timestral-209m / chronos-2 (zero-shot) | recompute within 1e15 per quantile: 72 of 72 forecasts (70 exact, max diff 2.44e14) | X, `dashboard/sample-replay.json` `summary.agents.*.reproduced_rounds` |
 | Largest zk model | 709 parameters (`mlp32_abs`) | X, `agents/MODEL_CARD.md` §4 |
 | Test-period mean pinball loss (lower is better) | `mlp32_abs` 0.2856, `linear_abs` 0.2874, `mlp16` 0.2912, previous-hour y + residual 0.3254, climatological baseline 0.3325 | X, `agents/MODEL_CARD.md` §6 |
