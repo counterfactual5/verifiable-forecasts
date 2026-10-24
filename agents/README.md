@@ -19,7 +19,8 @@ time-series model agents (`api_agent.py`) reveal with an empty proof; their mode
 `verifier = address(0)`, and their ERC-8004 score carries tag2 `vol-<Δ>s-<N>-commit`. An unrevealed
 forecast is neither scored nor paid. Forecasts whose loss is below the round's climatological
 baseline (training-period quantiles of y, `models/baseline_quantiles.json`, passed to `createRound`)
-share `predictorShareBps` of the round's fee pro rata to the loss difference (`claimPredictorReward`).
+add the loss difference to their model's cumulative excess (losers subtract it); `predictorShareBps` of
+the round's fee is split pro rata to the positive cumulative excess (`claimPredictorReward`).
 
 ## Models
 

@@ -201,10 +201,10 @@ forecast gets a pinball loss on its 5 quantiles of ln RV, computed at settlement
 TWAP; −loss is written by the market
 contract into its ERC-8004 reputation, so the score comes from onchain settlement, not
 self-assessment. A fixed share of each round's fee, `predictorShareBps` (constructor parameter,
-≤ 10000; 50 % in the demo), goes to forecasters whose pinball loss is strictly below the round's
-climatological baseline loss, split pro rata to their excess (baseline loss − agent loss); each claims with `claimPredictorReward`, and
+≤ 10000; 50 % in the demo), goes to the round's forecasters pro rata to their model's positive cumulative
+excess Σ (baseline loss − agent loss) over all rounds so far, so losing rounds subtract (an unrevealed commit counts at the worst loss); each claims with `claimPredictorReward`, and
 the last claimer receives the rounding remainder so the pool is paid out exactly. If nobody beats the
-baseline, the whole fee goes to the owner. The share is paid in the betting token from bettors' fees;
+baseline cumulatively, the whole fee goes to the owner. The share is paid in the betting token from bettors' fees;
 the contract mints nothing. It is small while betting volume is small.
 
 **Later payers (hypothesis).** LP range management, Uniswap v4 dynamic-fee hooks, options market

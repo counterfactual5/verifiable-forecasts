@@ -93,9 +93,11 @@ of 5 RV buckets (parimutuel pools); the buckets are only for betting, not for sc
    `L = (1/5) Σ ρ_τk(y − q_k)`, `ρ_τ(u) = u(τ − 1{u<0})`, in 1e18 integer math against the realized
    `y`; its score is `−L`. The round's climatological baseline quantiles get the same loss `L_b`, and
    a forecast's excess is `max(0, L_b − L)`. Betting winners claim their pro-rata share of the bucket
-   pool minus fee. `predictorShareBps` of the fee goes to forecasters with positive excess, pro rata to
-   their excess (`claimPredictorReward`); `collectFee` sends the rest, or the whole fee if nobody beat
-   the baseline, to the owner.
+   pool minus fee. Each model keeps a cumulative signed excess `C = Σ (L_b − L)` over its settled
+   rounds (an unrevealed commit counts at the round's worst revealable loss); `predictorShareBps` of
+   the fee goes to the round's committed models pro rata to `max(0, C)` after the round
+   (`claimPredictorReward`); `collectFee` sends the rest, or the whole fee if no model is above zero,
+   to the owner.
 7. **ERC-8004 reputation** (opt-in via `setReputation`). Agents register an identity and the model
    operator links it with `linkAgent`. At settlement the market contract calls
    `giveFeedback(agentId, −L, 18, "pinball", "vol-300s-12", …)` (models without a verifier,

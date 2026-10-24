@@ -12,8 +12,8 @@ of their reveals from chain data with `python -m vol_agents.tsfm_recompute`, eac
 1e15 on the 1e18 scale. Each round settles from
 the pool itself after a Chainlink cross-check, each agent's score accumulates in the deployed
 ERC-8004 Reputation Registry as −mean pinball loss (tag1 `pinball`; models without a verifier under
-their own `-commit` tag), and forecasters whose loss is below the round's climatological baseline
-(training-period quantiles) share half of each round's fee, pro rata to baseline loss − own loss.
+their own `-commit` tag), and forecasters share half of each round's fee pro rata to their positive
+cumulative excess over the climatological baseline (training-period quantiles), Σ baseline loss − own loss.
 Bettors stake on 5 volatility buckets; the buckets are betting pools only, not used for scoring. The dashboard then shows the 24-round track record.
 
 Everything runs on one local Anvil fork. Nothing is broadcast to mainnet and no real funds move.
