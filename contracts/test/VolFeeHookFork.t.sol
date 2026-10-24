@@ -86,8 +86,11 @@ contract VolFeeHookForkTest is Test {
         assertFalse(recorded);
     }
 
-    /// @dev One commit-only forecast (uniform outputs), revealed and recorded at the reveal deadline.
+    /// @dev One commit-only forecast (quantiles of ln RV 6.0 .. 8.0), revealed and recorded at the
+    ///      reveal deadline.
     function _recordedRound() internal returns (VolMarket market, VolFeeConsumer consumer, uint256 id, uint64 start) {
+        uint256[] memory levels = new uint256[](5);
+        (levels[0], levels[1], levels[2], levels[3], levels[4]) = (1e17, 25e16, 5e17, 75e16, 9e17);
         market = new VolMarket(
             IERC20(address(new MockERC20())),
             100,
@@ -98,14 +101,20 @@ contract VolFeeHookForkTest is Test {
             COMMIT_LEAD,
             REVEAL_LEAD,
             200,
-            3900
+            3900,
+            VolMarket.QuantileConfig(levels, 12)
         );
         start = uint64(block.timestamp + 2 * COMMIT_LEAD);
         uint256[] memory bounds = new uint256[](4);
         (bounds[0], bounds[1], bounds[2], bounds[3]) = (200, 600, 1200, 2000);
-        id = market.createRound(start, bounds);
+        int256[] memory baseline = new int256[](5);
+        (baseline[0], baseline[1], baseline[2], baseline[3], baseline[4]) = (5e18, 6e18, 7e18, 8e18, 9e18);
+        id = market.createRound(start, bounds, baseline);
         uint256 modelId = market.registerModel(address(0), address(this));
-        uint256[5] memory outputs = [uint256(1), 1, 1, 1, 1];
+        int256[] memory outputs = new int256[](5);
+        for (uint256 k = 0; k < 5; ++k) {
+            outputs[k] = int256(6 * 4096 + k * 2048);
+        }
         bytes32 salt = keccak256("salt");
         market.commitPrediction(id, modelId, keccak256(abi.encode(id, modelId, outputs, salt, address(this))));
         vm.warp(start - COMMIT_LEAD);
@@ -113,10 +122,10 @@ contract VolFeeHookForkTest is Test {
 
         consumer = new VolFeeConsumer(
             IVolMarketReader(address(market)),
-            "logScore",
+            "pinball",
             "vol-300s-12",
             "vol-300s-12-commit",
-            [uint256(100), 400, 900, 1600, 2500],
+            -4e17,
             1e18,
             MIN_FEE,
             MAX_FEE
