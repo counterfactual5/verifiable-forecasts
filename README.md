@@ -223,7 +223,9 @@ updated and when the next run starts, and warns when the file is older than 2 ho
   its registered model); the round and the other agents go on.
 - Each run also opens the round for the hour in progress: every agent commits and reveals on that
   round's real features, and the dashboard shows the forecasts as pending until the next run
-  replays the hour as completed and settles it.
+  replays the hour as completed and settles it. That round lives on a fresh local mainnet fork, so
+  its commit and reveal timestamps are simulated: they do not prove the forecast was made before the
+  hour in real time. Real ex-ante proof needs commits on a persistent chain (next step).
 - One live run locally: `make live` (needs network; reads `MAINNET_RPC_URL`, `VOL_TSFM_*` from
   `.env`). Deploying: `VF_DEPLOY_HOST=user@host bash deploy/push.sh` ships the committed tree only
   (`git archive HEAD`).

@@ -18,7 +18,7 @@ fr="${FORK_ROUND:-demo/fork_round.py}"
 tmp="$root/docs/.local/tmp/quantile_replay"
 mkdir -p "$tmp" && cp "$fr" "$tmp/fork_round.py"
 
-res=$(cd "$root/agents" && PYTHONPATH="$root/agents:$tmp" uv run --project "$root/agents" python - "$tmp" "$root" <<'EOF' 2>&1
+res=$(cd "$root/agents" && PYTHONPATH="$root/agents:$tmp:$root/demo" uv run --project "$root/agents" python - "$tmp" "$root" <<'EOF' 2>&1
 import inspect, json, sys
 from pathlib import Path
 check = lambda c, m: print(("ok - " if c else "not ok - ") + m)
@@ -32,7 +32,7 @@ fr.REPO = Path(sys.argv[2])
 fr.BASELINE_FILE = fr.REPO / "agents" / "models" / "baseline_quantiles.json"
 check('"vol-replay/v2"' in src, "writes schema vol-replay/v2")
 check(getattr(fr, "REPUTATION_TAG1", None) == "pinball", "ERC-8004 tag1 is pinball")
-check("int_list(LEVELS_E18), cm.OUTPUT_SCALE_BITS" in src, "VolMarket constructor gets quantile levels and outputScaleBits")
+check("({int_list(LEVELS_E18)},{cm.OUTPUT_SCALE_BITS})" in src and "MAX_DEVIATION_BPS, MAX_FEED_AGE," in src, "VolMarket constructor gets quantile levels and outputScaleBits")
 check('createRound(uint64,uint256[],int256[])' in src, "createRound passes the baseline quantiles")
 for sig in ("getRoundScoring(uint256)(int256,uint256,int256[])", "getPredictionLoss(uint256,address)(uint256,uint256)",
             "getPrediction(uint256,address)(bool,uint256,int256[],int256)", "FeeRecorded(uint256,uint24,uint256,int256[])"):

@@ -49,7 +49,7 @@ contract VolFeeConsumerTest is Test {
     // ------------------------------------------------------------ helpers
     function _consumer(uint256 feePerVarE18, uint24 minFee, uint24 maxFee) internal returns (VolFeeConsumer) {
         return new VolFeeConsumer(
-            IVolMarketReader(address(market)), TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, feePerVarE18, minFee, maxFee
+            IVolMarketReader(address(market)), TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, feePerVarE18, minFee, maxFee, 1
         );
     }
 
@@ -150,6 +150,47 @@ contract VolFeeConsumerTest is Test {
         // (0.25 e^4.5 + 0.4 e^5.5 + 0.5 e^6.5 + 0.4 e^7.5 + 0.25 e^8.5) / 1.8 tick^2
         assertApproxEqRel(expectedVarE18, 1336033915616782447511, 1e3);
         assertEq(fee, 1336);
+    }
+
+    function _minRoundsConsumer(uint256 minRounds) internal returns (VolFeeConsumer) {
+        return new VolFeeConsumer(
+            IVolMarketReader(address(market)), TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, 1e18, 100, 10_000, minRounds
+        );
+    }
+
+    function test_ModelBelowMinRoundsGetsZeroWeight() public {
+        _addAB(0);
+        _bindAB();
+        market.setReputationRegistry(address(tuple));
+        tuple.setSummary(AGENT_A, address(market), TAG1, TAG2_ZK, 3, int128(BASELINE + 3e17), 18);
+        tuple.setSummary(AGENT_B, address(market), TAG1, TAG2_COMMIT, 2, int128(BASELINE + 9e17), 18);
+        consumer = _minRoundsConsumer(3);
+        _open();
+        _assertMix(_mixOf(0), _qA());
+    }
+
+    function test_AllBelowMinRoundsFallsBackToEqualWeight() public {
+        _addAB(0);
+        _bindAB();
+        _rateAB(); // 3 records each
+        consumer = _minRoundsConsumer(4);
+        _open();
+        _assertMix(_mixOf(0), _equalMixAB());
+    }
+
+    function test_MinRoundsCountsLiteRegistryRecords() public {
+        ReputationRegistryLite lite = new ReputationRegistryLite();
+        _addAB(0);
+        _bindAB();
+        market.setReputationRegistry(address(lite));
+        vm.startPrank(address(market));
+        lite.giveFeedback(AGENT_A, int128(BASELINE + 3e17), 18, TAG1, TAG2_ZK, "", "", bytes32(0));
+        lite.giveFeedback(AGENT_A, int128(BASELINE + 3e17), 18, TAG1, TAG2_ZK, "", "", bytes32(0));
+        lite.giveFeedback(AGENT_B, int128(BASELINE + 9e17), 18, TAG1, TAG2_COMMIT, "", "", bytes32(0));
+        vm.stopPrank();
+        consumer = _minRoundsConsumer(2);
+        _open();
+        _assertMix(_mixOf(0), _qA());
     }
 
     /// @dev Vincentization: each level is the weighted mean of that level across forecasts, and
@@ -537,16 +578,16 @@ contract VolFeeConsumerTest is Test {
     function test_ConstructorRejectsInvalidParams() public {
         IVolMarketReader m = IVolMarketReader(address(market));
         vm.expectRevert(VolFeeConsumer.InvalidParams.selector);
-        new VolFeeConsumer(IVolMarketReader(address(0)), TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, 1e18, 100, 200);
+        new VolFeeConsumer(IVolMarketReader(address(0)), TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, 1e18, 100, 200, 1);
         vm.expectRevert(VolFeeConsumer.InvalidParams.selector);
-        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, 1e18, 201, 200);
+        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, BASELINE, 1e18, 201, 200, 1);
         vm.expectRevert(VolFeeConsumer.InvalidParams.selector);
-        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, int256(type(int128).min) - 1, 1e18, 100, 200);
+        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, int256(type(int128).min) - 1, 1e18, 100, 200, 1);
         vm.expectRevert(VolFeeConsumer.InvalidParams.selector);
-        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, int256(type(int128).max) + 1, 1e18, 100, 200);
+        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, int256(type(int128).max) + 1, 1e18, 100, 200, 1);
         // equal fee bounds and the int128 ends are valid
-        VolFeeConsumer c = new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, type(int128).min, 1e18, 200, 200);
+        VolFeeConsumer c = new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, type(int128).min, 1e18, 200, 200, 1);
         assertEq(c.baselineScore(), type(int128).min);
-        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, type(int128).max, 1e18, 200, 200);
+        new VolFeeConsumer(m, TAG1, TAG2_ZK, TAG2_COMMIT, type(int128).max, 1e18, 200, 200, 1);
     }
 }

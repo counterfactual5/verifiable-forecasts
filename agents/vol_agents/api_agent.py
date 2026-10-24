@@ -21,7 +21,7 @@ of y = ln(max(RV, 1)) at contract_math.QUANTILE_LEVELS.
 Configuration (environment): VOL_TSFM_API_URL (unset: a deterministic local placeholder forecast;
 for tsfm-forecast the service's base URL, e.g. https://<host>/v1), VOL_TSFM_API_KEY (sent as
 "Authorization: Bearer <key>", or raw under VOL_TSFM_API_KEY_HEADER), VOL_TSFM_MODEL (one model,
-default remote-model), VOL_TSFM_MODELS (comma-separated models for tsfm_agents, default
+default timesfm-3.0), VOL_TSFM_MODELS (comma-separated models for tsfm_agents, default
 timesfm-3.0,timestral-209m,chronos-2), VOL_TSFM_TIMEOUT_S (default 30). Formats: agents/README.md.
 """
 
@@ -50,7 +50,7 @@ PLACEHOLDER_SCALE = (0.24, 0.94, 4.63)
 ROUND_SIG = "getRound(uint256)(uint64,bool,bool,uint256,uint256,uint256,uint256[5],uint256[])"
 
 TSFM = "tsfm-forecast"
-TSFM_DEFAULT_MODEL = "remote-model"
+TSFM_DEFAULT_MODEL = "timesfm-3.0"
 
 
 @dataclass(frozen=True)

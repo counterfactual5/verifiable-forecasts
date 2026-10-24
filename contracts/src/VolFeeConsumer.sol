@@ -79,6 +79,9 @@ contract VolFeeConsumer {
     /// @dev Fee bounds in pips.
     uint24 public immutable minFee;
     uint24 public immutable maxFee;
+    /// @dev Fewest reputation records under this consumer's tags a model needs for a nonzero
+    ///      weight: a fresh identity with one lucky round must not outweigh a long history.
+    uint256 public immutable minRounds;
 
     /// @dev Fee in pips recorded for a round.
     mapping(uint256 => uint24) public feeOf;
@@ -92,7 +95,8 @@ contract VolFeeConsumer {
         int256 baselineScore_,
         uint256 feePerVarE18_,
         uint24 minFee_,
-        uint24 maxFee_
+        uint24 maxFee_,
+        uint256 minRounds_
     ) {
         if (address(market_) == address(0) || minFee_ > maxFee_) revert InvalidParams();
         // reputation means are int128 values: a baseline outside int128 makes every weight 0 or
@@ -106,6 +110,7 @@ contract VolFeeConsumer {
         feePerVarE18 = feePerVarE18_;
         minFee = minFee_;
         maxFee = maxFee_;
+        minRounds = minRounds_;
     }
 
     /// @notice Fee for round `id` from its revealed forecasts, valid from the reveal deadline
@@ -212,8 +217,9 @@ contract VolFeeConsumer {
 
     function _weight(address registry, uint256 modelId) internal view returns (bool found, uint256 weight) {
         int256 mean;
-        (found, mean) = _reputation(registry, modelId);
-        if (found && mean > baselineScore) weight = uint256(mean - baselineScore);
+        uint256 records;
+        (found, mean, records) = _reputation(registry, modelId);
+        if (found && records >= minRounds && mean > baselineScore) weight = uint256(mean - baselineScore);
     }
 
     /// @dev Mean score (1e18) of `modelId`'s agent over the market's feedback under this
@@ -222,8 +228,12 @@ contract VolFeeConsumer {
     ///      (18 decimals), so the shape is told apart by return length. The local registry returns
     ///      0 for no record, which is also a perfect score: presence is decided by the record
     ///      count, never by the value. A failed call or any other shape counts as no reputation.
-    function _reputation(address registry, uint256 modelId) internal view returns (bool found, int256 mean) {
-        if (!market.agentBound(modelId)) return (false, 0);
+    function _reputation(address registry, uint256 modelId)
+        internal
+        view
+        returns (bool found, int256 mean, uint256 records)
+    {
+        if (!market.agentBound(modelId)) return (false, 0, 0);
         uint256 agentId = market.agentOfModel(modelId);
         string memory tag2 = market.isZkModel(modelId) ? tag2Zk : tag2Commit;
         address[] memory clients = new address[](1);
@@ -231,24 +241,25 @@ contract VolFeeConsumer {
         (bool ok, bytes memory ret) = registry.staticcall(
             abi.encodeWithSelector(IERC8004Reputation.getSummary.selector, agentId, clients, tag1, tag2)
         );
-        if (!ok) return (false, 0);
+        if (!ok) return (false, 0, 0);
         if (ret.length == 96) return _decodeTupleSummary(ret);
         if (ret.length == 32) {
-            if (_matchingRecords(registry, agentId, tag2) == 0) return (false, 0);
+            records = _matchingRecords(registry, agentId, tag2);
+            if (records == 0) return (false, 0, 0);
             int256 value = abi.decode(ret, (int256));
-            if (value < type(int128).min || value > type(int128).max) return (false, 0);
-            return (true, value);
+            if (value < type(int128).min || value > type(int128).max) return (false, 0, 0);
+            return (true, value, records);
         }
-        return (false, 0);
+        return (false, 0, 0);
     }
 
     /// @dev Decoded as full words and range-checked, so a dirty return counts as no reputation
     ///      instead of reverting the quote.
-    function _decodeTupleSummary(bytes memory ret) internal pure returns (bool found, int256 mean) {
+    function _decodeTupleSummary(bytes memory ret) internal pure returns (bool found, int256 mean, uint256 records) {
         (uint256 count, int256 value, uint256 decimals) = abi.decode(ret, (uint256, int256, uint256));
-        if (count == 0 || count > type(uint64).max || decimals > REPUTATION_DECIMALS) return (false, 0);
-        if (value < type(int128).min || value > type(int128).max) return (false, 0);
-        return (true, value * int256(10 ** (REPUTATION_DECIMALS - decimals)));
+        if (count == 0 || count > type(uint64).max || decimals > REPUTATION_DECIMALS) return (false, 0, 0);
+        if (value < type(int128).min || value > type(int128).max) return (false, 0, 0);
+        return (true, value * int256(10 ** (REPUTATION_DECIMALS - decimals)), count);
     }
 
     /// @dev Records the market wrote for `agentId` under this consumer's tags.

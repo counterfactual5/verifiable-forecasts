@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Split acceptance: the default page (no ?data) reads two files. #/live reads live-replay.json (rolling LIVE_HOURS = 24,
-# re-forked hourly) and is labelled 实时 · 每小时更新; 概览 / 单轮回放 / 预测者与信誉 / 消费方示例 / 链上记录 read the fixed
+# re-forked hourly) and is labelled 实时 · 每小时更新 · 分叉模拟, its lead saying the fork's commit times are simulated and
+# do not prove real-world ex-ante (that needs commits on a persistent chain); 概览 / 单轮回放 / 预测者与信誉 / 消费方示例 / 链上记录 read the fixed
 # 24 h replay sample-replay.json, so their numbers match the deck, and are labelled 固定回放 · 过去 24 小时主网（生成时间 …）.
 # The live file served here is synthetic (20 rounds, a marker total) so each number shows which file it came from.
-# The overview carries one "同一协议还能用在哪" card: lending, options / vol vaults, insurance / treasury and a
-# Uniswap V4 dynamic-fee hook, each marked 尚未实现, plus the sentence that the contract only implements the
-# Uniswap V3 observe() data source, said once. The deploy serves and ships the fixed file and its /vf/ fallback does not
+# The overview carries one "同一协议还能用在哪" card with exactly three showcase cases: ① AMM dynamic fee (推荐费率已实现
+# （分叉回放中上链）, V4 hook：分叉上已模拟收费（未部署主网、未审计）, never 开发中), ② lending risk parameters and ③ rollup / paymaster gas quotes (both 设想（未实现）), a
+# "more" line (options / vaults, insurance / treasury, perp funding, LP ranges, 尚未实现), the sentence that swapping
+# the settlement source and consumer keeps the protocol, and the sentence that the contract only implements the
+# Uniswap V3 observe() data source, said once, then one muted off-chain x402 line (设想, not a case card). The use cases
+# never claim quantiles as shipped. The card fits at 375 and 390 px. The deploy serves and ships the fixed file and its /vf/ fallback does not
 # pin ?data to the live file. DASH_DIR overrides the dashboard directory so the checks can be run against an older index.html.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -64,7 +68,7 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
 (async () => {
   let browser;
   try { browser = await pw.chromium.launch(); } catch (_) { browser = await pw.chromium.launch({ channel: "chrome" }); }
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 390, 375]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -85,16 +89,41 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
     const ov = await page.evaluate(() => {
       const t = (el) => el ? el.textContent.replace(/\s+/g, " ").trim() : "";
       const card = document.querySelector("#usecases");
-      const items = card ? [...card.querySelectorAll("li")].map(t) : [];
-      return { kpi: t(document.querySelector("#summary")), items, card: t(card), visible: !!card?.getClientRects().length,
+      const lis = card ? [...card.querySelectorAll("li")] : [];
+      const items = lis.map(t);
+      const vw = document.documentElement.clientWidth;
+      const fits = !!card && card.scrollWidth <= card.clientWidth + 1
+        && [card, ...lis].every((el) => { const r = el.getBoundingClientRect(); return r.left >= -1 && r.right <= vw + 1; });
+      const dark = lis.some((li) => { const s = getComputedStyle(li);
+        return [s.borderTopColor, s.backgroundColor].some((c) => { const m = c.match(/\d+/g)?.map(Number) ?? [];
+          return m.length >= 3 && (m[3] ?? 1) > 0 && Math.max(m[0], m[1], m[2]) < 60 && !/rgba\(.*,\s*0\)/.test(c); }); });
+      return { kpi: t(document.querySelector("#summary")), items, card: t(card), visible: !!card?.getClientRects().length, fits, dark,
+        more: t(card?.querySelector(".uses-more")),
+        x402: [...(card?.querySelectorAll("p, div") ?? [])].filter((e) => /x402/.test(e.textContent))
+          .map((e) => ({ text: t(e), inLi: !!e.closest("li"), muted: e.classList.contains("sub"), afterMore: /更多方向（尚未实现）/.test(e.previousElementSibling?.textContent ?? "") })),
         body: document.body.innerText.replace(/\s+/g, " "), snap: t(document.querySelector("#case-snap")) };
     });
     const v2 = fixed.schema === "vol-replay/v2";
     const best = v2 ? fixed.summary.baseline_mean_pinball_loss.toFixed(3) : Math.max(...Object.values(fixed.summary.agents).map((a) => a.total_log_score)).toFixed(1);
     check(ov.kpi.includes(best) && !/-77\.8|−77\.8|7\.777/.test(ov.kpi), `@${width}: overview KPIs come from the fixed replay (${best})`);
     check(ov.visible && /同一协议还能用在哪/.test(ov.card), `@${width}: overview shows the 同一协议还能用在哪 card`);
-    check(ov.items.length >= 3 && ov.items.length <= 4 && ov.items.every((x) => /尚未实现/.test(x)), `@${width}: 3-4 use cases, each marked 尚未实现 (${ov.items.length})`);
-    check([/借贷/, /期权|波动率金库/, /保险|国库/, /V4/].every((re) => ov.items.some((x) => re.test(x))), `@${width}: lending, options / vaults, insurance / treasury, V4 hook listed`);
+    const [amm = "", lend = "", gas = ""] = ov.items;
+    check(ov.items.length === 3, `@${width}: exactly three showcase cases (${ov.items.length})`);
+    check(/AMM/.test(amm) && /VolFeeConsumer/.test(amm) && /推荐费率已实现（分叉回放中上链）/.test(amm) && !/已上链（已实现）/.test(amm) && /V4 hook：分叉上已模拟收费（未部署主网、未审计）/.test(amm) && !/开发中/.test(amm),
+      `@${width}: ① AMM fee: implemented (on-chain in fork replay), V4 hook simulated on the fork (not on mainnet, unaudited)`);
+    check(/借贷/.test(lend) && /第 90 百分位/.test(lend) && /24 小时/.test(lend) && /设想（未实现）/.test(lend),
+      `@${width}: ② lending: high percentile, 24 h window, 设想（未实现）`);
+    check(/gas/.test(gas) && /basefee/.test(gas) && /预言机/.test(gas) && /设想（未实现）/.test(gas),
+      `@${width}: ③ gas quote: block.basefee, no oracle, 设想（未实现）`);
+    check(["期权与波动率金库", "保险与协议国库", "永续资金费率", "LP 区间管理", "尚未实现"].every((s) => ov.more.includes(s)),
+      `@${width}: more line lists options / vaults, insurance / treasury, perp funding, LP ranges as 尚未实现`);
+    check(/换一个结算数据源和一个消费合约/.test(ov.card), `@${width}: card says swapping settlement source + consumer keeps the protocol`);
+    check(!/分位.{0,8}(已上线|已实现|已上链)/.test(ov.card), `@${width}: use cases do not claim quantiles as shipped`);
+    check(ov.x402.length === 1 && !ov.x402[0].inLi && ov.x402[0].muted && ov.x402[0].afterMore && /设想/.test(ov.x402[0].text) && /未实现/.test(ov.x402[0].text)
+      && /交易机器人/.test(ov.x402[0].text) && /按信誉分给预测者/.test(ov.x402[0].text),
+      `@${width}: one muted off-chain x402 line directly below 更多方向 (not a case card), marked 设想 (${ov.x402.map((x) => x.text).join(" | ")})`);
+    check(ov.fits, `@${width}: use-case card fits the viewport`);
+    check(!ov.dark, `@${width}: no black borders or fills on use cases`);
     check(/observe\(\)/.test(ov.card) && /只实现/.test(ov.card), `@${width}: card keeps that the contract only implements the V3 observe() source`);
     check((ov.body.match(/目前合约只实现/g) ?? []).length === 1, `@${width}: the only-implemented sentence appears once on the overview`);
     check(!/合作|赞助|sponsor|partner/i.test(ov.card) && !/出题|考题|考试/.test(ov.body), `@${width}: no partner claims, no exam wording`);
@@ -115,7 +144,9 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
         head: document.querySelector('.pagehead[data-v="live"]')?.textContent.replace(/\s+/g, " ") ?? "" };
     });
     const h = await header();
-    check(/实时 · 每小时更新/.test(h) && !/固定回放/.test(h), `@${width} live: header labelled 实时 · 每小时更新 (${h.slice(0, 160)})`);
+    check(/实时 · 每小时更新/.test(h) && /分叉模拟/.test(h) && !/固定回放/.test(h), `@${width} live: header labelled 实时 · 每小时更新 · 分叉模拟 (${h.slice(0, 160)})`);
+    check(/本地主网分叉上模拟提交与结算/.test(lv.head) && /不能证明现实中的事前性/.test(lv.head) && /持久链上提前提交/.test(lv.head)
+      && !/预测已在链上提交并公开/.test(lv.head), `@${width} live: page head says commits are simulated on a fork, ex-ante needs a persistent chain`);
     check(lv.nowcast && lv.points === 20, `@${width} live: nowcast and p_win chart read the live file (${lv.points} rounds)`);
     const hours = JSON.parse(liveBody).replay.hours;
     check(new RegExp(`滚动窗口：最近 ${hours} 小时`).test(lv.head) && !/12 小时/.test(lv.head), `@${width} live: page head names the live file's rolling window (${hours} h)`);

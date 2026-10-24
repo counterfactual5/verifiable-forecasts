@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Verifiable AI Forecasts · round dashboard</title>
+<title>可验证预测协议 · Verifiable Forecast Protocol</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f3eee3' stroke='%231b1a17' stroke-width='2'/%3E%3Cpath d='M6 21l5-7 5 4 4-8 6 11' fill='none' stroke='%231d3fc4' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -42,6 +42,8 @@
   h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: .01em; }
   .sub { color: var(--muted); margin-top: 4px; }
   header .sub { margin-top: 2px; font-size: 12.5px; }
+  header .tagline { color: var(--text); }
+  header .tagline [lang="en"] { color: var(--muted); }
   .eyebrow { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 
   main { display: grid; gap: 18px; padding: 20px 40px 40px;
@@ -179,8 +181,29 @@
   .hm::after { content: ""; position: absolute; top: -3px; bottom: -3px; width: calc(100% / var(--n)); pointer-events: none;
                left: calc(var(--h) * 100% / var(--n)); border: 1.5px solid var(--vermil); border-radius: 3px; transition: left .3s var(--ease); }
   .heat .hm { --h: inherit; }
+  .sm-title { font: 700 14px/1.3 var(--display); margin-bottom: 8px; }
+  .sm-title span { font: 400 12px/1.4 var(--sans); color: var(--muted); margin-left: 8px; }
+  .sm-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) 372px; gap: 10px; align-items: center; margin-bottom: 4px; }
+  .sm-stats { display: grid; grid-template-columns: 172px 88px 100px; gap: 6px; align-items: baseline; font: 11.5px/1.3 var(--mono); color: var(--muted); white-space: nowrap; }
+  .sm-stats b { color: var(--text); font-weight: 600; }
+  .sm-head .sm-stats { font: 10.5px/1.25 var(--sans); color: var(--faint); white-space: normal; }
+  .sm-name { font: 600 12px/1.15 var(--mono); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+  .sm-name i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .sm-name small { flex-basis: 100%; font: 400 10.5px/1 var(--sans); color: var(--muted); padding-left: 15px; }
+  .sm-svg { display: block; height: auto; background: var(--panel-2); border-radius: 6px; cursor: pointer; }
+  .sm-cur { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .sm-cov { font: 11.5px/1.3 var(--mono); color: var(--muted); white-space: nowrap; }
+  .sm-cov b { color: var(--text); font-weight: 600; }
+  @media (max-width: 640px) {
+    .sm-row { grid-template-columns: minmax(0, 1fr); gap: 2px 8px; margin-bottom: 8px; }
+    .sm-stats { grid-template-columns: 160px 80px minmax(0, 1fr); font-size: 11px; }
+    .sm-head > span:not(.sm-stats) { display: none; }
+    .sm-name small { flex-basis: auto; padding-left: 0; }
+    .sm-axis { grid-template-columns: 1fr; }
+    .sm-axis .sm-name, .sm-axis > span:last-child { display: none; }
+  }
   .hm i { position: relative; cursor: pointer; background: rgba(29, 63, 196, var(--p)); }
-  .hm i:not([style*="--p:0.0"]):hover { outline: 1px solid var(--ink); }
+  .hm i:not([style*="--p:0.0"]):hover { box-shadow: inset 0 0 0 1px var(--accent); }
   .hm i.w::after, .hm-dot { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
                      background: #fff; box-shadow: 0 0 0 1.5px var(--ink); }
   .hm-dot { position: relative; display: inline-block; left: 0; top: 0; margin: 0 2px 0 0; vertical-align: 0; }
@@ -227,8 +250,22 @@
   .nowcast .nc-cd b { color: var(--vermil); }
   .nowcast > svg { display: block; margin: 8px 0 6px; }
   .nowcast .table-scroll { margin: 6px 0; }
-  .nc-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin-bottom: 2px; }
-  .nc-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+  .nc-legend { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 4px; }
+  .nc-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .nc-key { font: 600 12px/1 var(--mono); color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+            padding: 6px 10px; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+  .nc-key:hover { border-color: var(--line-2); color: var(--text); }
+  .nc-key[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  .nc-key:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+  .nc-legend i.nc-fan-mark { width: 16px; height: 9px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 28%, transparent);
+                             box-shadow: inset 0 -2px 0 -0.5px var(--vermil); }
+  .nc-cov { font: 12px/1.6 var(--mono); }
+  .nc-cov b { color: var(--text); font-weight: 600; }
+  .nc-cov .sep { color: var(--line-2); }
+  #nowcast .nc-fan.off, #nowcast .nc-aband:not(.on) { display: none; }
+  #nowcast .nc-amed { opacity: .8; transition: opacity .15s; }
+  #nowcast .nc-amed.dim { opacity: .12; }
+  #nowcast .nc-amed.sel { opacity: 1; stroke-width: 2.4; }
   /* ---------- round player ---------- */
   .player { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 16px;
            box-shadow: var(--lift); }
@@ -352,7 +389,11 @@
          background: rgba(251,248,241,.97); border: 1px solid var(--line-2); box-shadow: 0 10px 24px -12px rgba(60,45,20,.4);
          font: 12px/1.6 var(--mono); color: var(--text); opacity: 0; transform: translateY(4px);
          transition: opacity .12s, transform .12s; backdrop-filter: blur(6px); }
-  .chart.hover .tip { opacity: 1; transform: none; }
+  .chart.hover .tip, #tipbox.on { opacity: 1; transform: none; }
+  .chart .tip { max-width: 100%; }
+  #tipbox { position: fixed; z-index: 50; left: 0; top: 0; max-width: min(340px, calc(100vw - 16px)); }
+  #tipbox .r { white-space: normal; }
+  #tipbox .r b { white-space: nowrap; }
   .tip .t { color: var(--faint); margin-bottom: 3px; letter-spacing: .06em; }
   .tip .r { display: flex; justify-content: space-between; gap: 14px; white-space: nowrap; }
   .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
@@ -369,6 +410,13 @@
   .fee-tile.main { border-color: color-mix(in srgb, var(--vermil) 45%, var(--line)); background: color-mix(in srgb, var(--vermil) 6%, var(--panel)); }
   .fee-tile.ref { border-style: dashed; background: var(--panel); }
   .fee-mae { font: 600 22px/1.3 var(--mono); }
+  .fee-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 4px 0 2px; font-size: 12.5px; color: var(--muted); }
+  .fee-stats div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+  .fee-stats dt, .fee-stats dd { margin: 0; }
+  .fee-stats b { font: 600 13px/1.3 var(--mono); color: var(--text); }
+  #fee-resid { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .fee-resid-lead { margin: 0 0 6px; font-size: 12.5px; color: var(--muted); }
+  .fee-resid-lead b { color: var(--text); font-weight: 600; }
   .role { display: inline-block; font: 10px/1.5 var(--mono); letter-spacing: .04em; color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 2px; white-space: nowrap; vertical-align: 1px; }
   @media (max-width: 600px) {
     header { padding: 18px 16px 4px; }
@@ -425,9 +473,19 @@
   .pipe li b .en { display: block; margin-top: 2px; font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
   .pipe .goto { margin-top: 8px; }
   .uses-lead { margin: 0 0 14px; max-width: 980px; }
-  .uses { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 12px; }
-  .uses li { padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--line-2); background: var(--panel-2); font-size: 13px; color: var(--muted); }
-  .uses h3 { margin: 0 0 6px; font: 700 15px/1.3 var(--display); color: var(--text); display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+  .uses { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px; }
+  .uses li { display: flex; flex-direction: column; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--line-2); background: var(--panel-2); font-size: 13px; color: var(--muted); }
+  .uses li.live { border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-top: 3px solid var(--accent); background: var(--panel); }
+  .uses h3 { margin: 0 0 8px; font: 700 15px/1.3 var(--display); color: var(--text); }
+  .uses h3 .n { color: var(--vermil); margin-right: 4px; }
+  .uses dl { margin: 0 0 10px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 10px; }
+  .uses dt { font-size: 12px; color: var(--faint); white-space: nowrap; }
+  .uses dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+  .uses dd.why { color: var(--accent); font-weight: 600; }
+  .uses .st { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+  .uses .st .badge { white-space: normal; }
+  .uses-key { margin: 14px 0 0; color: var(--text); font-weight: 600; }
+  .uses-more { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
   .badge.scope { background: #e3e8fa; color: var(--accent); font-weight: 600; flex-wrap: wrap; row-gap: 0; max-width: 100%; border-radius: 8px; }
   /* ---------- protocol hero + case #1 ---------- */
   .flowline { display: flex; flex-wrap: wrap; gap: 4px 0; max-width: 1180px; }
@@ -478,7 +536,8 @@
 <header>
   <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c3-1 4-9 7-9s3 6 5 6 3-4 6-6"/><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" opacity=".45"/></svg></div>
   <div class="head">
-    <h1>Verifiable AI Forecasts · VolMarket round</h1>
+    <h1>可验证预测协议 · Verifiable Forecast Protocol</h1>
+    <div class="sub tagline">让 AI 预测事前锁定、事后验证、按结果记信誉 · <span lang="en">Lock AI forecasts ex ante, verify them ex post, score reputation by outcome.</span></div>
     <div class="sub" id="subtitle">loading…</div>
   </div>
   <div class="asof" id="asof"></div>
@@ -607,7 +666,8 @@ function segmentChart(fork, real, label) {
   const x = (i) => P + i * (W - 2 * P) / (fork.length - 1);
   const y = (v) => H - 22 - (v - lo) * (H - 40) / (hi - lo);
   const path = (s) => s.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
-  const dots = (s, c) => s.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${c}"/>`).join("");
+  const dots = (s, c) => s.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${c}"
+    data-tip="${attr(tipLines(`segment ${i + 1}`, [`fork mean tick: ${v}`, ...(real?.[i] != null ? [`mainnet TWAP tick: ${real[i]}`] : [])]))}"/>`).join("");
   const labels = fork.map((_, i) => `<text x="${x(i)}" y="${H - 4}" text-anchor="middle">${i + 1}</text>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">
     <text x="0" y="${y(hi - 2) + 4}">${hi - 2}</text><text x="0" y="${y(lo + 2) + 4}">${lo + 2}</text>
@@ -743,7 +803,7 @@ const CHARTS = [];
 
 // min / max bound the axis, never the data, and only when every value already respects them.
 // rankLegend orders the legend by each series' last value, highest first; drawing order is unchanged.
-function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 240, min = null, max = null, label = "", rankLegend = false } = {}) {
+function lineChart(series, labels, { zero = null, fmt = null, tip = null, unit = "", H = 240, min = null, max = null, label = "", rankLegend = false } = {}) {
   const vals = series.flatMap((s) => s.values).filter((v) => v != null).concat(zero ?? []);
   const dmin = Math.min(...vals), dmax = Math.max(...vals);
   let lo = dmin, hi = dmax;
@@ -778,14 +838,14 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-opacity=".7" stroke-dasharray="5 4"/>` : "";
   const last = (s) => s.values.reduce((x, v) => v ?? x, -Infinity);
   const legend = (rankLegend ? series.slice().sort((a, b) => last(b) - last(a)) : series).map((s) => `<span class="nowrap">${swatch(s.color, s.dash)} ${s.name}${s.role ? ` ${roleTag(s.role)}` : ""}</span>`).join(" &nbsp; ");
-  CHARTS.push({ W, n, L, R, x, labels, series: series.map((s) => ({ name: s.name, color: s.color, values: s.values })), tipFmt });
-  return `<div class="chart" data-chart="${id}"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}<g class="series">${lines}</g>${xl}
+  CHARTS.push({ W, n, L, R, x, labels, unit, series: series.map((s) => ({ name: s.name, color: s.color, values: s.values })), tipFmt });
+  return `<div class="chart" data-chart="${id}" data-unit="${attr(unit)}"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}<g class="series">${lines}</g>${xl}
     <line class="guide" x1="0" x2="0" y1="${T}" y2="${H - B}"/></svg><div class="tip" aria-hidden="true"></div></div><div class="sub">${legend}</div>`;
 }
 
 function chartHover(app) {
   const clear = (keep) => app.querySelectorAll(".chart.hover").forEach((c) => c !== keep && c.classList.remove("hover"));
-  app.addEventListener("pointermove", (e) => {
+  const show = (e) => {
     const wrap = e.target.closest?.(".chart");
     clear(wrap);
     const c = wrap && CHARTS[wrap.dataset.chart];
@@ -797,16 +857,53 @@ function chartHover(app) {
     const guide = svg.querySelector(".guide");
     guide.setAttribute("x1", gx); guide.setAttribute("x2", gx);
     const tipEl = wrap.querySelector(".tip");
-    tipEl.innerHTML = `<div class="t">${c.labels[i]} UTC</div>` + c.series.filter((s) => s.values[i] != null)
+    tipEl.innerHTML = `<div class="t">${c.labels[i]} UTC${c.unit ? ` · ${c.unit}` : ""}</div>` + c.series.filter((s) => s.values[i] != null)
       .sort((a, b) => b.values[i] - a.values[i]).map((s) => `<div class="r"><span><i style="background:${s.color}"></i>${s.name}</span><b>${c.tipFmt(s.values[i])}</b></div>`).join("");
-    const px = gx * k, flip = px > r.width / 2;
-    tipEl.style.left = flip ? "" : `${px + 14}px`;
-    tipEl.style.right = flip ? `${r.width - px + 14}px` : "";
+    const px = gx * k, tw = tipEl.offsetWidth, room = wrap.clientWidth;
+    const left = px > r.width / 2 ? px - 14 - tw : px + 14;
+    tipEl.style.left = `${Math.max(0, Math.min(room - tw, left))}px`;
+    tipEl.style.right = "";
     tipEl.style.top = "8px";
     wrap.classList.add("hover");
-  });
-  app.addEventListener("pointerleave", () => clear(null));
+  };
+  app.addEventListener("pointermove", show);
+  // A tap has no hover: it pins the read-out until the next tap elsewhere.
+  app.addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") show(e); });
+  app.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") clear(null); });
 }
+
+// Shared read-out for chart marks outside lineChart. A mark carries data-tip = "header\nname: value\n…";
+// a provider may also compute the text from the pointer position (the flow canvas). A tap pins it until the next tap.
+const TIP_PROVIDERS = [(e) => e.target.closest?.("[data-tip]")?.dataset.tip ?? null];
+const tipLines = (head, rows) => [head, ...rows].join("\n");
+function tipBox() {
+  let box = document.getElementById("tipbox");
+  if (!box) {
+    box = Object.assign(document.createElement("div"), { id: "tipbox", className: "tip" });
+    box.setAttribute("aria-hidden", "true");
+    document.body.appendChild(box);
+  }
+  return box;
+}
+function showTip(e) {
+  const text = TIP_PROVIDERS.reduce((t, f) => t ?? f(e), null), box = tipBox();
+  if (!text) { box.classList.remove("on"); return; }
+  const [head, ...rows] = text.split("\n");
+  box.innerHTML = `<div class="t">${attr(head)}</div>` + rows.map((r) => {
+    const k = r.lastIndexOf(": ");
+    return k < 0 ? `<div class="r"><span>${attr(r)}</span></div>` : `<div class="r"><span>${attr(r.slice(0, k))}</span><b>${attr(r.slice(k + 2))}</b></div>`;
+  }).join("");
+  const vw = document.documentElement.clientWidth, w = box.offsetWidth, h = box.offsetHeight;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > vw - 8) x = e.clientX - 14 - w;
+  if (y + h > innerHeight - 8) y = e.clientY - 14 - h;
+  box.style.left = `${Math.max(8, Math.min(vw - 8 - w, x))}px`;
+  box.style.top = `${Math.max(8, y)}px`;
+  box.classList.add("on");
+}
+document.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse") showTip(e); });
+document.addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") showTip(e); });
+addEventListener("scroll", () => document.getElementById("tipbox")?.classList.remove("on"), { passive: true });
 
 const feeNames = (fixedBps) => ({ fair: "hindsight fair fee", forecast: "forecast", fixed: `fixed ${fixedBps} bps`, prev_hour: "prev-hour RV" });
 const roleTag = (role) => `<span class="role">${role}</span>`;
@@ -856,7 +953,7 @@ function liveBadge(d) {
     return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新&nbsp;${when.replace(/\s+/g, "&nbsp;")}（${Math.floor(age / 3600)}&nbsp;小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
   }
   const next = d.next_run_at ? ` · 下一轮约&nbsp;${hm(d.next_run_at)}` : "";
-  return `<span class="badge live" id="live-badge">实时 · 每小时更新 · 最近更新&nbsp;${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
+  return `<span class="badge live" id="live-badge" title="每小时在本地主网分叉上模拟提交与结算；分叉上的提交时间是模拟的，不能证明现实中的事前性。">实时 · 每小时更新 · 分叉模拟 · 最近更新&nbsp;${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>fork-simulated hourly</span></span> `;
 }
 function scopeBadge(d) {
   if (d.live === true) return liveBadge(d);
@@ -894,6 +991,60 @@ function nowcastTick() {
   });
 }
 
+// One forecast as 5 quantiles in tick² (v2: exp of the revealed ln RV quantiles; v1: read off the bucket probabilities).
+function forecastQ(d, ra) {
+  if (!ra || ra.entered === false) return null;
+  return isV2(d) ? (ra.quantiles ? ra.quantiles.map((v) => Math.exp(v)) : null)
+    : ra.probs ? QS.map((q) => bucketQuantile(ra.probs, d.params.bounds, q)) : null;
+}
+// Consensus = the quantile mix VolFeeConsumer read for the round (on-chain record first); without it, the same
+// Vincentized mean (per-level weighted average of the reveals) recomputed with the round's weights.
+function consensusQ(d, r) {
+  const v2 = isV2(d), b = d.params.bounds, m = r.fee?.mirror, mq = r.fee?.onchain?.mix_quantiles_e18 ?? m?.mix_quantiles_e18;
+  if (v2 && mq) return { q: mq.map((x) => Math.exp(Number(x) / 1e18)) };
+  if (!v2 && m?.mix_probs) return { q: QS.map((x) => bucketQuantile(m.mix_probs, b, x)) };
+  const w = m?.weights?.length === d.agents.length && !m.equal_weight_fallback ? m.weights.map(Number) : null;
+  const xs = d.agents.map((a, i) => ({ ra: r.agents[a.agent], w: w ? w[i] : 1 }))
+    .filter(({ ra, w }) => ra && ra.entered !== false && (v2 ? ra.quantiles : ra.probs) && w > 0);
+  const tw = xs.reduce((s, x) => s + x.w, 0);
+  if (!tw) return { q: null };
+  if (v2) return { q: LEVELS(d).map((_, k) => Math.exp(xs.reduce((s, x) => s + x.w * x.ra.quantiles[k], 0) / tw)), recomputed: true };
+  const pm = [0, 1, 2, 3, 4].map((k) => xs.reduce((s, x) => s + x.w * x.ra.probs[k], 0) / tw);
+  return { q: QS.map((x) => bucketQuantile(pm, b, x)), recomputed: true };
+}
+// Settled hours whose realized RV (floored at 1, as ln RV is) fell inside the wide (q[0]..q[4]) and 50% intervals.
+function coverage(hours, get) {
+  const xs = hours.filter((x) => x.settled && get(x)), v = (x) => Math.max(1, x.v);
+  const inside = (a, z) => xs.filter((x) => { const q = get(x); return q[a] <= v(x) && v(x) <= q[z]; }).length;
+  return { n: xs.length, wide: inside(0, 4), mid: inside(1, 3) };
+}
+
+// Past hours of the last nowcast render, read by its hover read-out; STATE.ncIso = the isolated agent or null.
+let NOWCAST = null;
+TIP_PROVIDERS.push((e) => {
+  const h = e.target.closest?.("#nowcast .nc-hit");
+  if (!h || !NOWCAST) return null;
+  const { past, band, fmt } = NOWCAST, x = past[Number(h.dataset.i)], iso = STATE.ncIso;
+  const q = iso ? x.q[iso] : x.c, who = iso ? iso.replace("agent-", "") : "consensus";
+  return tipLines(`${x.t} UTC`, [`realized RV: ${x.v} tick²${x.settled ? "" : " (voided)"}`, ...(q
+    ? [`${who} median: ${fmt(q[2])} tick²`, `${who} 50%: ${fmt(q[1])}–${fmt(q[3])} tick²`, `${who} ${band}: ${fmt(q[0])}–${fmt(q[4])} tick²`]
+    : [`${who}: no forecast`])]);
+});
+document.addEventListener("click", (e) => {
+  const k = e.target.closest?.("#nowcast [data-iso]");
+  if (!k) return;
+  const id = k.dataset.iso, nc = document.getElementById("nowcast");
+  STATE.ncIso = id && STATE.ncIso !== id ? id : null;
+  const iso = STATE.ncIso;
+  nc.querySelector("[data-fan]")?.classList.toggle("off", !!iso);
+  nc.querySelectorAll("[data-agent-band]").forEach((g) => g.classList.toggle("on", g.dataset.agentBand === iso));
+  nc.querySelectorAll("[data-agent-line]").forEach((p) => {
+    p.classList.toggle("dim", !!iso && p.dataset.agentLine !== iso);
+    p.classList.toggle("sel", p.dataset.agentLine === iso);
+  });
+  nc.querySelectorAll("[data-iso]").forEach((b) => b.setAttribute("aria-pressed", String((iso ?? "") === b.dataset.iso)));
+});
+
 // The hour in progress (pending_round of a live run): past realized vol, then each entered agent's
 // median and 50% / 90% intervals for this hour, unsettled.
 function nowcastHtml(d, agents, tierOf) {
@@ -903,15 +1054,16 @@ function nowcastHtml(d, agents, tierOf) {
   const fmt = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(1);
   // v2 draws the revealed quantiles themselves (exp of ln RV, so the log axis is linear in ln RV).
   const v2 = isV2(d), band = v2 ? "80%" : "90%";
-  const quant = (ra) => !ra || ra.entered === false ? null
-    : v2 ? (ra.quantiles ? ra.quantiles.map((v) => Math.exp(v)) : null)
-    : ra.probs ? QS.map((q) => bucketQuantile(ra.probs, b, q)) : null;
-  const past = d.rounds.slice(-24).map((r) => ({ id: r.id, t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol,
-    fc: agents.map((a, k) => ({ a, k, q: quant(r.agents[a.agent]) })).filter((x) => x.q) })).filter((x) => x.v != null);
-  const fc = agents.map((a) => ({ ...a, q: pr.agents[a.agent]?.entered ? quant(pr.agents[a.agent]) : null })).filter((a) => a.q);
+  const past = d.rounds.slice(-24).map((r) => {
+    const c = consensusQ(d, r);
+    return { id: r.id, t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol, settled: !r.outcome?.voided,
+      c: c.q, recomputed: !!c.recomputed, equal: !!r.fee?.mirror?.equal_weight_fallback,
+      q: Object.fromEntries(agents.map((a) => [a.agent, forecastQ(d, r.agents[a.agent])])) };
+  }).filter((x) => x.v != null);
+  const fc = agents.map((a) => ({ ...a, q: pr.agents[a.agent]?.entered ? forecastQ(d, pr.agents[a.agent]) : null })).filter((a) => a.q);
   const W = Math.min(1200, chartWidth), H = W < 600 ? 240 : 280, L = 50, R = 10, T = 26, B = 26, narrow = W < 600;
   const split = L + (W - L - R) * (narrow ? 0.4 : 0.58);
-  const vals = past.flatMap((x) => [Math.max(1, x.v), ...x.fc.flatMap((f) => f.q)]).concat(fc.flatMap((a) => a.q), b);
+  const vals = past.flatMap((x) => [Math.max(1, x.v), ...(x.c ?? []), ...Object.values(x.q).flatMap((q) => q ?? [])]).concat(fc.flatMap((a) => a.q), b);
   const lo = Math.min(...vals) / 1.4, hi = Math.max(...vals) * 1.4;
   const y = (v) => T + (Math.log(hi) - Math.log(Math.max(v, lo))) / (Math.log(hi) - Math.log(lo)) * (H - T - B);
   const px = (i) => L + 10 + (past.length < 2 ? 0 : i * (split - L - 26) / (past.length - 1));
@@ -922,36 +1074,53 @@ function nowcastHtml(d, agents, tierOf) {
     <text class="ax" x="${L - 6}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
   const grid = b.map((v) => tick(v, true)).join("") + extra.map((v) => tick(v, false)).join("");
   const gap = past.length < 2 ? 40 : (split - L - 26) / (past.length - 1);
-  // One glyph on both sides: faint 90% band, 50% band, median tick wider than the bands.
+  // The current-hour glyph: faint wide band, 50% band, median tick wider than the bands.
   const glyph = (cx, bw, tw, [q05, q25, q50, q75, q95], color, op90, op50, sw) => {
     const box = (cls, top, bot, op) => `<rect class="${cls}" x="${(cx - bw / 2).toFixed(1)}" y="${y(top).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y(bot) - y(top)).toFixed(1)}" rx="${Math.min(3, bw / 3).toFixed(1)}" fill="${color}" opacity="${op}"/>`;
     return box("nc-q90", q95, q05, op90) + box("nc-q50", q75, q25, op50) +
       `<line class="nc-med" x1="${(cx - tw / 2).toFixed(1)}" x2="${(cx + tw / 2).toFixed(1)}" y1="${y(q50).toFixed(1)}" y2="${y(q50).toFixed(1)}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`;
   };
-  // Below ~2.5 units per agent side by side glyphs turn into noise: each hour's agents overlay on the hour instead.
-  const stack = gap * 0.7 / Math.max(1, agents.length) < 2.5;
-  const dx = stack ? 0 : Math.min(narrow ? 4 : 8, gap * 0.7 / Math.max(1, agents.length));
-  const pbw = stack ? Math.max(3, gap * 0.5) : dx * 0.72, ptw = stack ? Math.max(4, gap * 0.75) : dx * 0.95;
-  const marks = past.map((x, i) => x.fc.map(({ a, k, q }) => {
-    const cx = px(i) + (k - (agents.length - 1) / 2) * dx, [q05, q25, q50, q75, q95] = q;
-    return `<g class="nc-past" data-forecaster="${a.agent}" data-round="${x.id}" data-q50="${q50}"><title>${a.agent} · ${x.t} UTC: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, ${band} ${fmt(q05)}–${fmt(q95)} tick² · realized ${x.v}</title>` +
-      glyph(cx, pbw, ptw, q, a.color, stack ? ".05" : ".14", stack ? ".14" : ".45", stack ? 1.4 : 2) + `</g>`;
-  }).join("")).join("");
-  const line = past.map((x, i) => `${i ? "L" : "M"}${px(i).toFixed(1)},${y(x.v).toFixed(1)}`).join("");
+  const xy = (i, v) => `${px(i).toFixed(1)},${y(v).toFixed(1)}`;
+  const trace = (get) => { let s = "", pen = false; past.forEach((x, i) => { const v = get(x); if (v == null) { pen = false; return; } s += `${pen ? "L" : "M"}${xy(i, v)}`; pen = true; }); return s; };
+  // One closed polygon per run of consecutive hours that have the forecast; a gap breaks the band.
+  const area = (get, a, z) => {
+    const runs = [];
+    past.forEach((x, i) => { const q = get(x); if (!q) runs.push(null); else if (runs.at(-1)) runs.at(-1).push([i, q]); else runs.push([[i, q]]); });
+    return runs.filter(Boolean).map((run) => run.map(([i, q], j) => `${j ? "L" : "M"}${xy(i, q[z])}`).join("")
+      + run.slice().reverse().map(([i, q]) => `L${xy(i, q[a])}`).join("") + "Z").join("");
+  };
+  const iso = agents.some((a) => a.agent === STATE.ncIso) ? STATE.ncIso : null;
+  const fan = `<g class="nc-fan${iso ? " off" : ""}" data-fan="consensus">
+      <path class="nc-band-wide" d="${area((x) => x.c, 0, 4)}" fill="var(--accent)" opacity=".13"/>
+      <path class="nc-band-50" d="${area((x) => x.c, 1, 3)}" fill="var(--accent)" opacity=".24"/>
+      <path class="nc-cmed" d="${trace((x) => x.c?.[2])}" fill="none" stroke="var(--vermil)" stroke-width="2.2" stroke-dasharray="7 4" stroke-linecap="round"/></g>`;
+  const agentBands = agents.map((a) => `<g class="nc-aband${iso === a.agent ? " on" : ""}" data-agent-band="${a.agent}">
+      <path class="nc-band-wide" d="${area((x) => x.q[a.agent], 0, 4)}" fill="${a.color}" opacity=".14"/>
+      <path class="nc-band-50" d="${area((x) => x.q[a.agent], 1, 3)}" fill="${a.color}" opacity=".3"/></g>`).join("");
+  const agentLines = agents.map((a) => `<path class="nc-amed${iso && iso !== a.agent ? " dim" : ""}${iso === a.agent ? " sel" : ""}" data-agent-line="${a.agent}"
+      d="${trace((x) => x.q[a.agent]?.[2])}" fill="none" stroke="${a.color}" stroke-width="1.4" stroke-linejoin="round"/>`).join("");
+  const line = trace((x) => Math.max(1, x.v));
   const step = Math.ceil(past.length / Math.max(2, Math.floor((split - L) / 46)));
-  const dots = past.map((x, i) => `<circle cx="${px(i).toFixed(1)}" cy="${y(x.v).toFixed(1)}" r="3" fill="#1b1a17"><title>${x.t} UTC: RV ${x.v} tick²</title></circle>` +
+  const dots = past.map((x, i) => `<circle cx="${px(i).toFixed(1)}" cy="${y(Math.max(1, x.v)).toFixed(1)}" r="2.6" fill="#1b1a17"/>` +
     (i % step ? "" : `<text class="ax" x="${px(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${x.t}</text>`)).join("");
+  const hits = past.map((x, i) => `<rect class="nc-hit" data-i="${i}" x="${(px(i) - gap / 2).toFixed(1)}" y="${T}" width="${gap.toFixed(1)}" height="${H - T - B}" fill="transparent"/>`).join("");
+  NOWCAST = { past, band, fmt };
+  const short = (n) => n.replace("agent-", "");
+  const covItem = (id, name, get) => { const c = coverage(past, get); return `<span class="nowrap" data-cov="${id}" data-n="${c.n}" data-wide="${c.wide}" data-mid="${c.mid}">${name} ${band}: <b>${c.wide}/${c.n}</b> · 50%: <b>${c.mid}/${c.n}</b></span>`; };
+  const covLine = [covItem("consensus", "consensus", (x) => x.c), ...agents.map((a) => covItem(a.agent, short(a.agent), (x) => x.q[a.agent]))].join(`<span class="sep"> | </span>`);
+  const nEqual = past.filter((x) => x.equal).length, nRecomputed = past.filter((x) => x.recomputed).length;
+  const key = (id, label, mark) => `<button type="button" class="nc-key" data-iso="${id}" aria-pressed="${(iso ?? "") === id}">${mark}${label}</button>`;
+  const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
   const colW = (W - R - split - 8) / Math.max(1, fc.length), bw = Math.max(6, Math.min(26, colW * 0.6));
   const bands = fc.map((a, k) => {
     const cx = split + 4 + (k + 0.5) * colW, [q05, q25, q50, q75, q95] = a.q;
-    return `<g data-agent="${a.agent}" ${(v2 ? LEVELS(d) : QS).map((q, i) => `data-q${String(Math.round(q * 100)).padStart(2, "0")}="${a.q[i]}"`).join(" ")}>
-      <title>${a.agent}: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, ${band} ${fmt(q05)}–${fmt(q95)} tick²</title>
+    const tip = tipLines(`${hour} · ${a.agent} (pending)`, [`median: ${fmt(q50)} tick²`, `50%: ${fmt(q25)}–${fmt(q75)} tick²`, `${band}: ${fmt(q05)}–${fmt(q95)} tick²`]);
+    return `<g data-agent="${a.agent}" ${(v2 ? LEVELS(d) : QS).map((q, i) => `data-q${String(Math.round(q * 100)).padStart(2, "0")}="${a.q[i]}"`).join(" ")} data-tip="${attr(tip)}">
       ${glyph(cx, bw, bw + 6, a.q, a.color, ".2", ".5", 3)}</g>`;
   }).join("");
-  const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
-  const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(`Realized volatility of the last ${past.length} hours and, for the hour ${hour} (pending), each agent's median with 50% and ${band} intervals, log scale`)}">
+  const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(`Realized volatility of the last ${past.length} hours against the consensus forecast's median, 50% and ${band} intervals and each agent's median; for the hour ${hour} (pending), each agent's median with 50% and ${band} intervals, log scale`)}">
     <rect x="${split.toFixed(1)}" y="${T - 20}" width="${(W - R - split).toFixed(1)}" height="${H - B - T + 20}" rx="8" fill="var(--accent)" opacity=".06"/>
-    ${grid}${marks}<path d="${line}" fill="none" stroke="#1b1a17" stroke-width="2.2" stroke-linejoin="round"/>${dots}
+    ${grid}${fan}${agentBands}${agentLines}<path class="nc-real" d="${line}" fill="none" stroke="#1b1a17" stroke-width="2.2" stroke-linejoin="round"/>${dots}${hits}
     <text class="ax" x="${L + 10}" y="${T - 8}">${narrow ? "预测 vs 实际" : `过去 ${past.length} 小时 · 预测 vs 链上实际 RV`}</text>
     <text class="ax" x="${(split + 8).toFixed(1)}" y="${T - 8}">${W < 600 ? "当前小时" : "当前小时 · 待结算"}</text>${bands}
     <text class="ax" x="${((split + W - R) / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${hour}</text></svg>`;
@@ -965,24 +1134,30 @@ function nowcastHtml(d, agents, tierOf) {
       <div class="sub mono">${attr(a.model ?? "")}</div></td><td>${TIER_ZH[tier] ?? tier}</td><td class="num">${range}</td></tr>`;
   }).join("");
   return `<section class="nowcast" id="nowcast" aria-labelledby="nc-title"><div class="flow-head"><span class="eyebrow">live nowcast · 实时预测</span>
-    <h3 id="nc-title">实时预测 · 当前小时 ${hour} <span class="badge warn">待结算</span>
+    <h3 id="nc-title">实时预测 · 当前小时 ${hour} <span class="badge warn">待结算 · 分叉模拟</span>
       <span class="nc-cd">距本小时结束 <b class="cd" id="nowcast-cd" data-end="${pr.end}"></b></span></h3></div>
-    <div class="sub">上次更新 ${hm(d.generated_at)} · 运行于服务器，每小时自动更新；这一小时结束后，下一次运行把它当作已结束小时重放并结算。</div>
+    <div class="sub">上次更新 ${hm(d.generated_at)} · 运行于服务器，每小时自动更新；提交发生在本地主网分叉上，时间是模拟的，不证明现实中的事前性。这一小时结束后，下一次运行把它当作已结束小时重放并结算。</div>
     ${svg}
-    <div class="sub nc-legend"><span class="nowrap">${swatch("#1b1a17")} 真实 RV · realized</span>
-      ${agents.map((a) => `<span class="nowrap"><i style="background:${a.color}"></i>${a.agent.replace("agent-", "")}</span>`).join("")}</div>
-    <div class="sub">左右两侧是同一种图形：每个 agent 一个色块，淡色 = ${band} 区间，深色 = 50% 区间，横线 = 预测中位数（tick²，对数轴，虚线为档位边界）。
-      左侧是各 agent 在过去每小时开窗前揭示的预测${stack ? "（同一小时的 agent 叠放在该小时上）" : ""}，黑线 = 链上结算的真实 RV，中位数横线越贴近黑线越准；右侧是当前小时的预测，尚未结算。
-      ${v2 ? "色块直接画每个 agent 揭示的 5 个分位数（10% / 25% / 50% / 75% / 90%，ln RV 取 exp 后画在 tick² 对数轴上）。"
+    <div class="nc-legend" role="group" aria-label="Show the consensus or one agent's own intervals">
+      ${key("", "consensus", `<i class="nc-fan-mark"></i>`)}${agents.map((a) => key(a.agent, short(a.agent), `<i style="background:${a.color}"></i>`)).join("")}
+      <span class="sub nowrap">${swatch("#1b1a17")} realized RV</span></div>
+    <div class="sub nc-cov" id="nc-cov">${covLine}</div>
+    <div class="sub">带 = 区间，黑线 = 链上实际 RV；覆盖率 = 实际值落在区间内的已结算小时数，${band} 区间理想约 ${band}。</div>
+    <div class="sub">左侧默认画共识：VolFeeConsumer 每轮读到的声誉加权分位数混合（各 agent 同一分位数按本轮权重加权平均），淡色 = ${band} 区间，深色 = 50% 区间，红色虚线 = 共识的预测中位数；
+      细彩线 = 各 agent 的预测中位数，黑线 = 链上结算的真实 RV。点图例里的 agent 只看它自己的区间，再点一次或点 consensus 回到共识。
+      右侧是当前小时，每个 agent 一个色块（淡色 = ${band} 区间，深色 = 50% 区间，横线 = 预测中位数），尚未结算。tick²，对数轴，虚线为档位边界。
+      ${nEqual ? `其中 ${nEqual} 小时声誉权重尚未形成，共识为等权混合。` : ""}${nRecomputed ? `${nRecomputed} 小时回放未记录链上混合，按回放里的权重在浏览器重算。` : ""}
+      ${v2 ? "区间直接取每个 agent 揭示的 5 个分位数（10% / 25% / 50% / 75% / 90%，ln RV 取 exp 后画在 tick² 对数轴上）。"
         : "区间由每个 agent 揭示的 5 档概率按档内 log(RV) 线性插值得到（两端开放档各外延一个边界倍数）。"}
-      Same glyph on both sides, one per agent: faint band = ${band} interval, darker band = 50% interval, tick = forecast median. Left: forecasts revealed before each past hour${stack ? " (overlaid on the hour)" : ""}, black line = realized RV settled on-chain; right: the current hour, not yet settled.</div>
+      Left: consensus fan (light = ${band} interval, dark = 50% interval, dashed = consensus median), thin lines = each agent's forecast median,
+      black line = realized RV settled on-chain; pick an agent in the legend to see its own intervals. Right: the current hour, one glyph per agent, not yet settled.</div>
     ${scrollTable(`<tr><th>Agent</th><th>档位</th><th class="num">中位数 · 区间 (tick²)</th></tr>${rows}`, 420)}
     <div class="sub"><b>演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（无许可）。</b></div></section>`;
 }
 
 function heroHtml(d, nowcast = "", live = d) {
   return `${pageHeads(d, live)}
-    <div data-v="overview"><p class="claim">可验证 AI 预测协议</p>
+    <div data-v="overview"><p class="claim">可验证预测协议</p>
     <p class="claim-en flowline"><span>AI 预测者<em>先提交</em>哈希</span><span>再<em>证明</em>预测来自声明的模型</span><span>按<em class="v">真实结果</em>链上结算</span><span>得分写入 <em>ERC-8004 信誉</em></span><span>被<em>消费方</em>按信誉加权使用</span></p></div>
     ${caseCard(d, live)}${nowcast.replace("<section ", `<section data-v="live" `)}${flowCard(d)}${playerCard(d)}`;
 }
@@ -1007,13 +1182,15 @@ function caseCard(d, live = d) {
     const q = v2 && mixQ ? mixQ : QS.map((x) => bucketQuantile(mix, b, x));
     const lo = b[0] * b[0] / b[1], hi = b[3] * b[3] / b[2], W = 240, H = 26;
     const x = (v) => 4 + (Math.log(Math.min(hi, Math.max(lo, v))) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)) * (W - 8);
-    const bar = `<svg class="cs-bar" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${attr(`consensus median ${fmt(q[2])}, 50% ${fmt(q[1])}–${fmt(q[3])}, ${band} ${fmt(q[0])}–${fmt(q[4])} tick²`)}">
+    const barTip = tipLines(`${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC · consensus (pending)`,
+      [`median: ${fmt(q[2])} tick²`, `50%: ${fmt(q[1])}–${fmt(q[3])} tick²`, `${band}: ${fmt(q[0])}–${fmt(q[4])} tick²`]);
+    const bar = `<svg class="cs-bar" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" data-tip="${attr(barTip)}" aria-label="${attr(`consensus median ${fmt(q[2])}, 50% ${fmt(q[1])}–${fmt(q[3])}, ${band} ${fmt(q[0])}–${fmt(q[4])} tick²`)}">
       ${b.map((v) => `<line x1="${x(v).toFixed(1)}" x2="${x(v).toFixed(1)}" y1="2" y2="${H - 2}" stroke="rgba(27,26,23,.18)" stroke-dasharray="2 3"/>`).join("")}
       <rect x="${x(q[0]).toFixed(1)}" y="8" width="${(x(q[4]) - x(q[0])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".18"/>
       <rect x="${x(q[1]).toFixed(1)}" y="8" width="${(x(q[3]) - x(q[1])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".45"/>
       <line x1="${x(q[2]).toFixed(1)}" x2="${x(q[2]).toFixed(1)}" y1="4" y2="${H - 4}" stroke="var(--vermil)" stroke-width="3" stroke-linecap="round"/></svg>`;
     const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
-    snap = `<div class="cs-snap" id="case-snap"><span class="cs-k">实时 · 当前小时</span><b>${hour}</b><span class="badge warn">待结算</span>
+    snap = `<div class="cs-snap" id="case-snap"><span class="cs-k">实时 · 当前小时</span><b>${hour}</b><span class="badge warn" title="在本地主网分叉上模拟提交，不证明现实中的事前性">待结算 · 分叉模拟</span>
       <span class="nc-cd">剩 <b class="cd" data-end="${pr.end}"></b></span>
       <span><b>${entered.length}/${live.agents.length}</b> 已提交</span>
       <span class="cs-k">${m?.equal_weight_fallback ? "等权共识" : "声誉加权共识"}</span>
@@ -1084,7 +1261,6 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     }
     return tierBadge("commit", "committed before the deadline; black-box tier, the model is not required to be disclosed", "仅提交", `commit-only · ${a.forecast_source ?? "?"}`);
   };
-  document.querySelector("h1").textContent = "可验证 AI 预测协议 · Verifiable AI Forecasts";
   const subtitle = (x) => scopeBadge(x) + (x.live === true ? `案例 #1 · ${x.replay.hours} h 主网回放 · ` : "") +
     `${x.network} · fork block ${blockLink(x.fork_block)} · ` +
     `${x.summary.settled} settled, ${x.summary.voided ? `<span class="badge bad">${x.summary.voided} voided</span>` : "0 voided"}`;
@@ -1112,7 +1288,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const outcomeCard = !v2 ? "" : card(lnTitle,
     lineChart([{ name: "realized ln RV", color: "#1b1a17", width: 2.2, values: rounds.map((r) => r.outcome.voided ? null : r.ln_rv) },
       { name: "climatology median", color: "#a8a194", width: 1.4, dash: "2 3", values: rounds.map((r) => r.baseline_quantiles?.[2] ?? null) }],
-      labels, { tip: (v) => v.toFixed(2), label: `${lnTitle}, ${rounds.length} rounds` }) +
+      labels, { tip: (v) => v.toFixed(2), unit: "ln tick²", label: `${lnTitle}, ${rounds.length} rounds` }) +
     `<div class="sub">ln RV = 自然对数（RV 单位 tick²，RV = 0 记为 0）；灰虚线 = 训练期气候基线的中位数（每轮相同，开轮时写进合约）。
       ${settledR.length} settled rounds; realized ln RV vs the climatological median, natural log of tick².</div>` +
     scrollTable(`<tr><th>Interval coverage · 区间覆盖率</th><th class="num">50% (25–75)</th><th class="num">80% (10–90)</th></tr>
@@ -1122,7 +1298,8 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     "", "outcome-card");
   const bucketCard = v2 ? outcomeCard : card("真实结果落在哪档 · Winning buckets", `<div style="display:flex;gap:6px;align-items:flex-end;height:120px"
     role="img" aria-label="${attr(bucketLabel)}">
-    ${counts.map((c, i) => `<div style="flex:1;text-align:center"><div class="sub">${c}</div>
+    ${counts.map((c, i) => `<div style="flex:1;text-align:center" data-bucket-bar="${i}"
+      data-tip="${attr(tipLines(`#${i} ${names[i]} tick²`, [`winning rounds: ${c} of ${counts.reduce((a, b) => a + b, 0)}`]))}"><div class="sub">${c}</div>
       <div style="height:${c / maxC * 90}px;background:var(--win);opacity:.75;border-radius:4px 4px 0 0"></div></div>`).join("")}</div>
     <div class="buckets">${names.map((n, i) => `<div>#${i}<br>${n}</div>`).join("")}</div>
     <div class="sub" style="margin-top:8px">Bounds in tick², calibrated on training-period swaps only.</div>`);
@@ -1144,13 +1321,14 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const excessCard = card(excessTitle,
     `<p class="takeaway" style="margin-top:0">${tierBeat}（累计 &gt; 0${v2 ? "" : " nats"}）。${agents.filter((a) => repro(a).failed).map((a) =>
       ` <span class="badge bad">${a.agent}: reproduce failed × ${repro(a).failed}</span>`).join("")}</p>` +
-    lineChart(excess, labels, { zero: 0, rankLegend: true, label: chartLabel(excessTitle, excess) }) +
+    lineChart(excess, labels, { zero: 0, rankLegend: true, unit: v2 ? "ln RV" : "nats", label: chartLabel(excessTitle, excess) }) +
     (v2 ? `<div class="sub">每轮超额 = 气候基线的 pinball 损失 − agent 的 pinball 损失（ln RV 单位，5 个分位数平均）；曲线在虚线 0 之上 = 累计比气候基线更准。
     Per round: climatology pinball loss minus the agent's (mean over the 5 quantile levels, ln RV units); above 0 = more accurate than climatology. Voided rounds are not scored.`
     : `<div class="sub">nats：自然对数单位。每轮得分 = ln(agent 给真实结果所在档位的概率)，瞎猜每档 1/5 每轮得
     ${uniform.toFixed(3)}；曲线在虚线 0 之上 = 累计比瞎猜更准。Voided rounds are not scored.`) + `
     Agent lines: solid = zk proof, dotted = reproducible, dashed = commit-only.</div>`, "wide", "excess-card");
-  const heatCard = card("预测分布 vs 实际 · Forecast heat strip", heatmap(d), "wide");
+  const heatCard = v2 ? card("预测区间 vs 实际 · Forecast intervals vs realized", smallMultiples(d, agents), "wide", "smult-card")
+    : card("预测分布 vs 实际 · Forecast heat strip", heatmap(d), "wide");
 
   const W = Math.min(6, rounds.length);
   const rolling = (vals) => vals.map((_, i) => {
@@ -1161,9 +1339,9 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     values: rolling(rounds.map((r) => v2 ? lossOf(r, a) : scoreOf(r, a))) }));
   const rollTitle = v2 ? `最近谁更准？ Rolling ${W}-round mean pinball loss (ln RV)` : `最近谁更准？ Rolling ${W}-round mean log score`;
   const rollCard = v2
-    ? card(rollTitle, lineChart(roll, labels, { zero: s.baseline_mean_pinball_loss ?? null, min: 0, rankLegend: true, tip: (v) => v.toFixed(3), label: chartLabel(rollTitle, roll) }) +
+    ? card(rollTitle, lineChart(roll, labels, { zero: s.baseline_mean_pinball_loss ?? null, min: 0, rankLegend: true, tip: (v) => v.toFixed(3), unit: "ln RV", label: chartLabel(rollTitle, roll) }) +
       `<div class="sub">最近 ${W} 轮的平均 pinball 损失，越低越准；虚线 = 气候基线在本回放的平均损失。Lower is better; dashed line: climatology mean loss.</div>`, "wide")
-    : card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, rankLegend: true, label: chartLabel(rollTitle, roll) }) +
+    : card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, rankLegend: true, unit: "nats", label: chartLabel(rollTitle, roll) }) +
     `<div class="sub">最近 ${W} 轮的平均得分；虚线是瞎猜 ln(1/5)。Dashed line: uniform baseline.</div>`, "wide");
 
   const pUniform = 1 / (L.params.bounds.length + 1);
@@ -1180,17 +1358,23 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const pwin = lagents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a), width: 1.8, values: L.rounds.map((r) => lv2 ? edgeOf(r, a) : pwinOf(r, a)) }));
   const pwinTitle = lv2 ? "每轮比气候基线好多少 · Per-round pinball excess vs climatology (ln RV)" : "每轮押中程度 · Probability on the realized bucket";
   const pwinCard = lv2 ? card(pwinTitle,
-    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: 0, rankLegend: true, tip: (v) => v.toFixed(3),
+    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: 0, rankLegend: true, tip: (v) => v.toFixed(3), unit: "ln RV",
       label: `${pwinTitle}: ${pwin.map((x) => x.name).join(", ")}, ${L.rounds.length} rounds` }) +
     `<div class="sub">每轮 = 气候基线的 pinball 损失 − agent 的 pinball 损失（ln RV 单位，开窗前揭示的 5 个分位数）；点在虚线 0 之上 = 这一轮比气候基线更准。真实 RV 见上方实时预测图。
     Climatology's pinball loss minus the agent's, per round; above 0 = beat climatology that round. Voided rounds are not shown.</div>`, "wide", "pwin-card")
   : card(pwinTitle,
-    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: pUniform, min: 0, max: 1, rankLegend: true,
+    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: pUniform, min: 0, max: 1, rankLegend: true, unit: "probability",
       fmt: (v) => `${Math.round(v * 100)}%`, tip: pct, label: `${pwinTitle}: ${pwin.map((x) => x.name).join(", ")}, ${L.rounds.length} rounds` }) +
     `<div class="sub">每轮各 agent 给真实结果所在档位的概率（p_win，开窗前揭示）；虚线 = 瞎猜每档 ${pct(pUniform)}，
     点在虚线之上 = 这一轮比瞎猜更准。每轮得分 = ln p_win。真实 RV 见上方实时预测图。
     Each agent's revealed probability on the bucket that actually happened; dashed line: uniform 1/${L.params.bounds.length + 1}.
     Above the line = beat uniform that round. Voided rounds are not shown.</div>`, "wide", "pwin-card");
+  const hookRounds = L.rounds.filter((r) => r.hook);
+  const hookCard = !hookRounds.length ? "" : card("V4 hook 实际收取 · Hook fee charged",
+    `<table class="hook-tbl"><tr><th>小时 (UTC)</th><th>推荐费率</th><th>hook 实际收取</th><th>来源</th></tr>${hookRounds.map((r) =>
+      `<tr><td class="mono">${r.window_utc?.[0]?.slice(11, 16) ?? "—"}</td><td class="mono">${r.fee?.forecast_bps != null ? r.fee.forecast_bps.toFixed(2) + " bps" : "—"}</td>
+      <td class="mono"><b>${(r.hook.effective_fee_pips / 100).toFixed(2)} bps</b></td><td>${r.hook.recorded ? "本轮记录" : "回退费率"}</td></tr>`).join("")}</table>
+    <div class="sub">分叉上的 Uniswap V4 动态费率池挂 VolFeeHook，每轮开窗后一笔 ${hookRounds[0].hook.swap_usdc.toLocaleString()} USDC 试算 swap，按 LP 手续费增长计实收费率。未部署主网、未审计。</div>`, "wide", "hook-card");
 
   const fs = s.fee_strategies;
   let feeCard = "";
@@ -1205,10 +1389,23 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       { key: "forecast", name: nm.forecast, role: "protocol output", color: "#d8431b", width: 3, dash: "7 4", values: fee("forecast_bps") },
     ];
     const byKey = (k) => feeSeries.find((s) => s.key === k);
+    const fair = byKey("fair").values;
+    const residual = (k) => byKey(k).values.map((v, i) => (v == null || fair[i] == null ? null : v - fair[i]));
+    const signed = (v) => (Math.abs(v) < 0.005 ? "0.00" : `${v > 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`);
+    const residSeries = ["fixed", "prev_hour", "forecast"].map((k) => ({ ...byKey(k), role: null, values: residual(k) }));
+    const resid = Object.fromEntries(residSeries.map((s) => [s.key, s.values]));
+    const bias = (k) => { const v = resid[k].filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const beat = (k) => {
+      const pairs = resid[k].map((v, i) => [v, resid.fixed[i]]).filter(([a, b]) => a != null && b != null);
+      return `${pairs.filter(([a, b]) => Math.abs(a) < Math.abs(b)).length}/${pairs.length}`;
+    };
     const tileHead = (s) => `<div class="sub"><span class="nowrap">${swatch(s.color, s.dash)} ${s.name} ${roleTag(s.role)}</span></div>`;
     const tiles = ["forecast", "fixed", "prev_hour"].map((k) => `<div class="fee-tile${k === "forecast" ? " main" : ""}">${tileHead(byKey(k))}
         <div><span class="fee-mae" data-mae="${k}">${fs.mae_bps[k].toFixed(2)}</span> <span class="sub">bps MAE vs reference</span></div>
+        <dl class="fee-stats"><div><dt>bias</dt><dd><b data-bias="${k}">${bias(k) == null ? "—" : signed(bias(k))}</b> bps</dd></div>
+          <div><dt>rounds beating ${nm.fixed}</dt><dd><b data-beat="${k}">${k === "fixed" ? "—" : beat(k)}</b></dd></div></dl>
         <div class="sub">mean ${fs.mean_bps[k].toFixed(2)} bps</div></div>`).join("");
+    const residTitle = "Residual: strategy fee − hindsight fair fee (bps)";
     const fallback = fs.equal_weight_fallback_rounds ? ` ${fs.equal_weight_fallback_rounds} of ${fs.rounds} rounds used the equal-weight fallback.` : "";
     const feeTitle = "AMM 能用它定手续费吗？ Forecast vs hindsight fair fee (bps)";
     const low = lowestFee(fs);
@@ -1217,7 +1414,9 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       ${nm.forecast} 偏离参照 <b>${fs.mae_bps.forecast.toFixed(2)}</b> bps，${nm.fixed} 为
       <b>${fs.mae_bps.fixed.toFixed(2)}</b> bps，${nm.prev_hour} 为 <b>${fs.mae_bps.prev_hour.toFixed(2)}</b> bps：${low.key === "forecast" ? `${nm.forecast} 最贴近参照。`
         : `暂未赢过 ${nm[low.key]}（如实展示）。`}</p>` +
-      lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), label: chartLabel(feeTitle, feeSeries) }) +
+      lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), unit: "bps", label: chartLabel(feeTitle, feeSeries) }) +
+      `<div id="fee-resid"><p class="fee-resid-lead"><b>${residTitle}</b><br>残差 = 策略费率 − 事后参照；高于 0 表示收费偏高，低于 0 表示偏低。</p>` +
+      lineChart(residSeries, labels, { zero: 0, H: 180, tip: signed, unit: "bps", label: chartLabel(residTitle, residSeries) }) + `</div>` +
       `<div class="fee-tiles"><div class="fee-tile ref">${tileHead(byKey("fair"))}
         <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div></div>${tiles}</div>
       <div class="sub" style="margin-top:8px">LVR（loss-versus-rebalancing）是套利者从 LP 身上拿走的损失；参照线（hindsight fair fee）= 事后看刚好补偿这一小时 LVR 的费率，
@@ -1232,7 +1431,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
   const rewardTitle = "预测者分到的手续费 · Cumulative predictor fee share (WETH)";
-  const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, rankLegend: true, label: chartLabel(rewardTitle, rewards) }) +
+  const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, rankLegend: true, unit: "WETH", label: chartLabel(rewardTitle, rewards) }) +
     `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters ${v2
       ? "with a lower pinball loss than the climatological baseline, pro rata to their excess (baseline loss − own loss)"
       : "above the uniform baseline, pro rata to their excess log score"}.</div>
@@ -1370,7 +1569,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   // Every view needs a visible .card.wide: charts take their width from it.
   const v = (view, html) => html.replace(/^\s*<(section|div)/, `<$1 data-v="${view}"`);
   app.innerHTML = v("overview", howCard()) + v("overview", usesCard()) +
-    v("live", pwinCard) +
+    v("live", pwinCard) + (hookCard ? v("live", hookCard) : "") +
     v("rounds", heatCard) + v("rounds", roundsCard) + v("rounds", `<div class="trio">${overview}${bucketCard}</div>`) +
     v("agents", tiersCard(agents, tierOf)) + v("agents", agentsCard) + v("agents", excessCard) + v("agents", rollCard) +
     (feeCard ? v("fee", feeCard) : "") + v("fee", rewardCard) +
@@ -1443,9 +1642,14 @@ function flowCard(d) {
   const r = STATE.model?.rounds[STATE.round];
   return `<section class="flowcard" data-v="rounds"><div class="flow-head"><span class="eyebrow">reputation → probability → fee</span>
     <h3>声誉 / 概率流 · <b id="flow-round">${r ? `#${r.h} ${r.label} UTC` : ""}</b></h3>${roundButtons()}</div>
-    <canvas id="flow" role="img" aria-label="Probability flow from agents to volatility buckets to the AMM fee"></canvas>
-    <div class="flow-cap">左：agent（圆大小 = 截至本轮累计得分，粒子数 ∝ ERC-8004 声誉权重）→ 中：按各自揭示的概率流向 5 个波动率档位（tick²），
-    <i style="background:var(--win)"></i>紫色 = 本轮真实落档 → 右：VolFeeConsumer 本轮设定的手续费。</div></section>`;
+    <canvas id="flow" role="img" aria-label="${isV2(d) ? "Bucket mass derived from quantiles, for the betting view: agents to the 5 parimutuel betting pools to the AMM fee"
+      : "Probability flow from agents to volatility buckets to the AMM fee"}"></canvas>
+    <div class="flow-cap">${isV2(d)
+      ? `左：agent（圆大小 = 截至本轮累计得分，粒子数 ∝ ERC-8004 声誉权重）→ 中：由各 agent 揭示的 5 个分位数推出的各档概率质量（derived from quantiles, for the betting view），
+        5 个档位只是平价下注池（parimutuel betting pools），agent 揭示的是分位数而不是档位概率，按 pinball 损失结算；
+        <i style="background:var(--win)"></i>紫色 = 本轮真实落入的下注池 → 右：VolFeeConsumer 按分位数混合设定的手续费。`
+      : `左：agent（圆大小 = 截至本轮累计得分，粒子数 ∝ ERC-8004 声誉权重）→ 中：按各自揭示的概率流向 5 个波动率档位（tick²），
+        <i style="background:var(--win)"></i>紫色 = 本轮真实落档 → 右：VolFeeConsumer 本轮设定的手续费。`}</div></section>`;
 }
 
 const STAGE_SECONDS = ROUND_SECONDS / 4.5;
@@ -1480,21 +1684,25 @@ function playerBody(d) {
     return `<li>${who(a, i)}<span>${b}</span></li>`;
   }).join("");
   const settle = o.voided ? `<p>本轮作废：${o.void_reason ?? "—"}</p>` : `
-    <div class="pl-big">RV ${o.realized_vol} <span>→ 档位 #${o.winning_bucket} <b class="win">${names[o.winning_bucket]}</b></span></div>
+    <div class="pl-big">RV ${o.realized_vol} <span>→ ${isV2(d) ? "下注池" : "档位"} #${o.winning_bucket} <b class="win">${names[o.winning_bucket]}</b></span></div>
     <p class="pl-src">${r.rv_matches_mainnet ? ok("= 主网逐笔重算") : bad("≠ 主网")}
       ${mn ? ` 主网区块 ${blockLink(mn.block_from)}–${blockLink(mn.block_to)} · ${mn.swap_count} 笔 swap${mn.last_swap_tx ? ` · 末笔 ${txLink(mn.last_swap_tx)}` : ""}` : ""}</p>
     ${isV2(d) && r.ln_rv != null ? `<p class="pl-src">ln RV <b>${r.ln_rv.toFixed(3)}</b> · 气候基线 pinball 损失 ${r.baseline_loss.toFixed(3)}（中位数 ${r.baseline_quantiles[2].toFixed(2)}）</p>` : ""}
     <ul>${d.agents.map((a, i) => {
       if (isV2(d)) {
         const ra = r.agents[a.agent], e = ra?.excess;
-        return `<li>${who(a, i)}${e == null ? mute("—") : `<span class="mono">L = ${ra.pinball_loss.toFixed(3)}</span>
-        <span class="mono ${e > 0 ? "up" : "down"}">${e > 0 ? "▲" : "▼"} ${(e >= 0 ? "+" : "") + e.toFixed(3)}</span>`}</li>`;
+        return `<li>${who(a, i)}${e == null ? mute("—") : `<span class="mono">pinball loss ${ra.pinball_loss.toFixed(3)}</span>
+        <span class="mono ${e > 0 ? "up" : "down"}">${e > 0 ? "▲" : "▼"} ${(e >= 0 ? "+" : "") + e.toFixed(3)} vs climatology</span>`}</li>`;
       }
       const s = r.agents[a.agent]?.log_score_float;
       return `<li>${who(a, i)}${s == null ? mute("—") : `<span class="mono">ln p = ${s.toFixed(3)}</span>
         <span class="mono ${s > u ? "up" : "down"}">${s > u ? "▲" : "▼"} ${(s - u >= 0 ? "+" : "") + (s - u).toFixed(3)}</span>`}</li>`;
     }).join("")}</ul>
     <p class="pl-src dim">settle gas ${o.gas_used?.toLocaleString() ?? "—"} · 区块 ${o.settle_block ?? "—"}（fork，无浏览器链接）</p>`;
+  const hk = r.hook;
+  const hookLine = !hk ? "" : `<p>Uniswap V4 hook 实际收取 <b>${(hk.effective_fee_pips / 100).toFixed(2)} bps</b>
+    （hook 报价 ${(hk.hook_fee_pips / 100).toFixed(2)} bps，${hk.recorded ? "取自本轮记录的推荐费率" : "本轮无记录 → 回退费率"}）
+    <span class="pl-src dim">fork 上的 VolFeeHook 动态费率池，开窗后一笔 ${hk.swap_usdc.toLocaleString()} USDC 试算 swap，按 LP 手续费增长计；gas ${hk.swap_gas.toLocaleString()}</span></p>`;
   const use = f?.forecast_bps == null ? `<p>这份回放没有记录消费方（动态手续费）数据。</p>` : (() => {
     const e = Math.abs(f.forecast_bps - f.fair_bps), ef = Math.abs(f.fixed_bps - f.fair_bps);
     const shares = f.mirror?.weights?.length !== d.agents.length ? "" : (STATE.model?.rounds[STATE.round]?.agents ?? [])
@@ -1503,7 +1711,7 @@ function playerBody(d) {
       <p>hindsight fair fee ${f.fair_bps.toFixed(2)} bps（参照，事前无法得到）· forecast 误差 <b>${e.toFixed(2)}</b> vs fixed ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
         ${e <= ef ? ok(`本轮优于 fixed ${f.fixed_bps} bps`) : mute(`本轮 fixed ${f.fixed_bps} bps 更近`)}</p>
       <p class="pl-src dim">${f.mirror?.equal_weight_fallback ? "声誉权重尚未形成 → 等权混合" : `声誉权重 ${shares || "—"}`}
-        <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>`;
+        <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>${hookLine}`;
   })();
   const stage = (k, n, zh, en, body) => `<li class="pl-stage" data-stage="${k}"><div class="pl-h"><span class="n">${n}</span>${zh}<span class="en">${en}</span></div><div class="pl-b">${body}</div></li>`;
   return `<ol class="pl-stages">
@@ -1608,7 +1816,7 @@ function heatmap(d) {
       for (let k = 4; k >= 0; k--) {
         const v = ps?.[k];
         cells.push(`<i data-h="${h}" class="${k === win ? "w" : ""}" style="--p:${v == null ? 0 : Math.min(1, v / 0.6).toFixed(3)}"
-          title="${attr(`${s.name} · ${hm} · #${k} ${names[k]}: ${v == null ? "—" : v.toFixed(3)}${k === win ? " · 实际" : ""}`)}"></i>`);
+          data-tip="${attr(tipLines(`${hm} UTC · ${s.name}`, [`#${k} ${names[k]}${k === win ? "（实际）" : ""}: ${v == null ? "—" : v.toFixed(3)}`]))}"></i>`);
       }
     });
     return `<div class="hm-row"><span class="hm-name"><b style="--c:${s.color}"></b>${s.name}${s.sub ? `<small>${s.sub}</small>` : ""}</span>
@@ -1621,6 +1829,68 @@ function heatmap(d) {
     <div class="hm-row hm-axis"><span class="hm-name"></span><div class="hm-ax"><span>${rounds[0].window_utc[0].slice(11, 16)}</span>
       <span>${rounds[Math.floor(N / 2)].window_utc[0].slice(11, 16)}</span><span>${rounds[N - 1].window_utc[0].slice(11, 16)}</span></div></div></div>`;
 }
+// v2 replacement for the heat strip: one compact fan per forecaster (consensus first) on a shared hour axis and a
+// shared log RV scale, so rows compare by eye; each row ends with its interval coverage.
+function smallMultiples(d, agents) {
+  const rounds = d.rounds, n = rounds.length, band = isV2(d) ? "80%" : "90%";
+  const fmt = (v) => (v >= 100 ? v.toFixed(0) : v.toFixed(1));
+  const hours = rounds.map((r) => ({ t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol, settled: !r.outcome?.voided,
+    c: consensusQ(d, r).q, q: Object.fromEntries(agents.map((a) => [a.agent, forecastQ(d, r.agents[a.agent])])) }));
+  const rows = [{ id: "consensus", name: "consensus", sub: "reputation-weighted", color: "var(--accent)", med: "var(--vermil)", real: "#1b1a17", get: (x) => x.c }]
+    .concat(agents.map((a) => ({ id: a.agent, name: a.agent.replace("agent-", ""), color: a.color, med: a.color, real: "#a8a194",
+      loss: d.summary.agents?.[a.agent]?.mean_pinball_loss ?? null, get: (x) => x.q[a.agent] })));
+  const vals = hours.flatMap((x) => [...(x.v != null ? [Math.max(1, x.v)] : []), ...rows.flatMap((r) => r.get(x) ?? [])]);
+  const lo = Math.min(...vals) / 1.15, hi = Math.max(...vals) * 1.15;
+  const narrow = chartWidth < 600, W = narrow ? Math.max(260, chartWidth) : Math.max(300, Math.min(1200, chartWidth) - 300);
+  const H = narrow ? 44 : 58, P = 6, gap = (W - 2 * P) / Math.max(1, n - 1);
+  const x = (i) => P + (n === 1 ? (W - 2 * P) / 2 : i * gap), y = (v) => 3 + (Math.log(hi) - Math.log(Math.max(lo, v))) / (Math.log(hi) - Math.log(lo)) * (H - 6);
+  const xy = (i, v) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+  const trace = (get) => { let s = "", pen = false; hours.forEach((h, i) => { const v = get(h); if (v == null) { pen = false; return; } s += `${pen ? "L" : "M"}${xy(i, v)}`; pen = true; }); return s; };
+  const area = (get, a, z) => {
+    const runs = [];
+    hours.forEach((h, i) => { const q = get(h); if (!q) runs.push(null); else if (runs.at(-1)) runs.at(-1).push([i, q]); else runs.push([[i, q]]); });
+    return runs.filter(Boolean).map((run) => run.map(([i, q], j) => `${j ? "L" : "M"}${xy(i, q[z])}`).join("")
+      + run.slice().reverse().map(([i, q]) => `L${xy(i, q[a])}`).join("") + "Z").join("");
+  };
+  const real = trace((h) => (h.v == null ? null : Math.max(1, h.v)));
+  const outside = (h, q) => h.settled && h.v != null && q && (Math.max(1, h.v) < q[0] || Math.max(1, h.v) > q[4]);
+  const row = (r) => {
+    const c = coverage(hours, r.get);
+    const dots = hours.map((h, i) => {
+      if (h.v == null) return "";
+      const out = outside(h, r.get(h)), rad = (narrow ? 1.6 : 2) * (out ? 1.6 : 1);
+      return `<circle${out ? ` class="sm-out"` : ""} cx="${x(i).toFixed(1)}" cy="${y(Math.max(1, h.v)).toFixed(1)}" r="${rad}" fill="${out ? "#d8431b" : r.real}"/>`;
+    }).join("");
+    const xs = hours.filter((h) => h.settled && r.get(h));
+    const width = xs.length ? Math.exp(xs.reduce((s, h) => s + Math.log(r.get(h)[4]) - Math.log(r.get(h)[0]), 0) / xs.length) : null;
+    const hits = hours.map((h, i) => {
+      const q = r.get(h);
+      const tip = tipLines(`${h.t} UTC · ${r.name}`, [`realized RV: ${h.v ?? "—"}${h.v != null ? " tick²" : ""}${h.settled ? "" : " (voided)"}${outside(h, q) ? ` · outside ${band}` : ""}`,
+        ...(q ? [`median: ${fmt(q[2])} tick²`, `50%: ${fmt(q[1])}–${fmt(q[3])} tick²`, `${band}: ${fmt(q[0])}–${fmt(q[4])} tick²`] : ["no forecast"])]);
+      return `<rect class="sm-hit" data-h="${i}" x="${(x(i) - gap / 2).toFixed(1)}" y="0" width="${gap.toFixed(1)}" height="${H}" fill="transparent" data-tip="${attr(tip)}"/>`;
+    }).join("");
+    return `<div class="sm-row" data-row="${r.id}"><span class="sm-name"><i style="background:${r.color}"></i>${r.name}${r.sub ? `<small>${r.sub}</small>` : ""}</span>
+      <svg class="sm-svg" viewBox="0 0 ${W} ${H}" width="100%" data-lo="${lo}" data-hi="${hi}" data-x0="${P}" data-gap="${gap}" aria-hidden="true">
+        <rect class="sm-cur" x="${(x(STATE.round) - gap / 2).toFixed(1)}" y="0" width="${gap.toFixed(1)}" height="${H}"/>
+        <path class="nc-band-wide" d="${area(r.get, 0, 4)}" fill="${r.color}" opacity=".16"/>
+        <path class="nc-band-50" d="${area(r.get, 1, 3)}" fill="${r.color}" opacity=".32"/>
+        <path class="sm-med" d="${trace((h) => r.get(h)?.[2])}" fill="none" stroke="${r.med}" stroke-width="1.4"${r.id === "consensus" ? ` stroke-dasharray="5 3"` : ""}/>
+        <path class="sm-real" d="${real}" fill="none" stroke="${r.real}" stroke-width="${r.id === "consensus" ? 1.4 : 1}"/>${dots}${hits}</svg>
+      <span class="sm-stats"><span class="sm-cov" data-cov="${r.id}" data-n="${c.n}" data-wide="${c.wide}" data-mid="${c.mid}">${band}: <b>${c.wide}/${c.n}</b> · 50%: <b>${c.mid}/${c.n}</b></span>
+        <span class="sm-w" data-width="${width ?? ""}"><b>${width == null ? "—" : `×${width.toFixed(1)}`}</b> width</span>
+        <span class="sm-l" data-loss="${r.loss ?? ""}">loss <b>${r.loss == null ? "—" : r.loss.toFixed(3)}</b></span></span></div>`;
+  };
+  return `<div class="smult" id="heat" role="img" aria-label="${attr(`Small multiples: consensus and each agent's median, 50% and ${band} intervals against realized RV, ${n} rounds, shared log scale`)}">
+    <div class="sm-title">预测区间 vs 实际 <span>每行一个预测者（第一行 = 声誉加权共识），同一时间轴、同一对数 RV 轴；淡色 = ${band} 区间，深色 = 50% 区间，彩线 = 中位数，黑线 = 链上实际 RV；右侧 = 覆盖率 · 点击列切换轮次</span></div>
+    <div class="sm-row sm-head"><span></span><span></span><span class="sm-stats"><span>coverage</span><span>width (q90/q10, ×)</span><span>loss (mean pinball, ln RV)</span></span></div>
+    ${rows.map(row).join("")}
+    <div class="sm-row sm-axis"><span class="sm-name"></span><div class="hm-ax"><span>${hours[0].t}</span><span>${hours[Math.floor(n / 2)].t}</span><span>${hours[n - 1].t}</span></div><span></span></div>
+    <div class="sub">朱红点 = 实际值落在 ${band} 区间外；覆盖率要和区间宽度一起看（区间越宽越容易覆盖）；loss 越低越准。</div></div>`;
+}
+roundListeners.push((tick) => {
+  if (tick) return;
+  document.querySelectorAll("#heat .sm-svg").forEach((s) => s.querySelector(".sm-cur")?.setAttribute("x", (Number(s.dataset.x0) + (STATE.round - 0.5) * Number(s.dataset.gap)).toFixed(1)));
+});
 document.addEventListener("click", (e) => {
   const c = e.target.closest?.("#heat [data-h]");
   if (c) setRound(Number(c.dataset.h), false);
@@ -1642,6 +1912,28 @@ function flowGeom(w, h, n) {
   const by = (k) => 22 + (k + 0.5) * (h - 44) / 5;
   return { narrow, ax, bx, bw, bh, fx, fy, fr, ay, by };
 }
+
+TIP_PROVIDERS.push((e) => {
+  if (e.target.id !== "flow" || !STATE.model) return null;
+  const c = e.target, b = c.getBoundingClientRect(), px = e.clientX - b.left, py = e.clientY - b.top;
+  const m = STATE.model, r = m.rounds[STATE.round], g = flowGeom(c.clientWidth, c.clientHeight, r.agents.length);
+  const pct = (p) => `${(p * 100).toFixed(1)}%`, head = `${r.label} UTC · round #${r.h}`;
+  const k = m.names.findIndex((_, k) => Math.abs(px - g.bx) <= g.bw / 2 && Math.abs(py - g.by(k)) <= g.bh / 2);
+  if (k >= 0) {
+    const mix = r.agents.reduce((s, a) => s + a.share * a.probs[k], 0);
+    return tipLines(`${head} · #${k} ${m.names[k]} tick²${STATE.data && isV2(STATE.data) ? " · derived from quantiles, for the betting view" : ""}`, [...r.agents.map((a) => `${a.name}: ${pct(a.probs[k])}`),
+      `weighted mix: ${pct(mix)}`, ...(k === r.win ? [`realized RV (settled here): ${r.rv} tick²`] : [])]);
+  }
+  const i = r.agents.findIndex((_, i) => Math.hypot(px - g.ax, py - g.ay(i)) <= Math.max(12, FLOW.radii[i] ?? 0) + 4);
+  if (i >= 0) {
+    const a = r.agents[i];
+    return tipLines(`${head} · ${a.name}`, [`weight share: ${pct(a.share)}`, `cumulative score: ${a.cum >= 0 ? "+" : ""}${a.cum.toFixed(3)}`,
+      ...m.names.map((nm, k) => `#${k} ${nm}: ${pct(a.probs[k])}`)]);
+  }
+  if (r.fee != null && Math.hypot(px - g.fx, py - g.fy) <= g.fr + 6)
+    return tipLines(`${head} · AMM fee`, [`forecast: ${r.fee.toFixed(2)} bps`, ...(r.fair != null ? [`hindsight fair fee: ${r.fair.toFixed(2)} bps`] : [])]);
+  return null;
+});
 
 function bez(p0, p1, p2, p3, t) {
   const s = 1 - t;
@@ -1809,7 +2101,8 @@ roundListeners.push((tick) => {
   const el = document.getElementById("flow-round");
   if (r && el) el.textContent = `#${r.h} ${r.label} UTC`;
   const c = document.getElementById("flow");
-  if (r && c) c.setAttribute("aria-label", `Round ${r.h} at ${r.label} UTC: ${r.agents.map((a) => `${a.name} ${a.probs.map((p) => (p * 100).toFixed(0) + "%").join("/")}`).join("; ")}; outcome bucket #${r.win}${r.fee != null ? `; AMM fee ${r.fee.toFixed(2)} bps` : ""}`);
+  if (r && c) c.setAttribute("aria-label", `Round ${r.h} at ${r.label} UTC${STATE.data && isV2(STATE.data)
+    ? " (bucket mass derived from quantiles, for the betting view; the 5 buckets are parimutuel betting pools only)" : ""}: ${r.agents.map((a) => `${a.name} ${a.probs.map((p) => (p * 100).toFixed(0) + "%").join("/")}`).join("; ")}; outcome bucket #${r.win}${r.fee != null ? `; AMM fee ${r.fee.toFixed(2)} bps` : ""}`);
   document.querySelectorAll('[data-rc="play"]').forEach((b) => { b.textContent = STATE.playing ? "❚❚" : "▶"; });
   if (calm) flowKick();
 });
@@ -1841,7 +2134,7 @@ function applyRoute(first = false) {
   const tabs = document.querySelector("#nav .tabs"), on = tabs?.querySelector("[aria-current]");
   if (on) tabs.scrollLeft = on.offsetLeft - (tabs.clientWidth - on.offsetWidth) / 2;
   const i = VIEWS.findIndex((x) => x[0] === view);
-  document.title = `${VIEWS[i][1]} · 可验证 AI 预测协议`;
+  document.title = `${VIEWS[i][1]} · 可验证预测协议 · Verifiable Forecast Protocol`;
   if (changed && !first) {
     body.classList.remove("swap"); void body.offsetWidth; body.classList.add("swap");
     setTimeout(() => body.classList.remove("swap"), 450);
@@ -1872,7 +2165,8 @@ function pageHeads(d, live = d) {
   const p = live.pending_round, entered = p ? Object.values(p.agents).filter((a) => a.entered).length : 0;
   const mainTx = rp.chainlink_reports.filter((c) => c.mainnet_tx).length + rounds.filter((r) => r.mainnet?.last_swap_tx).length;
   return head("live", "这一小时，各 agent 怎么看？", p
-      ? `案例 #1 的当前小时：预测已在链上提交并公开，要等这一小时结束才结算。下方是滚动窗口：最近 ${live.replay.hours} 小时主网，每小时重新 fork 一次、整体更新。
+      ? `案例 #1 的当前小时：每小时在本地主网分叉上模拟提交与结算（nowcast）；分叉上的提交时间是模拟的，不能证明现实中的事前性。真正的事前证明需要在持久链上提前提交（下一步）。
+        下方是滚动窗口：最近 ${live.replay.hours} 小时主网，每小时重新 fork 一次、整体更新。
         每个 agent 的提供方、地址与验证细节见“预测者与信誉”。`
       : "这份数据不是实时模式：线上实时模式每小时重新 fork 主网，回放最近 24 小时，并为进行中的这一小时开一轮。下面是已结算各小时的押中程度。",
       p ? [stat(`${entered}/${live.agents.length}`, "agent 已提交"), stat(live.rounds.length, "小时已结算")] : [])
@@ -1881,7 +2175,7 @@ function pageHeads(d, live = d) {
     + head("agents", "预测者与信誉", "任何预测者都可以无许可参与：在 ERC-8004 注册身份，按三档之一证明预测的来历，得分由合约写进链上声誉。案例 #1 里是 6 个示例 agent。", [])
     + head("fee", "消费方示例 · AMM 动态手续费", fs
       ? `协议的输出要有人用。案例 #1 的消费方 VolFeeConsumer 按 ERC-8004 声誉加权各 agent 的预测，每小时开始前在链上算出推荐手续费。
-        Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；真正按它收费需要 Uniswap V4 动态手续费 hook（下一步）。`
+        Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；按它真正收费的是 Uniswap V4 动态手续费 hook VolFeeHook，${d.contracts?.v4_hook ? "本回放在 fork 上的 V4 池里逐轮实测（单轮回放的“使用”一步）" : "已有合约与 fork 测试，本回放未开启（V4_HOOK=1）"}，未部署到主网。`
       : "这份回放没有记录消费方（动态手续费）数据。", [])
     + head("chain", "每一步都能在链上查", `mainnet 行链接 Etherscan；fork 行发生在本地分叉上（fork 自主网区块 ${d.fork_block.toLocaleString()}）。`,
       [stat(mainTx, "条主网交易链接"), stat(Object.keys(d.contracts).length, "个合约地址")]);
@@ -1901,16 +2195,25 @@ function howCard() {
 }
 
 function usesCard() {
-  const use = (title, body) => `<li><h3>${title}<span class="badge commit">尚未实现</span></h3>${body}</li>`;
+  const idea = `<span class="badge commit">设想（未实现）</span>`;
+  const use = (n, title, what, how, why, status, cls = "") => `<li class="${cls}"><h3><span class="n">${n}</span>${title}</h3>
+    <dl><dt>预测什么</dt><dd>${what}</dd><dt>谁用、怎么用</dt><dd>${how}</dd><dt>说明什么</dt><dd class="why">${why}</dd></dl>
+    <div class="st">${status}</div></li>`;
   return `<section class="card wide" id="usecases"><h2>同一协议还能用在哪 · Other uses</h2>
-    <p class="sub uses-lead">换一个预测目标、结算数据源和消费方，“提交 → 证明 → 结算 → 信誉 → 使用”这条链不变。下面是可能的用法，都还没有做。
+    <p class="sub uses-lead">三个案例各代表一个方向：完整闭环、换消费方、换指标。
     目前合约只实现了案例 #1 这一种结算数据源：Uniswap V3 池的 <span class="mono">observe()</span>（VolMarket 开轮与结算时读取）。</p>
     <ul class="uses">
-      ${use("借贷协议", "按预测波动率调整抵押率与清算线：预期波动变大时提前收紧，变小时放宽。")}
-      ${use("期权与波动率金库", "用预测的波动率分布给期权定价，按预测区间调整金库卖出的行权价。")}
-      ${use("保险与协议国库", "按预测设定对冲比例与备付金规模，波动预期高时多留缓冲。")}
-      ${use("Uniswap V4 动态手续费 hook", "把案例 #1 中 VolFeeConsumer 算出的推荐费率真正用于收费；今天只计算、记录与对照，不改池子。")}
-    </ul></section>`;
+      ${use("①", "AMM 动态手续费", "ETH/USDC 下一小时波动率",
+        "VolFeeConsumer 按信誉加权算推荐费率；Uniswap V4 hook 按它实际收费", "完整闭环",
+        `<span class="badge ok">推荐费率已实现（分叉回放中上链）</span><span class="badge warn">V4 hook：分叉上已模拟收费（未部署主网、未审计）</span>`, "live")}
+      ${use("②", "借贷风险参数", "同一指标的高分位（如第 90 百分位），窗口改为 24 小时（窗口是部署参数）",
+        "下调新借款最高抵押率、加大清算缓冲、收紧借款上限；每次调整有上下限和步长", "同一份预测，换一个消费方", idea)}
+      ${use("③", "Rollup / paymaster 的 gas 报价", "下一小时 gas 价格（<span class=\"mono\">block.basefee</span>）",
+        "决定批量提交时机、给用户报 gas 价", "换一个指标也能用；数据源就是区块本身，不需要预言机", idea)}
+    </ul>
+    <p class="uses-key">换一个结算数据源和一个消费合约，同一套协议（提交 → 公开并证明 → 合约结算打分 → ERC-8004 信誉 → 按信誉加权使用）就能预测别的指标。</p>
+    <p class="uses-more">更多方向（尚未实现）：期权与波动率金库、保险与协议国库、永续资金费率、LP 区间管理。</p>
+    <p class="sub uses-more">链下使用：交易机器人、AI agent 可以通过 x402 按次付费读取信誉加权预测，收入按信誉分给预测者（设想，未实现）。</p></section>`;
 }
 
 function tiersCard(agents, tierOf) {
