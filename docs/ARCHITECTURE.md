@@ -220,13 +220,14 @@ EZKL 生成的 Halo2 验证合约，每个模型一份（`LinearAbsVerifier`、`
 
 - **预测目标**：y = ln(max(RV, 1))，RV 口径不变（tick²，12 × 300 s）。RV = 0 按 1 tick² 计（y = 0），避免 ln 0；RV 为整数，1 tick² 是最小非零值，下限不改变任何非零结果。
 - **分位水平**：构造参数 `quantileLevels`（1e18 刻度，严格递增、位于 (0, 1e18)），演示取 `[0.1, 0.25, 0.5, 0.75, 0.9]`。
+- **构造参数**：与主线合并后为 `(token, feeBps, predictorShareBps, pool, delta, nSegments, commitLead, revealLead, maxDeviationBps, maxFeedAge, QuantileConfig(levels, outputScaleBits))`；分位数配置合成一个结构体，否则旧代码生成器在构造函数里栈过深。
 - **公开格式**：K 个有符号整数 `outputs[k] = q_k × 2^S`，S = `outputScaleBits`（构造参数，演示 12，与 EZKL `input_scale`、输出 scale 一致）；合约换算为 1e18：`q × (1e18 >> S)`，因 1e18 = 2^18·5^18，S ≤ 18 时整除无舍入。须严格递增，且落在 [−20e18, 60e18]（ln 单位的安全范围常量）。三个档位共用这一格式。
 - **评分**：L = (1/K) Σ ρ_τk(y − q_k)，ρ_τ(u) = u(τ − 1{u<0})，1e18 整数运算，向下取整；分数 = −L 写入 ERC-8004（tag1 `pinball`，tag2 规则不变）。
 - **基线**：每轮 `createRound` 传入的气候分位数（只用训练期，`vol_calibrate.py --until 1791417600`），基线损失 L_b 同式计算；超出 = max(0, L_b − L)，预测者分成按超出比例分（仍为 1% 手续费的 50%），不高于基线分 0。未公开处理不变。
 - **下注侧**：保留 5 桶彩池（bounds 仍由 `createRound` 传入，获胜桶、赔付与协议费不变），只把预测者评分换成 pinball。理由：下注、赔付、费用与退款的现有测试全部保持有效，改动面最小；协议费来源不变，分成规则只换了“超出基线”的度量。
 - **可复现档**：TSFM 采样路径的 ln(RV) 经验分位数，量化到 2^-12 网格（约 2.44e14 / 1e18），重算容差每个分位 ≤ 1e15（约 4 个网格步）：固定种子下蒙特卡洛结果通常逐位一致，容差覆盖不同 BLAS / 浮点栈的漂移。
 - **zk 档**：三个模型改为 pinball 训练，单调头 q_1 = a_1，q_k = q_{k−1} + ReLU(a_k) + 2/4096，保证 EZKL 舍入后仍严格递增；instances = [16 个特征, K 个输出]。
-- **`VolFeeConsumer`**：按信誉加权（权重 = max(0, 信誉均值 − `baselineScore`)，`baselineScore` 为训练期气候基线的平均 −L，构造参数），全为 0 时等权；逐分位加权平均（Vincentization）得到混合分位数，期望方差 E[RV] = Σ ω_k exp(q̄_k) / Σ ω_k，ω_k = (τ_{k+1} − τ_{k−1})/2（τ_0 = 0，τ_{K+1} = 1），再经原有线性映射与上下限得到费率。用均值而非中位数，因为费率映射按期望方差（LVR）校准。
+- **`VolFeeConsumer`**：按信誉加权（权重 = max(0, 信誉均值 − `baselineScore`)，`baselineScore` 为训练期气候基线的平均 −L，构造参数），全为 0 时等权；逐分位加权平均（Vincentization）得到混合分位数，期望方差 E[RV] = Σ ω_k exp(q̄_k) / Σ ω_k，ω_k = (τ_{k+1} − τ_{k−1})/2（τ_0 = 0，τ_{K+1} = 1），再经原有线性映射与上下限得到费率。用均值而非中位数，因为费率映射按期望方差（LVR）校准。不再有按桶固定的代表方差（`bucketVar` 已删除），每轮的 bounds 不参与费率计算。信誉快照时点：`record(id)` 在 [startTime − revealLead, startTime) 内第一次被调用时读取当时的 ERC-8004 汇总（此后的信誉变化不影响已记录费率）；任何人可调用，调用时点在该窗口内可选，但窗口内不会有新的结算写入同一市场的信誉，除非更早的轮次恰在此时结算（已知限制）。
 
 ## 10. 信任边界与已知问题
 
