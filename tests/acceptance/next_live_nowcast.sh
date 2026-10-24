@@ -11,7 +11,7 @@
 # agent (faint 90% band, 50% band, median tick).
 # The overview hides the nowcast and shows the compact case snapshot above its KPIs.
 # Per-agent tooltips and the fee share legend rank high to low. Without pending_round the section is absent. No overflow at 390 px,
-# no page errors.
+# no page errors. The browser clock is frozen inside the pending hour; after its end the countdown reads 已结束.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
@@ -38,13 +38,14 @@ fi
 
 tmp="$root/docs/.local/tmp/live_nowcast"
 mkdir -p "$tmp"
-python3 - dashboard/sample-replay.json "$tmp" <<'PY'
+rm -f "$tmp/pending.json"
+# The pending window is fixed (the hour after the fixture's last round); the browser clock is frozen relative to it.
+python3 - tests/acceptance/fixtures/sample-replay-v1.json "$tmp" <<'PY' || { bad "build the v1 pending_round fixture"; echo FAIL; exit 1; }
 import json, sys, time
 src, out = sys.argv[1], sys.argv[2]
 d = json.load(open(src))
-now = int(time.time())
 last = d["rounds"][-1]
-start = now // 3600 * 3600
+start = last["end"]
 agents = {}
 for i, a in enumerate(d["agents"]):
     agents[a["agent"]] = {"entered": True, "probs": last["agents"][a["agent"]]["probs"]}
@@ -52,7 +53,7 @@ names = [a["agent"] for a in d["agents"]]
 agents[names[0]]["probs"] = [0, 1, 0, 0, 0]
 agents[names[-1]] = {"entered": False, "skip_reason": "API failed", "probs": None}
 d["agents"][1].update({"provider": "self-hosted inference", "tier": "reproducible", "model_hash": "0x" + "ab" * 32})
-d.update({"live": True, "generated_at": now - 60, "next_run_at": start + 3600 + 420,
+d.update({"live": True, "generated_at": start + 540, "next_run_at": start + 3600 + 420,
           "pending_round": {"id": last["id"] + 1, "start": start, "end": start + 3600,
                             "window_utc": [time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start)),
                                            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start + 3600))],
@@ -79,8 +80,10 @@ const fs = require("fs");
   try { browser = await pw.chromium.launch(); } catch (_) { browser = await pw.chromium.launch({ channel: "chrome" }); }
   const d = JSON.parse(fs.readFileSync("docs/.local/tmp/live_nowcast/pending.json", "utf8"));
   const b = d.params.bounds, entered = Object.entries(d.pending_round.agents).filter(([, a]) => a.entered).map(([n]) => n);
+  const pr = d.pending_round, inWindow = pr.start + 1200;
   for (const width of [1440, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
+    await page.clock.install({ time: inWindow * 1000 });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(`${base}/dashboard/?data=../docs/.local/tmp/live_nowcast/pending.json#/live`);
@@ -141,6 +144,9 @@ const fs = require("fs");
     const maxRv = Math.max(...shown.map((x) => x.outcome?.realized_vol ?? x.real_realized_vol));
     check(Math.max(...r.ticks) * 2 >= maxRv, `@${width}: y axis is labelled up to the realized line (top tick ${Math.max(...r.ticks)}, max RV ${maxRv})`);
     check(/\d+:\d\d/.test(r.cd), `@${width}: countdown shown (${r.cd})`);
+    const left = (/^(\d+):(\d\d)$/.exec(r.cd) || []).slice(1).map(Number);
+    const lag = pr.end - inWindow - (left[0] * 60 + left[1]);
+    check(left.length === 2 && lag >= 0 && lag < 60, `@${width}: countdown counts to pending_round.end (${r.cd}, ${lag}s after the frozen clock)`);
     await page.waitForTimeout(1300);
     const cd2 = await page.evaluate(() => document.querySelector("#nowcast-cd")?.textContent ?? "");
     check(cd2 !== r.cd, `@${width}: countdown ticks (${r.cd} -> ${cd2})`);
@@ -171,6 +177,16 @@ const fs = require("fs");
     check(errors.length === 0, `@${width}: no page errors ${JSON.stringify(errors)}`);
     await page.close();
   }
+  const late = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await late.clock.install({ time: (pr.end + 60) * 1000 });
+  await late.goto(`${base}/dashboard/?data=../docs/.local/tmp/live_nowcast/pending.json#/live`);
+  await late.waitForSelector("#nowcast svg", { timeout: 15000 });
+  const cdEnd = () => late.evaluate(() => document.querySelector("#nowcast-cd")?.textContent ?? "");
+  const end1 = await cdEnd();
+  await late.waitForTimeout(1300);
+  const end2 = await cdEnd();
+  check(end1 === "已结束，待下一次运行结算" && end2 === end1, `after pending_round.end: countdown replaced by 已结束 and stays (${end1} -> ${end2})`);
+  await late.close();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.goto(`${base}/dashboard/?data=sample-replay.json`);
   await page.waitForSelector("#app svg", { timeout: 15000 });
