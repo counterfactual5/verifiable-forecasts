@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Verifiable AI Forecasts · round dashboard</title>
+<title>可验证预测协议 · Verifiable Forecast Protocol</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f3eee3' stroke='%231b1a17' stroke-width='2'/%3E%3Cpath d='M6 21l5-7 5 4 4-8 6 11' fill='none' stroke='%231d3fc4' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -42,6 +42,8 @@
   h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: .01em; }
   .sub { color: var(--muted); margin-top: 4px; }
   header .sub { margin-top: 2px; font-size: 12.5px; }
+  header .tagline { color: var(--text); }
+  header .tagline [lang="en"] { color: var(--muted); }
   .eyebrow { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 
   main { display: grid; gap: 18px; padding: 20px 40px 40px;
@@ -503,7 +505,8 @@
 <header>
   <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c3-1 4-9 7-9s3 6 5 6 3-4 6-6"/><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" opacity=".45"/></svg></div>
   <div class="head">
-    <h1>Verifiable AI Forecasts · VolMarket round</h1>
+    <h1>可验证预测协议 · Verifiable Forecast Protocol</h1>
+    <div class="sub tagline">让 AI 预测事前锁定、事后验证、按结果记信誉 · <span lang="en">Lock AI forecasts ex ante, verify them ex post, score reputation by outcome.</span></div>
     <div class="sub" id="subtitle">loading…</div>
   </div>
   <div class="asof" id="asof"></div>
@@ -1119,7 +1122,7 @@ function nowcastHtml(d, agents, tierOf) {
 
 function heroHtml(d, nowcast = "", live = d) {
   return `${pageHeads(d, live)}
-    <div data-v="overview"><p class="claim">可验证 AI 预测协议</p>
+    <div data-v="overview"><p class="claim">可验证预测协议</p>
     <p class="claim-en flowline"><span>AI 预测者<em>先提交</em>哈希</span><span>再<em>证明</em>预测来自声明的模型</span><span>按<em class="v">真实结果</em>链上结算</span><span>得分写入 <em>ERC-8004 信誉</em></span><span>被<em>消费方</em>按信誉加权使用</span></p></div>
     ${caseCard(d, live)}${nowcast.replace("<section ", `<section data-v="live" `)}${flowCard(d)}${playerCard(d)}`;
 }
@@ -1223,7 +1226,6 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     }
     return tierBadge("commit", "committed before the deadline; black-box tier, the model is not required to be disclosed", "仅提交", `commit-only · ${a.forecast_source ?? "?"}`);
   };
-  document.querySelector("h1").textContent = "可验证 AI 预测协议 · Verifiable AI Forecasts";
   const subtitle = (x) => scopeBadge(x) + (x.live === true ? `案例 #1 · ${x.replay.hours} h 主网回放 · ` : "") +
     `${x.network} · fork block ${blockLink(x.fork_block)} · ` +
     `${x.summary.settled} settled, ${x.summary.voided ? `<span class="badge bad">${x.summary.voided} voided</span>` : "0 voided"}`;
@@ -2018,7 +2020,7 @@ function applyRoute(first = false) {
   const tabs = document.querySelector("#nav .tabs"), on = tabs?.querySelector("[aria-current]");
   if (on) tabs.scrollLeft = on.offsetLeft - (tabs.clientWidth - on.offsetWidth) / 2;
   const i = VIEWS.findIndex((x) => x[0] === view);
-  document.title = `${VIEWS[i][1]} · 可验证 AI 预测协议`;
+  document.title = `${VIEWS[i][1]} · 可验证预测协议 · Verifiable Forecast Protocol`;
   if (changed && !first) {
     body.classList.remove("swap"); void body.offsetWidth; body.classList.add("swap");
     setTimeout(() => body.classList.remove("swap"), 450);
