@@ -1,7 +1,8 @@
 """VolFeeHook on the fork: a WETH/USDC dynamic-fee pool of the real Uniswap v4 PoolManager whose
 hook charges the fee VolFeeConsumer recorded for the round in progress (V4_HOOK=1 in
 demo/fork_round.py). Each round, one USDC -> WETH swap inside the window measures the fee the
-pool actually charged from its LP fee growth.
+pool actually charged from its LP fee growth; a WETH -> USDC swap for exactly the same USDC then
+puts the price back (up to the fee), so the pool's range never drains over a day of rounds.
 
 Simulation only: the pool, its liquidity and the swaps exist on the local fork.
 """
@@ -31,6 +32,7 @@ Q128 = 2**128
 PIPS = 10**6
 KEY_T = "(address,address,uint24,int24,address)"
 MIN_SQRT_PRICE_PLUS_1 = 4295128740
+MAX_SQRT_PRICE_MINUS_1 = 1461446703485210103287273052203988822378723970341
 GAS = 3_000_000
 
 
@@ -111,6 +113,8 @@ class HookPool:
         fee, rid, recorded = self.c.call_at(block, self.hook, "feeAt(uint256)(uint24,uint256,bool)",
                                             ts)
         lp_fee = (self._word(FEE_GROWTH0_OFFSET) - growth0) * liquidity // Q128
+        self._send(self.swap_router, f"swap({KEY_T},(bool,int256,uint160),(bool,bool),bytes)",
+                   self.key, f"(false,{SWAP_USDC},{MAX_SQRT_PRICE_MINUS_1})", "(false,false)", "0x")
         return {"hook_fee_pips": as_int(fee), "recorded": recorded in (True, "true"),
                 "round_id": as_int(rid) if recorded in (True, "true") else None,
                 "effective_fee_pips": round(lp_fee * PIPS / SWAP_USDC, 3),
