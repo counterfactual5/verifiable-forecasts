@@ -181,6 +181,23 @@
   .hm::after { content: ""; position: absolute; top: -3px; bottom: -3px; width: calc(100% / var(--n)); pointer-events: none;
                left: calc(var(--h) * 100% / var(--n)); border: 1.5px solid var(--vermil); border-radius: 3px; transition: left .3s var(--ease); }
   .heat .hm { --h: inherit; }
+  .sm-title { font: 700 14px/1.3 var(--display); margin-bottom: 8px; }
+  .sm-title span { font: 400 12px/1.4 var(--sans); color: var(--muted); margin-left: 8px; }
+  .sm-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) 150px; gap: 10px; align-items: center; margin-bottom: 4px; }
+  .sm-name { font: 600 12px/1.15 var(--mono); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+  .sm-name i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .sm-name small { flex-basis: 100%; font: 400 10.5px/1 var(--sans); color: var(--muted); padding-left: 15px; }
+  .sm-svg { display: block; height: auto; background: var(--panel-2); border-radius: 6px; cursor: pointer; }
+  .sm-cur { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .sm-cov { font: 11.5px/1.3 var(--mono); color: var(--muted); white-space: nowrap; }
+  .sm-cov b { color: var(--text); font-weight: 600; }
+  @media (max-width: 640px) {
+    .sm-row { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; margin-bottom: 8px; }
+    .sm-row .sm-svg { grid-column: 1 / -1; grid-row: 2; }
+    .sm-name small { flex-basis: auto; padding-left: 0; }
+    .sm-axis { grid-template-columns: 1fr; }
+    .sm-axis .sm-name, .sm-axis > span:last-child { display: none; }
+  }
   .hm i { position: relative; cursor: pointer; background: rgba(29, 63, 196, var(--p)); }
   .hm i:not([style*="--p:0.0"]):hover { box-shadow: inset 0 0 0 1px var(--accent); }
   .hm i.w::after, .hm-dot { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
@@ -960,6 +977,34 @@ function nowcastTick() {
   });
 }
 
+// One forecast as 5 quantiles in tick² (v2: exp of the revealed ln RV quantiles; v1: read off the bucket probabilities).
+function forecastQ(d, ra) {
+  if (!ra || ra.entered === false) return null;
+  return isV2(d) ? (ra.quantiles ? ra.quantiles.map((v) => Math.exp(v)) : null)
+    : ra.probs ? QS.map((q) => bucketQuantile(ra.probs, d.params.bounds, q)) : null;
+}
+// Consensus = the quantile mix VolFeeConsumer read for the round (on-chain record first); without it, the same
+// Vincentized mean (per-level weighted average of the reveals) recomputed with the round's weights.
+function consensusQ(d, r) {
+  const v2 = isV2(d), b = d.params.bounds, m = r.fee?.mirror, mq = r.fee?.onchain?.mix_quantiles_e18 ?? m?.mix_quantiles_e18;
+  if (v2 && mq) return { q: mq.map((x) => Math.exp(Number(x) / 1e18)) };
+  if (!v2 && m?.mix_probs) return { q: QS.map((x) => bucketQuantile(m.mix_probs, b, x)) };
+  const w = m?.weights?.length === d.agents.length && !m.equal_weight_fallback ? m.weights.map(Number) : null;
+  const xs = d.agents.map((a, i) => ({ ra: r.agents[a.agent], w: w ? w[i] : 1 }))
+    .filter(({ ra, w }) => ra && ra.entered !== false && (v2 ? ra.quantiles : ra.probs) && w > 0);
+  const tw = xs.reduce((s, x) => s + x.w, 0);
+  if (!tw) return { q: null };
+  if (v2) return { q: LEVELS(d).map((_, k) => Math.exp(xs.reduce((s, x) => s + x.w * x.ra.quantiles[k], 0) / tw)), recomputed: true };
+  const pm = [0, 1, 2, 3, 4].map((k) => xs.reduce((s, x) => s + x.w * x.ra.probs[k], 0) / tw);
+  return { q: QS.map((x) => bucketQuantile(pm, b, x)), recomputed: true };
+}
+// Settled hours whose realized RV (floored at 1, as ln RV is) fell inside the wide (q[0]..q[4]) and 50% intervals.
+function coverage(hours, get) {
+  const xs = hours.filter((x) => x.settled && get(x)), v = (x) => Math.max(1, x.v);
+  const inside = (a, z) => xs.filter((x) => { const q = get(x); return q[a] <= v(x) && v(x) <= q[z]; }).length;
+  return { n: xs.length, wide: inside(0, 4), mid: inside(1, 3) };
+}
+
 // Past hours of the last nowcast render, read by its hover read-out; STATE.ncIso = the isolated agent or null.
 let NOWCAST = null;
 TIP_PROVIDERS.push((e) => {
@@ -995,32 +1040,13 @@ function nowcastHtml(d, agents, tierOf) {
   const fmt = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(1);
   // v2 draws the revealed quantiles themselves (exp of ln RV, so the log axis is linear in ln RV).
   const v2 = isV2(d), band = v2 ? "80%" : "90%";
-  const quant = (ra) => !ra || ra.entered === false ? null
-    : v2 ? (ra.quantiles ? ra.quantiles.map((v) => Math.exp(v)) : null)
-    : ra.probs ? QS.map((q) => bucketQuantile(ra.probs, b, q)) : null;
-  // Consensus = the quantile mix VolFeeConsumer read for the round (on-chain record first); without it, the same
-  // Vincentized mean (per-level weighted average of the reveals) recomputed with the round's weights.
-  const ix = Object.fromEntries(d.agents.map((a, i) => [a.agent, i]));
-  const consensus = (r) => {
-    const m = r.fee?.mirror, mq = r.fee?.onchain?.mix_quantiles_e18 ?? m?.mix_quantiles_e18;
-    if (v2 && mq) return { q: mq.map((x) => Math.exp(Number(x) / 1e18)) };
-    if (!v2 && m?.mix_probs) return { q: QS.map((x) => bucketQuantile(m.mix_probs, b, x)) };
-    const w = m?.weights?.length === d.agents.length && !m.equal_weight_fallback ? m.weights.map(Number) : null;
-    const xs = d.agents.map((a) => ({ ra: r.agents[a.agent], w: w ? w[ix[a.agent]] : 1 }))
-      .filter(({ ra, w }) => ra && ra.entered !== false && (v2 ? ra.quantiles : ra.probs) && w > 0);
-    const tw = xs.reduce((s, x) => s + x.w, 0);
-    if (!tw) return { q: null };
-    if (v2) return { q: LEVELS(d).map((_, k) => Math.exp(xs.reduce((s, x) => s + x.w * x.ra.quantiles[k], 0) / tw)), recomputed: true };
-    const pm = [0, 1, 2, 3, 4].map((k) => xs.reduce((s, x) => s + x.w * x.ra.probs[k], 0) / tw);
-    return { q: QS.map((x) => bucketQuantile(pm, b, x)), recomputed: true };
-  };
   const past = d.rounds.slice(-24).map((r) => {
-    const c = consensus(r);
+    const c = consensusQ(d, r);
     return { id: r.id, t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol, settled: !r.outcome?.voided,
       c: c.q, recomputed: !!c.recomputed, equal: !!r.fee?.mirror?.equal_weight_fallback,
-      q: Object.fromEntries(agents.map((a) => [a.agent, quant(r.agents[a.agent])])) };
+      q: Object.fromEntries(agents.map((a) => [a.agent, forecastQ(d, r.agents[a.agent])])) };
   }).filter((x) => x.v != null);
-  const fc = agents.map((a) => ({ ...a, q: pr.agents[a.agent]?.entered ? quant(pr.agents[a.agent]) : null })).filter((a) => a.q);
+  const fc = agents.map((a) => ({ ...a, q: pr.agents[a.agent]?.entered ? forecastQ(d, pr.agents[a.agent]) : null })).filter((a) => a.q);
   const W = Math.min(1200, chartWidth), H = W < 600 ? 240 : 280, L = 50, R = 10, T = 26, B = 26, narrow = W < 600;
   const split = L + (W - L - R) * (narrow ? 0.4 : 0.58);
   const vals = past.flatMap((x) => [Math.max(1, x.v), ...(x.c ?? []), ...Object.values(x.q).flatMap((q) => q ?? [])]).concat(fc.flatMap((a) => a.q), b);
@@ -1066,13 +1092,8 @@ function nowcastHtml(d, agents, tierOf) {
   const hits = past.map((x, i) => `<rect class="nc-hit" data-i="${i}" x="${(px(i) - gap / 2).toFixed(1)}" y="${T}" width="${gap.toFixed(1)}" height="${H - T - B}" fill="transparent"/>`).join("");
   NOWCAST = { past, band, fmt };
   const short = (n) => n.replace("agent-", "");
-  const cov = (get) => {
-    const xs = past.filter((x) => x.settled && get(x)), v = (x) => Math.max(1, x.v);
-    const inside = (a, z) => xs.filter((x) => { const q = get(x); return q[a] <= v(x) && v(x) <= q[z]; }).length;
-    return { n: xs.length, wide: inside(0, 4), mid: inside(1, 3) };
-  };
-  const covItem = (id, name, get) => { const c = cov(get); return `<span class="nowrap" data-cov="${id}" data-n="${c.n}" data-wide="${c.wide}" data-mid="${c.mid}">${name} ${band}: <b>${c.wide}/${c.n}</b> · 50%: <b>${c.mid}/${c.n}</b></span>`; };
-  const coverage = [covItem("consensus", "consensus", (x) => x.c), ...agents.map((a) => covItem(a.agent, short(a.agent), (x) => x.q[a.agent]))].join(`<span class="sep"> | </span>`);
+  const covItem = (id, name, get) => { const c = coverage(past, get); return `<span class="nowrap" data-cov="${id}" data-n="${c.n}" data-wide="${c.wide}" data-mid="${c.mid}">${name} ${band}: <b>${c.wide}/${c.n}</b> · 50%: <b>${c.mid}/${c.n}</b></span>`; };
+  const covLine = [covItem("consensus", "consensus", (x) => x.c), ...agents.map((a) => covItem(a.agent, short(a.agent), (x) => x.q[a.agent]))].join(`<span class="sep"> | </span>`);
   const nEqual = past.filter((x) => x.equal).length, nRecomputed = past.filter((x) => x.recomputed).length;
   const key = (id, label, mark) => `<button type="button" class="nc-key" data-iso="${id}" aria-pressed="${(iso ?? "") === id}">${mark}${label}</button>`;
   const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
@@ -1106,7 +1127,7 @@ function nowcastHtml(d, agents, tierOf) {
     <div class="nc-legend" role="group" aria-label="Show the consensus or one agent's own intervals">
       ${key("", "consensus", `<i class="nc-fan-mark"></i>`)}${agents.map((a) => key(a.agent, short(a.agent), `<i style="background:${a.color}"></i>`)).join("")}
       <span class="sub nowrap">${swatch("#1b1a17")} realized RV</span></div>
-    <div class="sub nc-cov" id="nc-cov">${coverage}</div>
+    <div class="sub nc-cov" id="nc-cov">${covLine}</div>
     <div class="sub">带 = 区间，黑线 = 链上实际 RV；覆盖率 = 实际值落在区间内的已结算小时数，${band} 区间理想约 ${band}。</div>
     <div class="sub">左侧默认画共识：VolFeeConsumer 每轮读到的声誉加权分位数混合（各 agent 同一分位数按本轮权重加权平均），淡色 = ${band} 区间，深色 = 50% 区间，红色虚线 = 共识的预测中位数；
       细彩线 = 各 agent 的预测中位数，黑线 = 链上结算的真实 RV。点图例里的 agent 只看它自己的区间，再点一次或点 consensus 回到共识。
@@ -1292,7 +1313,8 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     : `<div class="sub">nats：自然对数单位。每轮得分 = ln(agent 给真实结果所在档位的概率)，瞎猜每档 1/5 每轮得
     ${uniform.toFixed(3)}；曲线在虚线 0 之上 = 累计比瞎猜更准。Voided rounds are not scored.`) + `
     Agent lines: solid = zk proof, dotted = reproducible, dashed = commit-only.</div>`, "wide", "excess-card");
-  const heatCard = card("预测分布 vs 实际 · Forecast heat strip", heatmap(d), "wide");
+  const heatCard = v2 ? card("预测区间 vs 实际 · Forecast intervals vs realized", smallMultiples(d, agents), "wide", "smult-card")
+    : card("预测分布 vs 实际 · Forecast heat strip", heatmap(d), "wide");
 
   const W = Math.min(6, rounds.length);
   const rolling = (vals) => vals.map((_, i) => {
@@ -1783,6 +1805,56 @@ function heatmap(d) {
     <div class="hm-row hm-axis"><span class="hm-name"></span><div class="hm-ax"><span>${rounds[0].window_utc[0].slice(11, 16)}</span>
       <span>${rounds[Math.floor(N / 2)].window_utc[0].slice(11, 16)}</span><span>${rounds[N - 1].window_utc[0].slice(11, 16)}</span></div></div></div>`;
 }
+// v2 replacement for the heat strip: one compact fan per forecaster (consensus first) on a shared hour axis and a
+// shared log RV scale, so rows compare by eye; each row ends with its interval coverage.
+function smallMultiples(d, agents) {
+  const rounds = d.rounds, n = rounds.length, band = isV2(d) ? "80%" : "90%";
+  const fmt = (v) => (v >= 100 ? v.toFixed(0) : v.toFixed(1));
+  const hours = rounds.map((r) => ({ t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol, settled: !r.outcome?.voided,
+    c: consensusQ(d, r).q, q: Object.fromEntries(agents.map((a) => [a.agent, forecastQ(d, r.agents[a.agent])])) }));
+  const rows = [{ id: "consensus", name: "consensus", sub: "reputation-weighted", color: "var(--accent)", med: "var(--vermil)", get: (x) => x.c }]
+    .concat(agents.map((a) => ({ id: a.agent, name: a.agent.replace("agent-", ""), color: a.color, med: a.color, get: (x) => x.q[a.agent] })));
+  const vals = hours.flatMap((x) => [...(x.v != null ? [Math.max(1, x.v)] : []), ...rows.flatMap((r) => r.get(x) ?? [])]);
+  const lo = Math.min(...vals) / 1.15, hi = Math.max(...vals) * 1.15;
+  const narrow = chartWidth < 600, W = narrow ? Math.max(260, chartWidth) : Math.max(300, Math.min(1200, chartWidth) - 300);
+  const H = narrow ? 44 : 58, P = 6, gap = (W - 2 * P) / Math.max(1, n - 1);
+  const x = (i) => P + (n === 1 ? (W - 2 * P) / 2 : i * gap), y = (v) => 3 + (Math.log(hi) - Math.log(Math.max(lo, v))) / (Math.log(hi) - Math.log(lo)) * (H - 6);
+  const xy = (i, v) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+  const trace = (get) => { let s = "", pen = false; hours.forEach((h, i) => { const v = get(h); if (v == null) { pen = false; return; } s += `${pen ? "L" : "M"}${xy(i, v)}`; pen = true; }); return s; };
+  const area = (get, a, z) => {
+    const runs = [];
+    hours.forEach((h, i) => { const q = get(h); if (!q) runs.push(null); else if (runs.at(-1)) runs.at(-1).push([i, q]); else runs.push([[i, q]]); });
+    return runs.filter(Boolean).map((run) => run.map(([i, q], j) => `${j ? "L" : "M"}${xy(i, q[z])}`).join("")
+      + run.slice().reverse().map(([i, q]) => `L${xy(i, q[a])}`).join("") + "Z").join("");
+  };
+  const real = trace((h) => (h.v == null ? null : Math.max(1, h.v)));
+  const dots = hours.map((h, i) => (h.v == null ? "" : `<circle cx="${x(i).toFixed(1)}" cy="${y(Math.max(1, h.v)).toFixed(1)}" r="${narrow ? 1.6 : 2}" fill="#1b1a17"/>`)).join("");
+  const row = (r) => {
+    const c = coverage(hours, r.get);
+    const hits = hours.map((h, i) => {
+      const q = r.get(h);
+      const tip = tipLines(`${h.t} UTC · ${r.name}`, [`realized RV: ${h.v ?? "—"}${h.v != null ? " tick²" : ""}${h.settled ? "" : " (voided)"}`,
+        ...(q ? [`median: ${fmt(q[2])} tick²`, `50%: ${fmt(q[1])}–${fmt(q[3])} tick²`, `${band}: ${fmt(q[0])}–${fmt(q[4])} tick²`] : ["no forecast"])]);
+      return `<rect class="sm-hit" data-h="${i}" x="${(x(i) - gap / 2).toFixed(1)}" y="0" width="${gap.toFixed(1)}" height="${H}" fill="transparent" data-tip="${attr(tip)}"/>`;
+    }).join("");
+    return `<div class="sm-row" data-row="${r.id}"><span class="sm-name"><i style="background:${r.color}"></i>${r.name}${r.sub ? `<small>${r.sub}</small>` : ""}</span>
+      <svg class="sm-svg" viewBox="0 0 ${W} ${H}" width="100%" data-lo="${lo}" data-hi="${hi}" data-x0="${P}" data-gap="${gap}" aria-hidden="true">
+        <rect class="sm-cur" x="${(x(STATE.round) - gap / 2).toFixed(1)}" y="0" width="${gap.toFixed(1)}" height="${H}"/>
+        <path class="nc-band-wide" d="${area(r.get, 0, 4)}" fill="${r.color}" opacity=".16"/>
+        <path class="nc-band-50" d="${area(r.get, 1, 3)}" fill="${r.color}" opacity=".32"/>
+        <path class="sm-med" d="${trace((h) => r.get(h)?.[2])}" fill="none" stroke="${r.med}" stroke-width="1.4"${r.id === "consensus" ? ` stroke-dasharray="5 3"` : ""}/>
+        <path class="sm-real" d="${real}" fill="none" stroke="#1b1a17" stroke-width="1.4"/>${dots}${hits}</svg>
+      <span class="sm-cov" data-cov="${r.id}" data-n="${c.n}" data-wide="${c.wide}" data-mid="${c.mid}">${band}: <b>${c.wide}/${c.n}</b> · 50%: <b>${c.mid}/${c.n}</b></span></div>`;
+  };
+  return `<div class="smult" id="heat" role="img" aria-label="${attr(`Small multiples: consensus and each agent's median, 50% and ${band} intervals against realized RV, ${n} rounds, shared log scale`)}">
+    <div class="sm-title">预测区间 vs 实际 <span>每行一个预测者（第一行 = 声誉加权共识），同一时间轴、同一对数 RV 轴；淡色 = ${band} 区间，深色 = 50% 区间，彩线 = 中位数，黑线 = 链上实际 RV；右侧 = 覆盖率 · 点击列切换轮次</span></div>
+    ${rows.map(row).join("")}
+    <div class="sm-row sm-axis"><span class="sm-name"></span><div class="hm-ax"><span>${hours[0].t}</span><span>${hours[Math.floor(n / 2)].t}</span><span>${hours[n - 1].t}</span></div><span></span></div></div>`;
+}
+roundListeners.push((tick) => {
+  if (tick) return;
+  document.querySelectorAll("#heat .sm-svg").forEach((s) => s.querySelector(".sm-cur")?.setAttribute("x", (Number(s.dataset.x0) + (STATE.round - 0.5) * Number(s.dataset.gap)).toFixed(1)));
+});
 document.addEventListener("click", (e) => {
   const c = e.target.closest?.("#heat [data-h]");
   if (c) setRound(Number(c.dataset.h), false);
