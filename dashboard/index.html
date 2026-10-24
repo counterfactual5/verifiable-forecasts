@@ -78,8 +78,7 @@
   .claim em.v { color: var(--vermil);
                 background: linear-gradient(transparent 64%, rgba(216,67,27,.15) 64%, rgba(216,67,27,.15) 92%, transparent 92%); }
   .claim-en { margin: 10px 0 18px; color: var(--muted); font-size: 15px; max-width: 900px; }
-  #kpis { padding: 10px 40px 0; }
-  #kpis:empty { display: none; }
+  .kpis { margin: 0 0 18px; }
   #summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; overflow: hidden;
              border: 1px solid var(--line); border-radius: 14px; background: var(--line); }
   .kpi { background: var(--panel); padding: 12px 16px 11px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
@@ -226,8 +225,10 @@
   .nowcast h3 .badge { font-size: 12px; vertical-align: middle; }
   .nowcast .nc-cd { font: 600 13px/1 var(--mono); color: var(--muted); margin-left: 6px; white-space: nowrap; }
   .nowcast .nc-cd b { color: var(--vermil); }
-  .nowcast svg { display: block; margin: 8px 0 6px; }
+  .nowcast > svg { display: block; margin: 8px 0 6px; }
   .nowcast .table-scroll { margin: 6px 0; }
+  .nc-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin-bottom: 2px; }
+  .nc-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
   /* ---------- round player ---------- */
   .player { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 16px;
            box-shadow: var(--lift); }
@@ -376,7 +377,6 @@
     .badge .sep { display: none; }
     #live-badge { display: block; width: fit-content; max-width: 100%; white-space: normal; word-break: keep-all; }
     #live-badge::before { display: inline-block; margin-right: 6px; vertical-align: 1px; }
-    #kpis { padding: 8px 12px 0; }
     #summary { grid-template-columns: 1fr 1fr; }
     .kpi { padding: 10px 12px; }
     .kpi .v { font-size: 20px; }
@@ -445,7 +445,6 @@
   <div class="asof" id="asof"></div>
 </header>
 <nav id="nav" aria-label="dashboard sections"></nav>
-<div id="kpis"></div>
 <div id="hero"></div>
 <main id="app"></main>
 <footer id="source"></footer>
@@ -656,7 +655,8 @@ function measureChartWidth() {
 const CHARTS = [];
 
 // min / max bound the axis, never the data, and only when every value already respects them.
-function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 240, min = null, max = null, label = "" } = {}) {
+// rankLegend orders the legend by each series' last value, highest first; drawing order is unchanged.
+function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 240, min = null, max = null, label = "", rankLegend = false } = {}) {
   const vals = series.flatMap((s) => s.values).filter((v) => v != null).concat(zero ?? []);
   const dmin = Math.min(...vals), dmax = Math.max(...vals);
   let lo = dmin, hi = dmax;
@@ -694,7 +694,8 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
     return `${area}<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}" stroke-linejoin="round" stroke-linecap="round"${op} ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
   }).join("");
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-opacity=".7" stroke-dasharray="5 4"/>` : "";
-  const legend = series.map((s) => `<span class="nowrap">${swatch(s.color, s.dash)} ${s.name}</span>`).join(" &nbsp; ");
+  const last = (s) => s.values.reduce((x, v) => v ?? x, -Infinity);
+  const legend = (rankLegend ? series.slice().sort((a, b) => last(b) - last(a)) : series).map((s) => `<span class="nowrap">${swatch(s.color, s.dash)} ${s.name}</span>`).join(" &nbsp; ");
   CHARTS.push({ W, n, L, R, x, labels, series: series.map((s) => ({ name: s.name, color: s.color, values: s.values })), tipFmt });
   return `<div class="chart" data-chart="${id}"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}<g class="series">${lines}</g>${xl}
     <line class="guide" x1="0" x2="0" y1="${T}" y2="${H - B}"/></svg><div class="tip" aria-hidden="true"></div></div><div class="sub">${legend}</div>`;
@@ -715,7 +716,7 @@ function chartHover(app) {
     guide.setAttribute("x1", gx); guide.setAttribute("x2", gx);
     const tipEl = wrap.querySelector(".tip");
     tipEl.innerHTML = `<div class="t">${c.labels[i]} UTC</div>` + c.series.filter((s) => s.values[i] != null)
-      .map((s) => `<div class="r"><span><i style="background:${s.color}"></i>${s.name}</span><b>${c.tipFmt(s.values[i])}</b></div>`).join("");
+      .sort((a, b) => b.values[i] - a.values[i]).map((s) => `<div class="r"><span><i style="background:${s.color}"></i>${s.name}</span><b>${c.tipFmt(s.values[i])}</b></div>`).join("");
     const px = gx * k, flip = px > r.width / 2;
     tipEl.style.left = flip ? "" : `${px + 14}px`;
     tipEl.style.right = flip ? `${r.width - px + 14}px` : "";
@@ -810,24 +811,38 @@ function nowcastHtml(d, agents, tierOf) {
   const pr = d.pending_round;
   if (!pr) return "";
   const b = d.params.bounds;
-  const past = d.rounds.slice(-24).map((r) => ({ t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol }))
-    .filter((x) => x.v != null);
+  const fmt = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(1);
+  const quant = (ra) => ra && ra.entered !== false && ra.probs ? QS.map((q) => bucketQuantile(ra.probs, b, q)) : null;
+  const past = d.rounds.slice(-24).map((r) => ({ id: r.id, t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol,
+    fc: agents.map((a, k) => ({ a, k, q: quant(r.agents[a.agent]) })).filter((x) => x.q) })).filter((x) => x.v != null);
   const fc = agents.filter((a) => pr.agents[a.agent]?.entered && pr.agents[a.agent].probs)
     .map((a) => ({ ...a, q: QS.map((q) => bucketQuantile(pr.agents[a.agent].probs, b, q)) }));
-  const W = Math.min(1200, chartWidth), H = W < 600 ? 240 : 280, L = 50, R = 10, T = 26, B = 26;
-  const split = L + (W - L - R) * (W < 600 ? 0.4 : 0.58);
-  const vals = past.map((x) => Math.max(1, x.v)).concat(fc.flatMap((a) => a.q), b);
+  const W = Math.min(1200, chartWidth), H = W < 600 ? 240 : 280, L = 50, R = 10, T = 26, B = 26, narrow = W < 600;
+  const split = L + (W - L - R) * (narrow ? 0.4 : 0.58);
+  const vals = past.flatMap((x) => [Math.max(1, x.v), ...x.fc.flatMap((f) => f.q)]).concat(fc.flatMap((a) => a.q), b);
   const lo = Math.min(...vals) / 1.4, hi = Math.max(...vals) * 1.4;
   const y = (v) => T + (Math.log(hi) - Math.log(Math.max(v, lo))) / (Math.log(hi) - Math.log(lo)) * (H - T - B);
   const px = (i) => L + 10 + (past.length < 2 ? 0 : i * (split - L - 26) / (past.length - 1));
-  const grid = b.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="rgba(27,26,23,.14)" stroke-dasharray="3 4"/>
-    <text class="ax" x="${L - 6}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`).join("");
+  // Round-number ticks label the axis beyond the bucket bounds, skipped where they would crowd a bound.
+  const extra = [20, 50, 100, 3000, 5000, 10000, 20000, 50000]
+    .filter((v) => v > lo * 1.1 && v < hi / 1.1 && b.every((x) => Math.abs(Math.log(v / x)) > Math.log(1.5)));
+  const tick = (v, dash) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="rgba(27,26,23,${dash ? ".14" : ".07"})"${dash ? ` stroke-dasharray="3 4"` : ""}/>
+    <text class="ax" x="${L - 6}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
+  const grid = b.map((v) => tick(v, true)).join("") + extra.map((v) => tick(v, false)).join("");
+  const gap = past.length < 2 ? 40 : (split - L - 26) / (past.length - 1);
+  const dx = Math.min(narrow ? 3 : 7, gap * 0.8 / Math.max(1, agents.length));
+  const marks = past.map((x, i) => x.fc.map(({ a, k, q: [q05, q25, q50, q75, q95] }) => {
+    const cx = (px(i) + (k - (agents.length - 1) / 2) * dx).toFixed(1), w = Math.max(2, dx * 0.6);
+    return `<g class="nc-past" data-forecaster="${a.agent}" data-round="${x.id}" data-q50="${q50}"><title>${a.agent} · ${x.t} UTC: median ${fmt(q50)}, 50% ${fmt(q25)}–${fmt(q75)}, 90% ${fmt(q05)}–${fmt(q95)} tick² · realized ${x.v}</title>` +
+      (narrow ? "" : `<line x1="${cx}" x2="${cx}" y1="${y(q95).toFixed(1)}" y2="${y(q05).toFixed(1)}" stroke="${a.color}" stroke-width="1" opacity=".3"/>` +
+        `<rect x="${(cx - w / 2).toFixed(1)}" y="${y(q75).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(1, y(q25) - y(q75)).toFixed(1)}" rx="1" fill="${a.color}" opacity=".45"/>`) +
+      `<circle cx="${cx}" cy="${y(q50).toFixed(1)}" r="${narrow ? 1.8 : 2.4}" fill="${a.color}"/></g>`;
+  }).join("")).join("");
   const line = past.map((x, i) => `${i ? "L" : "M"}${px(i).toFixed(1)},${y(x.v).toFixed(1)}`).join("");
   const step = Math.ceil(past.length / Math.max(2, Math.floor((split - L) / 46)));
   const dots = past.map((x, i) => `<circle cx="${px(i).toFixed(1)}" cy="${y(x.v).toFixed(1)}" r="3" fill="#1b1a17"><title>${x.t} UTC: RV ${x.v} tick²</title></circle>` +
     (i % step ? "" : `<text class="ax" x="${px(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${x.t}</text>`)).join("");
   const colW = (W - R - split - 8) / Math.max(1, fc.length), bw = Math.max(6, Math.min(26, colW * 0.6));
-  const fmt = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(1);
   const bands = fc.map((a, k) => {
     const cx = split + 4 + (k + 0.5) * colW, [q05, q25, q50, q75, q95] = a.q;
     const box = (top, bot, op) => `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y(top).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y(bot) - y(top)).toFixed(1)}" rx="3" fill="${a.color}" opacity="${op}"/>`;
@@ -838,8 +853,8 @@ function nowcastHtml(d, agents, tierOf) {
   const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
   const svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(`Realized volatility of the last ${past.length} hours and, for the hour ${hour} (pending), each agent's median with 50% and 90% intervals, log scale`)}">
     <rect x="${split.toFixed(1)}" y="${T - 20}" width="${(W - R - split).toFixed(1)}" height="${H - B - T + 20}" rx="8" fill="var(--accent)" opacity=".06"/>
-    ${grid}<path d="${line}" fill="none" stroke="#1b1a17" stroke-width="2.2" stroke-linejoin="round"/>${dots}
-    <text class="ax" x="${L + 10}" y="${T - 8}">${W < 600 ? "实际 RV" : `过去 ${past.length} 小时 · 链上实际 RV`}</text>
+    ${grid}${marks}<path d="${line}" fill="none" stroke="#1b1a17" stroke-width="2.2" stroke-linejoin="round"/>${dots}
+    <text class="ax" x="${L + 10}" y="${T - 8}">${narrow ? "预测 vs 实际" : `过去 ${past.length} 小时 · 预测 vs 链上实际 RV`}</text>
     <text class="ax" x="${(split + 8).toFixed(1)}" y="${T - 8}">${W < 600 ? "当前小时" : "当前小时 · 待结算"}</text>${bands}
     <text class="ax" x="${((split + W - R) / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${hour}</text></svg>`;
   const hm = (t) => new Date(t * 1000).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -861,6 +876,10 @@ function nowcastHtml(d, agents, tierOf) {
       <span class="nc-cd">距本小时结束 <b id="nowcast-cd" data-end="${pr.end}"></b></span></h3></div>
     <div class="sub">上次更新 ${hm(d.generated_at)} · 运行于服务器，每小时自动更新；这一小时结束后，下一次运行把它当作已结束小时重放并结算。</div>
     ${svg}
+    <div class="sub nc-legend"><span class="nowrap">${swatch("#1b1a17")} 真实 RV · realized</span>
+      ${agents.map((a) => `<span class="nowrap"><i style="background:${a.color}"></i>${a.agent.replace("agent-", "")}</span>`).join("")}</div>
+    <div class="sub">左侧彩色小点 = 各 agent 在该小时开窗前揭示的预测中位数${narrow ? "" : "，竖条 = 50% 区间（淡线 90%）"}；黑线 = 链上结算的真实 RV，点越贴近黑线越准。
+      Coloured dots: each agent's revealed forecast median for that hour${narrow ? "" : " (bar = 50% interval, faint line = 90%)"}; black line: realized RV settled on-chain.</div>
     ${scrollTable(`<tr><th>Agent</th><th>提供方</th><th>地址</th><th class="num">ERC-8004 agentId</th><th>档位</th><th>modelHash</th><th class="num">中位数 · 区间 (tick²)</th></tr>${rows}`, 760)}
     <div class="sub">左侧实线：过去各小时链上结算的真实 RV（tick²，对数轴，虚线为档位边界）。右侧：每个 agent 对当前小时已揭示的 5 档概率，
     档内按 log(RV) 线性插值（两端开放档各外延一个边界倍数）得到中位数、50% 与 90% 区间。地址与 agentId 都在 fork 上，不在主网。</div>
@@ -910,10 +929,11 @@ function heroHtml(d, isZk, nowcast = "") {
   const s3 = step("③", "#d8431b", "amm", "被使用", "used by an AMM fee", s3body);
 
   const ratio = Math.exp(b.excess);
-  return `<div data-v="overview"><p class="claim">可验证 AI 预测协议：模型<em>先承诺、再证明</em>，<br class="br">链上按<em class="v">真实结果</em>打分、按信誉加权；第一个消费者：AMM 动态手续费。</p>
-    <p class="claim-en">A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.</p></div>
-    ${pageHeads(d, b)}${nowcast.replace("<section ", `<section data-v="overview live" `)}${nowcast
+  return `${pageHeads(d, b)}${nowcast.replace("<section ", `<section data-v="overview live" `)}${nowcast
       ? `<a class="goto nc-more" href="#/live" data-v="overview">展开：每个 agent 的提供方、地址、agentId 与区间 →</a>` : ""}
+    <div class="kpis" data-v="overview">${summaryLine(d)}</div>
+    <div data-v="overview"><p class="claim">可验证 AI 预测协议：模型<em>先承诺、再证明</em>，<br class="br">链上按<em class="v">真实结果</em>打分、按信誉加权；第一个消费者：AMM 动态手续费。</p>
+    <p class="claim-en">A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.</p></div>
     <div class="headline" data-v="overview"><div class="bignum${up ? "" : " neg"}"><span class="n" data-to="${b.excess}">${up ? "+" : ""}${b.excess.toFixed(2)}</span><small>nats</small></div>
       <div class="what"><b>${up ? "比瞎猜更准" : "没跑赢瞎猜"}：</b>最佳${b.zk ? " zk" : ""} agent <b>${b.name.replace("agent-", "")}</b>
         ${rounds.length} 小时累计得分比“每档都猜 1/5”${up ? "高" : "低"} ${Math.abs(b.excess).toFixed(2)} nats，
@@ -1032,7 +1052,7 @@ function renderReplay({ data: d, src }) {
     最佳 <b>${best.name}</b>（粗线）${best.excess >= 0 ? "+" : ""}${best.excess.toFixed(2)} nats${best.losers.length
       ? `；${best.losers.join("、")} 未跑赢` : ""}。${agents.filter((a) => repro(a).failed).map((a) =>
       ` <span class="badge bad">${a.agent}: reproduce failed × ${repro(a).failed}</span>`).join("")}</p>` +
-    lineChart(excess, labels, { zero: 0, label: chartLabel(excessTitle, excess) }) +
+    lineChart(excess, labels, { zero: 0, rankLegend: true, label: chartLabel(excessTitle, excess) }) +
     `<div class="sub">nats：自然对数单位。每轮得分 = ln(agent 给真实结果所在档位的概率)，瞎猜每档 1/5 每轮得
     ${uniform.toFixed(3)}；曲线在虚线 0 之上 = 累计比瞎猜更准。Voided rounds are not scored.
     Agent lines: solid = zk proof, dotted = reproducible, dashed = commit-only.</div>`, "wide");
@@ -1046,14 +1066,19 @@ function renderReplay({ data: d, src }) {
   const roll = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: rolling(rounds.map((r) => scoreOf(r, a))) }));
   const rollTitle = `最近谁更准？ Rolling ${W}-round mean log score`;
-  const rollCard = card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, label: chartLabel(rollTitle, roll) }) +
+  const rollCard = card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, rankLegend: true, label: chartLabel(rollTitle, roll) }) +
     `<div class="sub">最近 ${W} 轮的平均得分；虚线是瞎猜 ln(1/5)。Dashed line: uniform baseline.</div>`, "wide");
 
-  const rvSeries = [{ name: "realized vol (tick²)", color: "#1b1a17", values: rounds.map((r) => r.outcome.realized_vol ?? r.real_realized_vol) }];
-  const rvTitle = "每小时真实波动率 · Realized volatility per round";
+  const median = (ra) => ra && ra.entered !== false && ra.probs ? bucketQuantile(ra.probs, p.bounds, 0.5) : null;
+  const rvSeries = agents.map((a) => ({ name: `${a.agent.replace("agent-", "")} median`, color: a.color, width: 1.5, opacity: 0.7, dash: dashOf(a),
+    values: rounds.map((r) => median(r.agents[a.agent])) }))
+    .concat({ name: "realized vol (tick²)", color: "#1b1a17", width: 3, values: rounds.map((r) => r.outcome.realized_vol ?? r.real_realized_vol) });
+  const rvTitle = "每小时真实波动率 vs 预测 · Realized volatility vs forecast median";
   const rvCard = card(rvTitle,
     lineChart(rvSeries, labels, { min: 0, tip: (v) => v.toFixed(0), label: chartLabel(rvTitle, rvSeries) }) +
-    `<div class="sub">tick²：相邻 5 分钟均价 tick 之差的平方和（1 tick ≈ 0.01% 价格），越大越波动，决定这一轮落在哪档。
+    `<div class="sub">黑粗线 = 链上结算的真实 RV；彩色细线 = 各 agent 开窗前揭示的预测中位数（5 档概率按 log(RV) 档内插值）。
+    Thick black: realized RV; thin coloured: each agent's revealed forecast median.</div>
+    <div class="sub">tick²：相邻 5 分钟均价 tick 之差的平方和（1 tick ≈ 0.01% 价格），越大越波动，决定这一轮落在哪档。
     Bucket bounds ${p.bounds.join(" / ")} tick². RV from the contract's settle, equal to the mainnet recompute.</div>`, "wide");
 
   const fs = s.fee_strategies;
@@ -1096,9 +1121,12 @@ function renderReplay({ data: d, src }) {
   const rewards = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
     values: cumulative(rounds.map((r) => Number(BigInt(r.agents[a.agent]?.predictor_reward_wei ?? "0")) / 1e18)) }));
   const rewardTitle = "预测者分到的手续费 · Cumulative predictor fee share (WETH)";
-  const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, label: chartLabel(rewardTitle, rewards) }) +
+  const rewardCard = card(rewardTitle, lineChart(rewards, labels, { min: 0, rankLegend: true, label: chartLabel(rewardTitle, rewards) }) +
     `<div class="sub">${p.predictor_share_bps / 100}% of each round's ${p.fee_bps / 100}% fee goes to forecasters above the uniform
     baseline, pro rata to their excess log score.</div>
+    <div class="sub"><b>手续费只奖励跑赢瞎猜的轮次，输了只是这一轮分不到、不扣分</b>，所以累计分成高 ≠ 平均得分高：一个 agent 可以靠几轮大胜多分钱，
+    而几轮大败的代价只是那几轮拿 0。没有人押中结果的轮次全额退款、没有手续费可分。
+    Fee share rewards rounds that beat the baseline and losses cost nothing, so it is not the same as the average log score.</div>
     <div class="sub">回放中由 2 个脚本账户每轮下注，金额为分叉测试资金 · In the replay two scripted accounts bet every round, with fork-local test funds.</div>`, "wide");
 
   const tamper = Object.fromEntries((d.tamper_checks ?? []).map((t) => [t.agent, t]));
@@ -1195,7 +1223,6 @@ function renderReplay({ data: d, src }) {
     <dt>Settlement token</dt><dd>${link(c.settlement_token)} WETH</dd>
     <dt>VolMarket</dt><dd class="mono">${short(c.market)} (fork)</dd></dl>`);
 
-  document.getElementById("kpis").innerHTML = summaryLine(d);
   const mb = rounds.map((r) => r.mainnet).filter(Boolean);
   document.getElementById("asof").innerHTML = mb.length ? `Ethereum mainnet · blocks <b>${mb[0].block_from.toLocaleString()}–${mb[mb.length - 1].block_to.toLocaleString()}</b> · ${rp.start_utc.slice(0, 10)} → ${rp.end_utc.slice(5, 10)} · replayed on a fork` : "";
   STATE.data = d;
@@ -1661,8 +1688,7 @@ function applyRoute(first = false) {
   const [view, anchor] = currentRoute(), body = document.body;
   const changed = body.dataset.view !== view;
   body.dataset.view = view;
-  routeCss.textContent = `[data-v]:not([data-v~="${view}"]) { display: none !important; }` +
-    (view === "overview" ? "" : "#kpis { display: none; }");
+  routeCss.textContent = `[data-v]:not([data-v~="${view}"]) { display: none !important; }`;
   document.querySelectorAll("#nav [data-tab]").forEach((a) => {
     if (a.dataset.tab === view) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });

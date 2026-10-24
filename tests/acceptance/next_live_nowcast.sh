@@ -5,7 +5,10 @@
 # probabilities, "待结算" with a ticking countdown to the hour's end, when it was updated, and per agent
 # its provider, address, ERC-8004 agentId, tier and modelHash, plus the shared-operator disclaimer.
 # A one-hot forecast fixes the interpolated quantiles, so the method is checked, not just drawn.
-# Without pending_round the section is absent. No overflow at 390 px, no page errors.
+# Past rounds carry each agent's forecast median / intervals next to the realized line, on an axis
+# labelled up to it, and the nowcast sits above the overview KPIs. Per-agent tooltips and the fee
+# share legend rank high to low. Without pending_round the section is absent. No overflow at 390 px,
+# no page errors.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
@@ -86,6 +89,11 @@ const fs = require("fs");
         bands: [...el.querySelectorAll("svg g[data-agent]")].map((g) => ({ agent: g.dataset.agent, q: ["q05", "q25", "q50", "q75", "q95"].map((k) => Number(g.dataset[k])) })),
         cd: document.querySelector("#nowcast-cd")?.textContent ?? "",
         rows: [...el.querySelectorAll("tr[data-provider]")].map((tr) => ({ agent: tr.dataset.agent, provider: tr.dataset.provider, text: tr.textContent.replace(/\s+/g, " ") })),
+        past: [...el.querySelectorAll("svg g.nc-past")].map((g) => ({ agent: g.dataset.forecaster, round: g.dataset.round, q50: Number(g.dataset.q50),
+          fill: g.querySelector("circle")?.getAttribute("fill") })),
+        bandFill: Object.fromEntries([...el.querySelectorAll("svg g[data-agent]")].map((g) => [g.dataset.agent, g.querySelector("rect")?.getAttribute("fill")])),
+        ticks: [...el.querySelectorAll("svg text.ax")].map((t) => Number(t.textContent)).filter((v) => Number.isFinite(v) && v > 0),
+        summaryTop: (() => { const s = document.querySelector("#summary"); return s && s.offsetParent ? s.getBoundingClientRect().top + scrollY : null; })(),
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
     const r = await read();
@@ -102,6 +110,17 @@ const fs = require("fs");
     const near = (v, w) => Math.abs(v - w) / w < 1e-6;
     check(one && near(one.q[2], Math.sqrt(b[0] * b[1])) && near(one.q[1], b[0] * (b[1] / b[0]) ** 0.25) && near(one.q[4], b[0] * (b[1] / b[0]) ** 0.95),
       `@${width}: one-hot bucket #1 -> log-linear quantiles inside [${b[0]}, ${b[1]}] (${one && one.q.map((v) => v.toFixed(1))})`);
+    const shown = d.rounds.slice(-24).filter((x) => (x.outcome?.realized_vol ?? x.real_realized_vol) != null);
+    const want = shown.flatMap((x) => d.agents.filter((a) => x.agents[a.agent]?.probs && x.agents[a.agent].entered !== false).map((a) => `${x.id}/${a.agent}`));
+    const got = r.past.map((m) => `${m.round}/${m.agent}`);
+    check(want.length > 0 && JSON.stringify(got.slice().sort()) === JSON.stringify(want.slice().sort()),
+      `@${width}: past rounds show one forecast marker per agent per settled round (${got.length}/${want.length})`);
+    check(r.past.every((m) => Number.isFinite(m.q50) && m.q50 > 0 && (!r.bandFill[m.agent] || m.fill === r.bandFill[m.agent])),
+      `@${width}: past markers carry the agent's pending-bar colour and a finite median`);
+    check(/预测中位数/.test(r.text) && /median/i.test(r.text) && /真实 RV/.test(r.text), `@${width}: legend explains forecast markers vs realized line`);
+    const maxRv = Math.max(...shown.map((x) => x.outcome?.realized_vol ?? x.real_realized_vol));
+    check(Math.max(...r.ticks) * 2 >= maxRv, `@${width}: y axis is labelled up to the realized line (top tick ${Math.max(...r.ticks)}, max RV ${maxRv})`);
+    check(r.summaryTop != null && r.top < r.summaryTop, `@${width}: on the overview the nowcast sits above the KPI strip`);
     check(/\d+:\d\d/.test(r.cd), `@${width}: countdown shown (${r.cd})`);
     await page.waitForTimeout(1300);
     const cd2 = await page.evaluate(() => document.querySelector("#nowcast-cd")?.textContent ?? "");
@@ -123,6 +142,21 @@ const fs = require("fs");
   await page.goto(`${base}/dashboard/?data=sample-replay.json`);
   await page.waitForSelector("#app svg", { timeout: 15000 });
   check(!(await page.$("#nowcast")), "no pending_round: no nowcast section");
+  await page.goto(`${base}/dashboard/?data=sample-replay.json#/fee`);
+  const chart = page.locator("section.card", { hasText: "Cumulative predictor fee share" }).locator(".chart svg");
+  await chart.waitFor({ timeout: 15000 });
+  await chart.scrollIntoViewIfNeeded();
+  const box = await chart.boundingBox();
+  await page.mouse.move(box.x + box.width * 0.98, box.y + box.height / 2);
+  await page.waitForTimeout(200);
+  const tipVals = await page.evaluate(() => [...document.querySelectorAll(".chart.hover .tip .r b")].map((b) => Number(b.textContent)));
+  check(tipVals.length > 1 && tipVals.every((v, i) => i === 0 || v <= tipVals[i - 1]), `fee share tooltip sorted high to low (${tipVals})`);
+  const legend = await page.locator("section.card", { hasText: "Cumulative predictor fee share" }).locator(".chart + .sub .nowrap").allTextContents();
+  const finals = Object.fromEntries(d.agents.map((a) => [a.agent, d.rounds.reduce((s, x) => s + Number(x.agents[a.agent]?.predictor_reward_wei ?? 0), 0)]));
+  const order = legend.map((t) => t.trim());
+  check(order.length === d.agents.length && order.every((n, i) => i === 0 || finals[n] <= finals[order[i - 1]]), `fee share legend sorted by final value (${order})`);
+  const cap = await page.locator("section.card", { hasText: "Cumulative predictor fee share" }).textContent();
+  check(/不扣分/.test(cap) && /not the same as/i.test(cap), "fee share caption explains losses cost nothing, unlike the average score");
   await browser.close();
 })().catch((e) => { console.log("not ok - " + e); process.exit(1); });
 EOF
