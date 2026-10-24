@@ -1809,7 +1809,7 @@ function usesCard() {
     <ul class="uses">
       ${use("①", "AMM 动态手续费", "ETH/USDC 下一小时波动率",
         "VolFeeConsumer 按信誉加权算推荐费率；Uniswap V4 hook 按它实际收费", "完整闭环",
-        `<span class="badge ok">推荐费率已实现（分叉回放中上链）</span><span class="badge warn">V4 hook 执行：开发中</span>`, "live")}
+        `<span class="badge ok">推荐费率已实现（分叉回放中上链）</span><span class="badge warn">V4 hook：分叉上已模拟收费（未部署主网、未审计）</span>`, "live")}
       ${use("②", "借贷风险参数", "同一指标的高分位（如第 90 百分位），窗口改为 24 小时（窗口是部署参数）",
         "下调新借款最高抵押率、加大清算缓冲、收紧借款上限；每次调整有上下限和步长", "同一份预测，换一个消费方", idea)}
       ${use("③", "Rollup / paymaster 的 gas 报价", "下一小时 gas 价格（<span class=\"mono\">block.basefee</span>）",
