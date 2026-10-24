@@ -67,7 +67,8 @@ errs = {k: [] for k in strategies}
 for r in rounds:
     h = r["h"]
     assert old_round_keys <= set(r), f"h={h} lost {old_round_keys - set(r)}"
-    assert r["rv_matches_mainnet"] is True and r["features_match_mainnet"] is True, f"h={h} mainnet match"
+    assert r["rv_matches_mainnet"] is (None if r["outcome"]["voided"] else True), f"h={h} RV match (void: not checked)"
+    assert r["features_match_mainnet"] is True, f"h={h} features match"
     f = r["fee"]
     on, mi = f["onchain"], f["mirror"]
     ts = int(on["timestamp"])

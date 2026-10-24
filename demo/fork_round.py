@@ -1040,7 +1040,7 @@ class Replay:
             "mainnet": mainnet_info,
             "real_segment_ticks": real_window_ticks, "real_realized_vol": real_rv,
             "real_bucket": cm.bucket_of(real_rv, BOUNDS),
-            "rv_matches_mainnet": outcome["voided"] or outcome["realized_vol"] == real_rv,
+            "rv_matches_mainnet": None if outcome["voided"] else outcome["realized_vol"] == real_rv,
             "ln_rv": None if voided else ln_rv / WAD,
             "ln_rv_e18": None if voided else str(ln_rv),
             "ln_rv_matches_mirror": voided or ln_rv == cm.ln_rv_e18(outcome["realized_vol"]),
@@ -1085,13 +1085,14 @@ def summarize(rounds, agents, final_rep):
         return round(sum(xs) / len(xs), nd) if xs else None
 
     for a in agents:
-        rows = [r["agents"][a.name] for r in settled
-                if r["agents"][a.name].get("pinball_loss") is not None]
+        scored = [r for r in settled if r["agents"][a.name].get("pinball_loss") is not None]
+        rows = [r["agents"][a.name] for r in scored]
         loss = [x["pinball_loss"] for x in rows]
         exc = [x["excess"] for x in rows]
         out[a.name] = {
             "rounds_scored": len(rows),
             "mean_pinball_loss": mean(loss), "mean_excess": mean(exc),
+            "baseline_mean_pinball_loss": mean([r["baseline_loss"] for r in scored]),
             "total_excess": round(sum(exc), 6),
             "coverage50": mean([float(x["covered50"]) for x in rows if x["covered50"] is not None],
                                4),
@@ -1111,7 +1112,9 @@ def summarize(rounds, agents, final_rep):
             "baseline_coverage50": mean([float(base_covered(r, 1, -2)) for r in settled], 4),
             "baseline_coverage80": mean([float(base_covered(r, 0, -1)) for r in settled], 4),
             "features_match_mainnet": all(r["features_match_mainnet"] for r in rounds),
-            "rv_matches_mainnet": all(r["rv_matches_mainnet"] for r in rounds),
+            "rv_matches_mainnet": (all(r["rv_matches_mainnet"] for r in settled)
+                                   if settled else None),
+            "rv_checked_rounds": len(settled),
             "agents": out,
             "fee_strategies": {
                 **fs.strategy_summary([r["fee"] for r in rounds]),

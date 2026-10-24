@@ -494,7 +494,7 @@ const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
 const link = (a) => `<a class="mono" href="${ETHERSCAN}${a}" target="_blank" rel="noopener">${short(a)}</a>`;
 const swatch = (color, dash) => `<span class="sw"><svg class="swatch" aria-hidden="true" width="22" height="8" viewBox="0 0 22 8">` +
   `<line x1="1" x2="21" y1="4" y2="4" stroke="${color}" stroke-width="2.5"${dash ? ` stroke-dasharray="${dash}"` : ""}/></svg></span>`;
-const badge = (ok, yes, no) => `<span class="badge ${ok ? "ok" : "bad"}">${ok ? yes : no}</span>`;
+const badge = (ok, yes, no) => ok == null ? `<span class="badge">not checked</span>` : `<span class="badge ${ok ? "ok" : "bad"}">${ok ? yes : no}</span>`;
 const fmtTime = (t) => new Date(t * 1000).toISOString().replace("T", " ").slice(0, 16) + " UTC";
 const eth = (wei) => (Number(BigInt(wei) / 10n ** 12n) / 1e6).toFixed(4);
 
