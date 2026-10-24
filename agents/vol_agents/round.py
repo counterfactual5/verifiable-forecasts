@@ -38,6 +38,8 @@ SCORING_SIG = "getRoundScoring(uint256)(int256,uint256,int256[])"
 # the commit phase must outlast the agents' proving, which advances anvil's wall-clock time.
 COMMIT_LEAD = 300
 REVEAL_LEAD = 60
+# Chainlink cross-check: pool-feed deviation in bps of the feed price, feed answer age in seconds.
+MAX_DEVIATION_BPS, MAX_FEED_AGE = 200, 3900
 # ERC-8004 agent metadata URI: deterministic and never resolved, so a round stays reproducible.
 AGENT_URI = "https://example.invalid/agents/{name}"
 # keccak256("Registered(uint256,string,address)")
@@ -75,9 +77,14 @@ def deploy_market(chain: Anvil, owner, token, pool, fee_bps=0, share_bps=0,
                   commit_lead=COMMIT_LEAD, reveal_lead=REVEAL_LEAD) -> str:
     return chain.deploy(
         owner, "src/VolMarket.sol:VolMarket", token, fee_bps, share_bps, pool, cm.DELTA,
-        cm.N_SEGMENTS, commit_lead, reveal_lead, int_list(cm.QUANTILE_LEVELS_E18),
-        cm.OUTPUT_SCALE_BITS,
+        cm.N_SEGMENTS, commit_lead, reveal_lead, MAX_DEVIATION_BPS, MAX_FEED_AGE,
+        quantile_config(),
     )
+
+
+def quantile_config() -> str:
+    """VolMarket.QuantileConfig(levels, outputScaleBits) as a forge/cast tuple argument."""
+    return f"({int_list(cm.QUANTILE_LEVELS_E18)},{cm.OUTPUT_SCALE_BITS})"
 
 
 def create_round(chain: Anvil, owner, market, start, bounds=cm.BOUNDS, baseline=None):

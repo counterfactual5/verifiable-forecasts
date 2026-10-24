@@ -172,8 +172,9 @@ contract ERC8004Test is Test {
             N,
             COMMIT_LEAD,
             REVEAL_LEAD,
-            _levels(),
-            12
+            200,
+            3900,
+            VolMarket.QuantileConfig(_levels(), 12)
         );
         token.mint(alice, 1_000_000e18);
         token.mint(bob, 1_000_000e18);
