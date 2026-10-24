@@ -46,10 +46,18 @@ def test_exp_wad_mirrors_the_contract_bit_for_bit():
         fs.exp_wad(fs.EXP_MAX + 1)
 
 
-def test_midpoint_weights_cover_the_unit_interval():
+def test_midpoint_weights_are_unhalved_like_the_contract():
     w = fs.midpoint_weights([E18 // 10, E18 // 4, E18 // 2, 3 * E18 // 4, 9 * E18 // 10])
-    assert w == [E18 // 8, E18 // 5, E18 // 4, E18 // 5, E18 // 8]
-    assert sum(w) == 9 * E18 // 10
+    assert w == [E18 // 4, 2 * E18 // 5, E18 // 2, 2 * E18 // 5, E18 // 4]
+    # odd differences: halving and flooring would change the mean, the contract does not halve
+    assert fs.midpoint_weights([1, 2, 4]) == [2, 3, E18 - 2]
+    assert fs.expected_var_e18([0, E18, -E18], [1, 2, 4]) == (
+        2 * E18 + 3 * EXP_WAD_ONCHAIN[E18] + (E18 - 2) * EXP_WAD_ONCHAIN[-E18]) // (E18 + 3)
+
+
+def test_expected_var_clamps_the_mix_to_the_market_range():
+    assert fs.expected_var_e18([61 * E18] * 5) == fs.expected_var_e18([60 * E18] * 5)
+    assert fs.expected_var_e18([-21 * E18] * 5) == EXP_WAD_ONCHAIN[-20 * E18]
 
 
 def test_expected_var_and_fee_for_var_agree():
@@ -60,7 +68,7 @@ def test_expected_var_and_fee_for_var_agree():
     assert fs.fee_pips(ev, 2 * E18, 0, 10**6) == fs.fee_for_var(900, 2 * E18, 0, 10**6) == 1800
     # midpoint-weighted mean of exp(q_k)
     mix = [0, E18, -E18, 60 * E18, 4691400000000000000]
-    w = [E18 // 8, E18 // 5, E18 // 4, E18 // 5, E18 // 8]
+    w = [E18 // 4, 2 * E18 // 5, E18 // 2, 2 * E18 // 5, E18 // 4]
     want = sum(o * EXP_WAD_ONCHAIN[m] for o, m in zip(w, mix, strict=True)) // sum(w)
     assert fs.expected_var_e18(mix) == want
 

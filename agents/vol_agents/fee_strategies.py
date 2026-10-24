@@ -5,8 +5,8 @@ Contract mirror (integer only, VolFeeConsumer.quote / _fee / _mix / _forecasts):
   Solidity's signed division truncates toward zero);
 - w_i = max(reputation mean_i - baselineScore, 0); every revealed forecast weighs 1 when the
   market has no registry, any revealed model has no reputation, or all weights are 0;
-- expectedVarE18 = sum_k omega_k * expWad(mix[k]) / sum_k omega_k (tick^2 * 1e18), midpoint
-  weights omega_k = (tau_{k+1} - tau_{k-1}) / 2 with tau_0 = 0, tau_{K+1} = 1e18;
+- expectedVarE18 = sum_k w_k * expWad(clamp(mix[k], Q_MIN, Q_MAX)) / sum_k w_k (tick^2 * 1e18),
+  w_k = tau_{k+1} - tau_{k-1} with tau_0 = 0, tau_{K+1} = 1e18 (midpoint rule);
   fee = expectedVarE18 * feePerVarE18 / 1e36 pips, clamped to [minFee, maxFee], maxFee when the
   product overflows uint256.
 
@@ -67,15 +67,18 @@ def exp_wad(x: int) -> int:
 
 
 def midpoint_weights(levels_e18):
-    """omega_k = floor((tau_{k+1} - tau_{k-1}) / 2), tau_0 = 0, tau_{K+1} = 1e18 (1e18 scale)."""
+    """VolFeeConsumer._expectedVar weights tau_{k+1} - tau_{k-1} with tau_0 = 0, tau_{K+1} = 1e18:
+    twice the midpoint weights, the factor cancels in the weighted mean."""
     t = [0, *map(int, levels_e18), WAD]
-    return [(t[k + 1] - t[k - 1]) // 2 for k in range(1, len(t) - 1)]
+    return [t[k + 1] - t[k - 1] for k in range(1, len(t) - 1)]
 
 
 def expected_var_e18(mix_e18, levels_e18=cm.QUANTILE_LEVELS_E18):
-    """sum_k omega_k * expWad(mix[k]) / sum_k omega_k: expected RV in tick^2 scaled by 1e18."""
+    """sum_k w_k * expWad(clamp(mix[k], Q_MIN, Q_MAX)) / sum_k w_k: expected RV in tick^2
+    scaled by 1e18."""
     w = midpoint_weights(levels_e18)
-    total = sum(o * exp_wad(int(m)) for o, m in zip(w, mix_e18, strict=True))
+    total = sum(o * exp_wad(min(max(int(m), cm.Q_MIN_E18), cm.Q_MAX_E18))
+                for o, m in zip(w, mix_e18, strict=True))
     return total // sum(w)
 
 
