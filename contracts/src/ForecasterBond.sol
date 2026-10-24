@@ -28,11 +28,11 @@ interface IVolMarketBondView {
     function getPrediction(uint256 id, address who)
         external
         view
-        returns (bool recorded, uint256 modelId, uint256[5] memory probs, int256 logScore);
+        returns (bool recorded, uint256 modelId, int256[] memory quantiles, int256 score);
     function getCommitment(uint256 id, address who) external view returns (bytes32);
     function predictorCount(uint256 id) external view returns (uint256);
     function predictorAt(uint256 id, uint256 i) external view returns (address);
-    function baselineLogScore() external view returns (int256);
+    function getPredictionLoss(uint256 id, address who) external view returns (uint256 loss, uint256 excess);
 }
 
 /// @title ForecasterBond
@@ -413,12 +413,10 @@ contract ForecasterBond is IBondGate {
         }
     }
 
-    /// @dev Log score above VolMarket's uniform baseline (both 1e18 scale), as VolMarket pays its
-    ///      predictor share; the only place that knows the market's scoring rule.
-    function _excessOf(uint256 roundId, address who) internal view returns (uint256) {
-        (bool recorded,,, int256 score) = market.getPrediction(roundId, who);
-        int256 baseline = market.baselineLogScore();
-        return recorded && score > baseline ? uint256(score - baseline) : 0;
+    /// @dev Baseline pinball loss minus the forecast's (1e18 ln units, 0 unless revealed, settled
+    ///      and better than the baseline), exactly what VolMarket pays its predictor share by.
+    function _excessOf(uint256 roundId, address who) internal view returns (uint256 excess) {
+        (, excess) = market.getPredictionLoss(roundId, who);
     }
 
     function _roundEnd(uint64 startTime) internal view returns (uint256) {

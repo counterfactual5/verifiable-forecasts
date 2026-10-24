@@ -96,7 +96,8 @@ contract ForecasterBondTest is Test {
             COMMIT_LEAD,
             REVEAL_LEAD,
             200,
-            3900
+            3900,
+            VolMarket.QuantileConfig(_levels(), 12)
         );
         commitModel = market.registerModel(address(0), alice);
         reproModel = market.registerModel(address(0), bob, keccak256("bob-weights"));
@@ -146,27 +147,54 @@ contract ForecasterBondTest is Test {
 
     function _create() internal returns (uint256) {
         vm.warp(T0);
-        return market.createRound(START, _bounds());
+        return market.createRound(START, _bounds(), _baseline());
     }
 
-    function _probs(uint256 win, uint256 pWin) internal pure returns (uint256[5] memory p) {
-        uint256 rest = (1e18 - pWin) / 4;
-        for (uint256 i = 0; i < 5; ++i) {
-            p[i] = i == win ? pWin : rest;
+    function _levels() internal pure returns (uint256[] memory l) {
+        l = new uint256[](5);
+        (l[0], l[1], l[2], l[3], l[4]) = (1e17, 25e16, 5e17, 75e16, 9e17);
+    }
+
+    /// @dev Climatology two ln units above the round's realized ln RV (ln 49), spread 4.
+    function _baseline() internal pure returns (int256[] memory b) {
+        int256[] memory q = _quantiles(Y_OUT + 2 * 4096, 4 * 4096);
+        b = new int256[](5);
+        for (uint256 k = 0; k < 5; ++k) {
+            b[k] = q[k] * 1e18 / 4096;
         }
-        p[win == 4 ? 3 : 4] += 1e18 - pWin - rest * 4;
+    }
+
+    /// @dev ln(49) at the 2^-12 output scale (RV 49 is the round's realized vol).
+    int256 constant Y_OUT = 15941;
+
+    /// @dev Quantiles at the 2^-12 scale around `center` with normal-like offsets scaled by `spread`.
+    function _quantiles(int256 center, int256 spread) internal pure returns (int256[] memory q) {
+        int256[5] memory z = [int256(-1282), -674, 0, 674, 1282];
+        q = new int256[](5);
+        for (uint256 k = 0; k < 5; ++k) {
+            q[k] = center + z[k] * spread / 1000;
+        }
+    }
+
+    /// @dev Stand-in for the earlier "pWin on the winning bucket" forecasts: centred on the realized
+    ///      ln RV when `win` is the realized bucket (3), two ln units off per bucket otherwise, with a
+    ///      spread that shrinks as pWin grows; a higher pWin therefore means a lower pinball loss.
+    function _probs(uint256 win, uint256 pWin) internal pure returns (int256[] memory) {
+        int256 center = Y_OUT + (int256(win) - 3) * 2 * 4096;
+        int256 spread = int256((1e18 - pWin) * 4 * 4096 / 1e18);
+        return _quantiles(center, spread);
     }
 
     function _salt(address who) internal pure returns (bytes32) {
         return keccak256(abi.encode("salt", who));
     }
 
-    function _commit(uint256 id, uint256 modelId, address who, uint256[5] memory out) internal {
+    function _commit(uint256 id, uint256 modelId, address who, int256[] memory out) internal {
         vm.prank(who);
         market.commitPrediction(id, modelId, keccak256(abi.encode(id, modelId, out, _salt(who), who)));
     }
 
-    function _reveal(uint256 id, address who, uint256[5] memory out) internal {
+    function _reveal(uint256 id, address who, int256[] memory out) internal {
         vm.prank(who);
         market.revealPrediction(id, "", out, _salt(who));
     }
