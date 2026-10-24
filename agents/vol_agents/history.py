@@ -41,9 +41,7 @@ CONTEXT_ENV = "VOL_HISTORY_CONTEXT"
 # chronos-2 by pinball loss of the ln RV quantiles, the others carried over from the bucket
 # output); the 16-point spreads in tsfm_forecast.MODELS do not transfer.
 LONG_CONTEXT_SPREAD = {
-    "remote-model": 0.9,
     "chronos-2": 0.9,
-    "remote-model-b": 0.8,
     "timesfm-3.0": 0.8,
     "timestral-209m": 0.8,
 }
