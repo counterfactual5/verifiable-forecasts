@@ -75,15 +75,60 @@ def test_synthetic_features_use_contract_formula():
 
 
 def test_commitment_preimage_matches_abi_encode():
-    outputs = [1, 2**200, 0, 3, cm.PROB_SCALE]
+    outputs = [-4096, -1, 0, 3, 2**200]
     salt = bytes(range(32))
     sender = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
     want = subprocess.run(
-        ["cast", "abi-encode", "f(uint256,uint256,uint256[5],bytes32,address)", "7", "3",
+        ["cast", "abi-encode", "f(uint256,uint256,int256[],bytes32,address)", "7", "3",
          "[" + ",".join(map(str, outputs)) + "]", "0x" + salt.hex(), sender],
         capture_output=True, text=True, check=True,
     ).stdout.strip()
     assert "0x" + cm.commitment_preimage(7, 3, outputs, salt, sender).hex() == want
+
+
+def test_quantile_scales():
+    assert cm.OUTPUT_UNIT_E18 == 244_140_625_000_000
+    assert cm.OUTPUT_UNIT_E18 << cm.OUTPUT_SCALE_BITS == cm.WAD
+    assert cm.QUANTILE_LEVELS_E18 == (10**17, 25 * 10**16, 5 * 10**17, 75 * 10**16, 9 * 10**17)
+    assert (cm.Q_MIN_E18, cm.Q_MAX_E18) == (-20 * 10**18, 60 * 10**18)
+
+
+def test_decode_inverts_encode():
+    for x in (0, 1, -1, 4096, -8192, 2**100, -(2**100)):
+        assert cm.decode(cm.encode(x)) == x
+    assert cm.decode(cm.R // 2) == cm.R // 2 and cm.decode(cm.R // 2 + 1) < 0
+
+
+def test_ln_rv_floor():
+    assert cm.ln_rv(0) == 0.0 and cm.ln_rv(1) == 0.0 and cm.ln_rv_e18(0) == 0
+    assert cm.ln_rv_e18(2) == 693147180559945309
+    assert abs(cm.ln_rv(1000) - np.log(1000)) < 1e-12
+    assert cm.ln_rv_e18(2**200) == 138629436111989061883  # 200 ln 2 = 138.629436111989061883...
+
+
+def test_quantize_quantiles_strictly_increasing():
+    out = cm.quantize_quantiles([1.0, 1.0, 1.0001, 2.5, 2.5])
+    assert out == [4096, 4097, 4098, 10240, 10241]
+    assert cm.valid_outputs(out)
+    assert not cm.valid_outputs([1, 1, 2, 3, 4])
+    assert not cm.valid_outputs([0, 1, 2, 3, 61 * 4096])
+    assert not cm.valid_outputs([0, 1, 2, 3])
+
+
+def test_pinball_integer_mirror_matches_float():
+    rng = np.random.default_rng(5)
+    for _ in range(200):
+        out = sorted(rng.choice(np.arange(-4096, 60000), cm.K, replace=False).tolist())
+        rv = int(rng.integers(0, 50000))
+        y_e18 = cm.ln_rv_e18(rv)
+        got = cm.pinball_e18(y_e18, cm.outputs_to_e18(out))
+        want = cm.pinball(cm.ln_rv(rv), [o / 4096 for o in out])
+        assert abs(got / 1e18 - want) < 1e-12
+    # u >= 0 uses tau, u < 0 uses 1 - tau; each term and the mean are floored
+    q = [0, 0, 0, 0, 3 * cm.WAD]
+    assert cm.pinball_e18(cm.WAD, q) == (10**17 + 25 * 10**16 + 5 * 10**17 + 75 * 10**16
+                                         + 10**17 * 2) // 5
+    assert cm.pinball_e18(1, [0, 2, 3, 4, 5]) == (0 + 0 + 0 + 0 + 0) // 5
 
 
 def _tick_path(seconds, rng):
