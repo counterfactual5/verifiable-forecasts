@@ -4,8 +4,8 @@
 # do not prove real-world ex-ante (that needs commits on a persistent chain); 概览 / 单轮回放 / 预测者与信誉 / 消费方示例 / 链上记录 read the fixed
 # 24 h replay sample-replay.json, so their numbers match the deck, and are labelled 固定回放 · 过去 24 小时主网（生成时间 …）.
 # The live file served here is synthetic (20 rounds, a marker total) so each number shows which file it came from.
-# The overview carries one "同一协议还能用在哪" card with exactly three showcase cases: ① AMM dynamic fee (recommended
-# fee on chain, V4 hook 开发中), ② lending risk parameters and ③ rollup / paymaster gas quotes (both 设想（未实现）), a
+# The overview carries one "同一协议还能用在哪" card with exactly three showcase cases: ① AMM dynamic fee (推荐费率已实现
+# （分叉回放中上链）, V4 hook 开发中), ② lending risk parameters and ③ rollup / paymaster gas quotes (both 设想（未实现）), a
 # "more" line (options / vaults, insurance / treasury, perp funding, LP ranges, 尚未实现), the sentence that swapping
 # the settlement source and consumer keeps the protocol, and the sentence that the contract only implements the
 # Uniswap V3 observe() data source, said once. Quantiles are never claimed as shipped. The card fits at 375 and 390 px. The deploy serves and ships the fixed file and its /vf/ fallback does not
@@ -103,8 +103,8 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
     check(ov.visible && /同一协议还能用在哪/.test(ov.card), `@${width}: overview shows the 同一协议还能用在哪 card`);
     const [amm = "", lend = "", gas = ""] = ov.items;
     check(ov.items.length === 3, `@${width}: exactly three showcase cases (${ov.items.length})`);
-    check(/AMM/.test(amm) && /VolFeeConsumer/.test(amm) && /已上链/.test(amm) && /V4 hook/.test(amm) && /开发中/.test(amm),
-      `@${width}: ① AMM fee: recommended fee on chain, V4 hook 开发中`);
+    check(/AMM/.test(amm) && /VolFeeConsumer/.test(amm) && /推荐费率已实现（分叉回放中上链）/.test(amm) && !/已上链（已实现）/.test(amm) && /V4 hook/.test(amm) && /开发中/.test(amm),
+      `@${width}: ① AMM fee: implemented (on-chain in fork replay), V4 hook 开发中`);
     check(/借贷/.test(lend) && /第 90 百分位/.test(lend) && /24 小时/.test(lend) && /设想（未实现）/.test(lend),
       `@${width}: ② lending: high percentile, 24 h window, 设想（未实现）`);
     check(/gas/.test(gas) && /basefee/.test(gas) && /预言机/.test(gas) && /设想（未实现）/.test(gas),
