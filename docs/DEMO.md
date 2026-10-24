@@ -55,8 +55,8 @@ mainnet history and already over. Measured in the committed run: 24 h in 2363 s 
 1590 s was the CPU recompute after the last round (timesfm-3.0 3–6 s per round, timestral-209m and
 chronos-2 30–37 s each, since they rebuild 512 points from Swap logs); the rest is reading mainnet
 `observe()` on 307 grid points, the fee calibration, three EZKL proofs per round and the
-inference-service calls. (These timings are from the earlier 5-bucket run; the quantile run's
-numbers: 【待冻结数字】.)
+inference-service calls. (These timings are from the earlier 5-bucket run. The frozen quantile live run took 411 s: the
+server caches zk proofs and does not recompute; the 72 recomputes were run afterwards.)
 
 Steps, as printed with `[demo]`:
 
@@ -97,7 +97,14 @@ first successful 24-hour quantile live run from the demo server.
 
 ## Expected output (frozen 24-hour quantile live run)
 
-【待冻结数字】 The summary table of the frozen run: per agent rounds scored, mean pinball loss, the
+Frozen run: 2026-10-23 06:00 – 10-24 06:00 UTC, 24 of 24 rounds settled, every agent scored in all
+24, climatological baseline mean pinball loss 0.289. Mean pinball loss per agent: `linear_abs` 0.270,
+`mlp16` 0.264, `mlp32_abs` 0.263, timesfm-3.0 0.304, timestral-209m 0.261, chronos-2 0.311; four of
+six below the baseline, timesfm-3.0 and chronos-2 above it. Recompute: 72 of 72 within tolerance
+(70 `exact`, 2 `tolerant`). Tampered proofs: 3 of 3 rejected, `verifyProof` ≈ 552k gas. Fee MAE vs
+the reference (mean 4.06 bps): forecast 2.16, fixed 5 bps 2.36, previous-hour 3.52.
+
+The summary table of the frozen run: per agent rounds scored, mean pinball loss, the
 round-matched climatological baseline loss, excess, 50 % / 80 % coverage, rounds beating the
 baseline, fee share and ERC-8004 count; recompute verdicts; tamper check and `verifyProof` gas; fee
 strategies (mean and MAE vs the hindsight fair LVR fee, a reference, not a strategy).
@@ -106,7 +113,7 @@ The JSON records per agent its onchain `tier` (`zk` / `reproducible` / `commit-o
 `model_hash`, and per round each agent's revealed quantiles and, for the reproducible agents,
 `reproduced`, `recompute_verdict` (`exact` or `tolerant`) and `recompute_max_abs_diff` (1e18 scale).
 
-**Voided rounds: 【待冻结数字】.** A voided round would be listed under
+**Voided rounds: 0.** A voided round would be listed under
 `summary.void_reasons` and in its round's `outcome.void_reason` (Chainlink stale or invalid, price
 deviation, tick out of range, feed call failed, or fewer than 90 % of checkpoints readable); its
 stakes are refunded and nobody is scored.
@@ -114,7 +121,9 @@ stakes are refunded and nobody is scored.
 What must hold on every run: features and RV match mainnet in every round, every honest proof
 verifies and every tampered one does not, every reproducible recompute matches (`reproduced` true in
 all rounds), no `ReputationWriteFailed`, each ERC-8004 `getSummary` count equals the number of
-settled rounds, and the market keeps 0 wei. Scores are what they are: 【待冻结数字】 24 rounds is a
+settled rounds, and the market keeps 0 wei from settled rounds (a live run's file shows 2 WETH: the
+two stakes in the hour still in progress, which that run opens but cannot settle). Scores are what
+they are: 24 rounds is a
 small sample, no significance test was run, and the tiers are not compared with each other.
 
 ## Checking a round on Etherscan

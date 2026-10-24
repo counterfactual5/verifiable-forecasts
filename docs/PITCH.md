@@ -15,7 +15,6 @@ cited), **[待证据]** = not yet sourced and not used to justify any design dec
 **0:00 Problem (25 s).** Verifiable Forecast Protocol: lock AI forecasts ex ante, verify them ex post, score reputation by outcome. US regulators (SEC, CFTC, DOJ) have acted against firms that claimed
 AI-driven forecasting or trading while using no such AI. From outside, nobody can check whether a
 published track record was made before the outcome, by the model claimed, on the inputs claimed.
-(Cases and sources: "Problem evidence" below.)
 
 **0:25 What we built (35 s).** Case one on Ethereum: how volatile will the Uniswap V3 ETH/USDC pool
 be over the next hour. The contract computes the model inputs from the pool's own oracle. Each agent
@@ -29,41 +28,40 @@ volatility buckets remain only as betting pools.
 **1:00 Agent, not keeper (25 s).** `settle` and `createRound` are keeper jobs: permissionless, any
 script can call them. The forecaster is an agent in the ERC-8004 sense: it makes a judgment under
 uncertainty, is accountable for it, and needs a reputation. The agent economy sits with consumers,
-who pick forecasters by reputation. Paying them per request over x402 is roadmap.
+who pick forecasters by reputation. Per-request x402 payment is roadmap.
 
 **1:25 Who consumes it (35 s).** `VolFeeConsumer` averages the revealed quantiles level by level,
-weighted by ERC-8004 reputation, into an expected variance and an LVR-based dynamic fee. Over the
-24-hour run we measured mean absolute error against the hindsight fair LVR fee, a reference that is
-only computable after the hour (mean 【待冻结数字:fair】 bps). The forecast fee scores
-【待冻结数字:forecast】, fixed 5 bps 【待冻结数字:fixed】, the previous-hour fee
-【待冻结数字:prev_hour】. 【待冻结数字:lowest-error sentence】
-Twenty-four rounds, no significance test. Simulated on a fork; the v4 hook is not deployed or audited.
+weighted by ERC-8004 reputation, into an expected variance and an LVR-based dynamic fee. Mean absolute
+error against the hindsight fair LVR fee (a reference known only after the hour, mean 4.06 bps):
+forecast 2.16 bps, fixed 5 bps 2.36, previous-hour 3.52. At 2.16 the forecast fee has the lowest
+error, though it runs low (mean 3.13 bps).
+Twenty-four rounds, no significance test. Simulated on a fork; the v4 hook is unaudited and undeployed.
 
 **2:00 Three verification tiers (35 s).** zk: small models attach an EZKL proof that the registered
 model computed these quantiles from the contract's inputs. The reproducible tier is implemented: three
 time-series models with open weights, timesfm-3.0, timestral-209m and chronos-2, their `modelHash`
-stored at `registerModel`; anyone re-runs a forecast from chain data with
-`python -m vol_agents.tsfm_recompute`, every quantile within tolerance. Commit-only: timing, not
-provenance. Reproducibility proves provenance, not accuracy.
+registered; anyone re-runs a forecast from chain data with
+`python -m vol_agents.tsfm_recompute`, every quantile within tolerance. Commit-only proves timing.
+Reproducibility proves provenance, not accuracy.
 
 **2:35 Demo and limits (25 s).** Every hour the server forks mainnet and replays the last 24 real
-hours: real pool, real Chainlink feed. 【待冻结数字:settled/voided sentence】
-【待冻结数字:baseline sentence, with no significance test】 Commits happen on the fork, so the live page is not yet a real-time ex-ante proof; a
-persistent chain is next, then outside agents.
+hours of pool and Chainlink data. The frozen run, 23–24 October, settled all 24 rounds, 0 voided.
+4 of 6 agents (the three zk models and timestral-209m) have a lower mean pinball loss than the climatological baseline, timesfm-3.0 and chronos-2 do not; no significance test. Commits happen on the fork, so the live page is not yet a real-time ex-ante proof; next
+are a persistent chain and outside agents.
 
 ## 3 分钟讲稿（中文）
 
-**问题（25 秒）**：可验证预测协议：让 AI 预测事前锁定、事后验证、按结果记信誉。美国 SEC、CFTC 和司法部已多次处理“宣称用 AI、实际没有”的案件。一份 AI 预测战绩是否事前做的、是否出自声称的模型和输入，外部无从核实。
+**问题（25 秒）**：可验证预测协议：让 AI 预测事前锁定、事后验证、按结果记信誉。美国 SEC、CFTC、司法部已多次处理“宣称用 AI、实际没有”的案件。AI 预测战绩是否事前做出、是否出自声称的模型和输入，外部无从核实。
 
-**方案（35 秒）**：案例 #1 的预测目标：Uniswap V3 ETH/USDC 池子下一小时的已实现波动率。输入由合约从池子预言机算出；agent 先只提交预测哈希，窗口开始前再公开 5 个分位数（对数波动率的 10/25/50/75/90%）。一小时后用同一池子算实际波动率，用 Chainlink ETH/USD 交叉校验（偏差超过 2% 作废退款），按 pinball 损失与训练期气候基线比较打分，再以市场合约身份写入 agent 的 ERC-8004 信誉，agent 无法自刷。5 个波动区间只留作下注彩池。
+**方案（35 秒）**：案例 #1 的预测目标：Uniswap V3 ETH/USDC 池子下一小时的已实现波动率。输入由合约从池子预言机算出；agent 先只提交预测哈希，窗口开始前再公开 5 个分位数（对数波动率 10/25/50/75/90%）。一小时后用同一池子算实际波动率，用 Chainlink ETH/USD 交叉校验（偏差超过 2% 作废退款），按 pinball 损失与训练期气候基线比较打分，由市场合约写入 ERC-8004 信誉，agent 无法自刷。5 个波动区间只留作下注彩池。
 
-**agent 与 keeper（25 秒）**：`settle`、`createRound` 是 keeper 活，无许可，谁都能调。预测者才是 ERC-8004 意义上的 agent：在不确定性下做判断、要担责、需要信誉。agent 经济在消费方：消费方按信誉挑预测者；按次 x402 付费是路线图。
+**agent 与 keeper（25 秒）**：`settle`、`createRound` 是 keeper 活，无许可，谁都能调。预测者才是 ERC-8004 意义上的 agent：在不确定性下做判断、要担责、需要信誉。消费方按信誉挑预测者；按次 x402 付费是路线图。
 
-**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的分位数按 ERC-8004 信誉加权、逐分位平均，得到期望方差，按 LVR 设定池子的动态手续费。24 小时运行里对比各策略与事后公平费率（参照，事后才算得出，均值 【待冻结数字:fair】 bps）的平均绝对误差：预测定费 【待冻结数字:forecast】，固定 5 bps 【待冻结数字:fixed】，上一小时波动定费 【待冻结数字:prev_hour】。【待冻结数字:最低误差一句】24 轮是小样本，未做显著性检验。分叉上模拟，v4 hook 未部署、未审计。
+**谁在用（35 秒）**：`VolFeeConsumer` 把已公开的分位数按 ERC-8004 信誉加权、逐分位平均，得到期望方差，按 LVR 定动态手续费。与事后公平费率（参照，均值 4.06）的平均绝对误差：预测定费 2.16，固定 5 bps 2.36，上一小时 3.52。预测定费误差最低（2.16），但费率偏低（均值 3.13）。24 轮，未做显著性检验。分叉上模拟，v4 hook 未部署、未审计。
 
-**三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记模型由合约输入得出这组分位数。可复现（已实现）：三个开源权重时序模型登记 `modelHash`，任何人用 `vol_agents.tsfm_recompute` 从链上数据重算，每个分位在容差内。仅提交：只证明时间。可复现证明出处，不证明准确。
+**三档验证（35 秒）**：zk：小模型附 EZKL 证明，证明登记模型由合约输入得出这组分位数。可复现（已实现）：三个开源权重时序模型登记 `modelHash`，任何人可从链上数据重算，每个分位在容差内。仅提交只证明时间。可复现证明出处，不证明准确。
 
-**演示与局限（25 秒）**：服务器每小时 fork 主网，回放最近 24 个真实小时：真实池子与 Chainlink 喂价。【待冻结数字:结算/作废一句】【待冻结数字:基线一句】提交发生在分叉上，所以实时页还不是实时的事前证明；下一步上持久链，再开放外部 agent。
+**演示与局限（25 秒）**：服务器每小时 fork 主网，回放最近 24 个真实小时的池子与 Chainlink 喂价。冻结运行（10 月 23–24 日）24 轮全部结算，0 作废。6 个 agent 中 4 个（三个 zk 模型和 timestral-209m）的平均 pinball 损失低于气候基线，timesfm-3.0 和 chronos-2 没有，未做显著性检验。提交在分叉上，实时页还不是事前证明；下一步上持久链、开放外部 agent。
 
 ## Slide outline (9 slides)
 
@@ -92,11 +90,11 @@ persistent chain is next, then outside agents.
    `sample()` fallback, voided under 90 % coverage; Chainlink cross-check (> 200 bps or > 3900 s stale
    voids). Plus: reputation written by the market and filtered by market address.
 6. **Demo.** Hourly mainnet fork on the demo server, real pool, deployed ERC-8004, real feed, the
-   last 24 real hours. 【待冻结数字】 window, settled / voided, features and RV vs mainnet recompute,
+   last 24 real hours. window 2026-10-23 06:00 – 10-24 06:00 UTC, 24 settled / 0 voided, features and RV vs mainnet recompute,
    tampered proofs rejected, ERC-8004 `getSummary` counts, each agent's mean pinball loss against its
    round-matched climatological baseline, recompute verdicts (grade X, `dashboard/sample-replay.json`).
    Fee card: MAE against the hindsight fair LVR fee (reference, computable only after the hour,
-   assumes volume is unaffected by the fee): 【待冻结数字】 for forecast / fixed 5 bps / previous-hour
+   assumes volume is unaffected by the fee, mean 4.06 bps): 2.16 / 2.36 / 3.52 bps for forecast / fixed 5 bps / previous-hour
    (grade X, `summary.fee_strategies`). 24 rounds, no significance test. Commits are simulated on the
    fork, not a real-time ex-ante proof.
 7. **Why "verifiable AI".** Verified inference on contract-derived inputs, onchain scoring, a
@@ -213,7 +211,7 @@ the contract mints nothing. It is small while betting volume is small.
 makers, agent vaults. Payment by subscription as Synth does, or per request for an aggregated forecast
 over x402 (roadmap). `VolFeeConsumer` is a simulated example of such a reader: it sets a dynamic
 fee from reputation-weighted quantile forecasts (MAE against the hindsight fair LVR fee, a reference:
-【待冻结数字】; 24 rounds, no significance test). That DeFi already pays for hourly volatility forecasts is [待证据]. What is sourced: a
+2.16 bps vs 2.36 for fixed 5 bps and 3.52 for the previous-hour fee; 24 rounds, no significance test). That DeFi already pays for hourly volatility forecasts is [待证据]. What is sourced: a
 paid subscription for a similar product exists. Synth's API plans are $49 / $199 / $499 per month (A,
 [Synth docs](https://docs.synthdata.co/getting-started/credits-and-pricing)), and community reporting
 puts its Q1 2026 MRR at about $70k (C, [TAO Daily](https://taodaily.io/james-ross-gives-synths-q1-report-on-community-call/)).
@@ -325,10 +323,10 @@ BasisOS are grade C only and are deliberately not used.
 |---|---|---|
 | Proof time per model (laptop) | ≈ 4–7 s, 0.38–0.41 GB peak (4 proofs in parallel) | X, `agents/MODEL_CARD.md` §1 |
 | Verifier size / `verifyProof` gas | 13,440 B (< 24,576 B) / 550,870–552,682 gas over 6 real proofs | X, `agents/MODEL_CARD.md` §1 |
-| 24-hour live run | 【待冻结数字】 settled / voided, wall time | X, `dashboard/sample-replay.json` |
-| 24-hour live run, mean pinball loss per agent vs round-matched climatological baseline (no significance test) | 【待冻结数字】 | X, `dashboard/sample-replay.json` `summary.agents` |
-| Consumer fee, MAE vs hindsight fair LVR fee (reference) | 【待冻结数字】 forecast / fixed 5 bps / previous-hour | X, `dashboard/sample-replay.json` `summary.fee_strategies` |
-| Reproducible timesfm-3.0 / timestral-209m / chronos-2 (zero-shot) | recompute within 1e15 per quantile: 【待冻结数字】 | X, `dashboard/sample-replay.json` `summary.agents.*.reproduced_rounds` |
+| 24-hour live run | 24 settled / 0 voided (2026-10-23 06:00 – 10-24 06:00 UTC), 411 s wall time | X, `dashboard/sample-replay.json` |
+| 24-hour live run, mean pinball loss per agent vs round-matched climatological baseline (no significance test) | baseline 0.289; `linear_abs` 0.270, `mlp16` 0.264, `mlp32_abs` 0.263, timesfm-3.0 0.304, timestral-209m 0.261, chronos-2 0.311; 4 of 6 below baseline | X, `dashboard/sample-replay.json` `summary.agents` |
+| Consumer fee, MAE vs hindsight fair LVR fee (reference) | 2.16 / 2.36 / 3.52 bps forecast / fixed 5 bps / previous-hour (reference mean 4.06 bps; 2 of 24 rounds on the equal-weight fallback) | X, `dashboard/sample-replay.json` `summary.fee_strategies` |
+| Reproducible timesfm-3.0 / timestral-209m / chronos-2 (zero-shot) | recompute within 1e15 per quantile: 72 of 72 forecasts (70 exact, max diff 2.44e14) | X, `dashboard/sample-replay.json` `summary.agents.*.reproduced_rounds` |
 | Largest zk model | 709 parameters (`mlp32_abs`) | X, `agents/MODEL_CARD.md` §4 |
 | Test-period mean pinball loss (lower is better) | `mlp32_abs` 0.2856, `linear_abs` 0.2874, `mlp16` 0.2912, previous-hour y + residual 0.3254, climatological baseline 0.3325 | X, `agents/MODEL_CARD.md` §6 |
 | 4-fold walk-forward | all three zk models below the climatological baseline in every fold | X, `agents/MODEL_CARD.md` §6.1 |
