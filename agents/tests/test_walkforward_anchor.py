@@ -10,6 +10,7 @@ MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 DEPLOYED_CUT = 1791417600
 WALKFORWARD = json.loads((MODELS_DIR / "walkforward.json").read_text())
 EVAL = json.loads((MODELS_DIR / "eval.json").read_text())
+BASELINE = json.loads((MODELS_DIR / "baseline_quantiles.json").read_text())
 
 
 def _deployed_fold():
@@ -20,9 +21,13 @@ def _deployed_fold():
 
 @pytest.mark.parametrize("model", ["linear_abs", "mlp16", "mlp32_abs"])
 def test_deployed_fold_reproduces_the_validation_score(model):
-    expected = EVAL["selection"]["validation_log_score"][model]["real"]
-    assert round(_deployed_fold()["models"][model]["log_score"], 4) == round(expected, 4)
+    expected = EVAL["validation_models"][model]["mean_pinball"]
+    assert _deployed_fold()["models"][model]["mean_pinball"] == expected
 
 
-def test_deployed_fold_uses_the_deployed_bounds():
-    assert tuple(_deployed_fold()["bounds"]) == cm.BOUNDS
+def test_deployed_fold_baseline_is_close_to_the_deployed_one():
+    """Same training period; the deployed baseline reads analysis' swap windows (300 s step),
+    the fold its 60 s grid rounds, so the quantiles agree to a few hundredths of a ln unit."""
+    deployed = [int(v) / cm.WAD for v in BASELINE["quantiles_e18"]]
+    fold = _deployed_fold()["baseline_quantiles"]
+    assert max(abs(a - b) for a, b in zip(deployed, fold, strict=True)) < 0.05

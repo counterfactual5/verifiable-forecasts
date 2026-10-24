@@ -11,15 +11,15 @@
   ],
   "output_scale_bits": 12,
   "head_gap": 0.00048828125,
-  "test_mean_pinball": 0.28603,
-  "test_coverage50": 0.4741,
-  "test_coverage80": 0.7718,
+  "test_mean_pinball": 0.28564,
+  "test_coverage50": 0.4776,
+  "test_coverage80": 0.7766,
   "test_period": {
     "rounds": 10437,
     "t_open_first": "2026-10-15T01:25:00Z",
     "t_open_last": "2026-10-22T07:21:00Z"
   },
-  "onnx_sha256": "7656778f7b68be5f869f5a74a52a3eb80490fe83b84cb99bc2f2776b228389db",
+  "onnx_sha256": "baba23c1cd6759e5171303014c20d84de31d93dbc637bbb5c7e601fd2c2c088e",
   "train": {
     "period": {
       "rounds": 39910,

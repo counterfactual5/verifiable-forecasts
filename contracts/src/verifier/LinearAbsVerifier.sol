@@ -213,7 +213,7 @@ contract LinearAbsVerifier {
 
             {
                 // Load vk_digest and num_instances of vk into memory
-                mstore(0x0620, 0x1afd44cc16c92ecedee6295b39a308e2061d577f5c2cb1f884a10e752d3b0093) // vk_digest
+                mstore(0x0620, 0x05e820d07826df8889b07b23ad1e7850cacfc73a7f3c24f7b4de8cf111ef253a) // vk_digest
                 mstore(0x0640, 0x0000000000000000000000000000000000000000000000000000000000000015) // num_instances
 
                 // Check valid length of proof
@@ -313,7 +313,7 @@ contract LinearAbsVerifier {
                 success, proof_cptr, hash_mptr := read_ec_point(success, proof_cptr, hash_mptr, q) // W'
 
                 // Load full vk into memory
-                mstore(0x0620, 0x1afd44cc16c92ecedee6295b39a308e2061d577f5c2cb1f884a10e752d3b0093) // vk_digest
+                mstore(0x0620, 0x05e820d07826df8889b07b23ad1e7850cacfc73a7f3c24f7b4de8cf111ef253a) // vk_digest
                 mstore(0x0640, 0x0000000000000000000000000000000000000000000000000000000000000015) // num_instances
                 mstore(0x0660, 0x000000000000000000000000000000000000000000000000000000000000000f) // k
                 mstore(0x0680, 0x3063edaa444bddc677fcd515f614555a777997e0a9287d1e62bf6dd004d82001) // n_inv
@@ -334,20 +334,20 @@ contract LinearAbsVerifier {
                 mstore(0x0860, 0x17944351223333f260ddc3b4af45191b856689eda9eab5cbcddbbe570ce860d2) // neg_s_g2_x_2
                 mstore(0x0880, 0x06d971ff4a7467c3ec596ed6efc674572e32fd6f52b721f97e35b0b3d3546753) // neg_s_g2_y_1
                 mstore(0x08a0, 0x06ecdb9f9567f59ed2eee36e1e1d58797fd13cc97fafc2910f5e8a12f202fa9a) // neg_s_g2_y_2
-                mstore(0x08c0, 0x300a73e5008f98f072caa255f9df1849b6c4caccd00014b9c9aca7c4a77f3d81) // fixed_comms[0].x
-                mstore(0x08e0, 0x0c6466bd5dc078ea135602675db196c00e08634c6ee35f2007a21061e4e6f249) // fixed_comms[0].y
-                mstore(0x0900, 0x15a51539aff2087850cd2d7a60e8c87d1f9a8ef180c289d96294e328767e4ba2) // fixed_comms[1].x
-                mstore(0x0920, 0x24886af2f62be3465d54a10798576d26eca16de4af6d40eb3df1f89f58e4b2aa) // fixed_comms[1].y
-                mstore(0x0940, 0x2b50655bb4560d7529bf4070e81524fb13b859ecaa13aaed24a594441ad71918) // fixed_comms[2].x
-                mstore(0x0960, 0x0eeb09447c8dc370c352e005bd887ed783b4ec37a76e462a3aae7de6fbdde0d1) // fixed_comms[2].y
-                mstore(0x0980, 0x2cf4d93a31dce8794d8b61bb05e87a7f91d5a3ea700b9df57544758b2c9e0312) // fixed_comms[3].x
-                mstore(0x09a0, 0x173256a75ce4e6de9119b898510d97f353df97c6ed493ac47d038a6cbcafc03d) // fixed_comms[3].y
-                mstore(0x09c0, 0x0884fd7fdfadc59694a97c5c79cb5000bdfaad5c9d2f76707a4322e8d58d4c40) // fixed_comms[4].x
-                mstore(0x09e0, 0x2b19a965005e508214ff24bd1759eda00d55699c6a30020d6b791470089decf8) // fixed_comms[4].y
-                mstore(0x0a00, 0x0a9064e0d97a65ca91bf200a895b9d38bc32878b55e117378d3cd71bcf29bb94) // fixed_comms[5].x
-                mstore(0x0a20, 0x27d08c349300cf5b7d5eed7aa9357b6e0e0095cd2beccff0b7c8b6f1d5685be4) // fixed_comms[5].y
-                mstore(0x0a40, 0x0a9064e0d97a65ca91bf200a895b9d38bc32878b55e117378d3cd71bcf29bb94) // fixed_comms[6].x
-                mstore(0x0a60, 0x27d08c349300cf5b7d5eed7aa9357b6e0e0095cd2beccff0b7c8b6f1d5685be4) // fixed_comms[6].y
+                mstore(0x08c0, 0x22d6d443ce10217edff726d51acdd454d4ff985b8905ef44ee6a1a5e3593c247) // fixed_comms[0].x
+                mstore(0x08e0, 0x2a16968a7327cac47e2fd28b5bdd40715a72a5b58bb39c48b3d0a96e5c90ea42) // fixed_comms[0].y
+                mstore(0x0900, 0x2b50655bb4560d7529bf4070e81524fb13b859ecaa13aaed24a594441ad71918) // fixed_comms[1].x
+                mstore(0x0920, 0x0eeb09447c8dc370c352e005bd887ed783b4ec37a76e462a3aae7de6fbdde0d1) // fixed_comms[1].y
+                mstore(0x0940, 0x15a51539aff2087850cd2d7a60e8c87d1f9a8ef180c289d96294e328767e4ba2) // fixed_comms[2].x
+                mstore(0x0960, 0x24886af2f62be3465d54a10798576d26eca16de4af6d40eb3df1f89f58e4b2aa) // fixed_comms[2].y
+                mstore(0x0980, 0x0a9064e0d97a65ca91bf200a895b9d38bc32878b55e117378d3cd71bcf29bb94) // fixed_comms[3].x
+                mstore(0x09a0, 0x27d08c349300cf5b7d5eed7aa9357b6e0e0095cd2beccff0b7c8b6f1d5685be4) // fixed_comms[3].y
+                mstore(0x09c0, 0x0a9064e0d97a65ca91bf200a895b9d38bc32878b55e117378d3cd71bcf29bb94) // fixed_comms[4].x
+                mstore(0x09e0, 0x27d08c349300cf5b7d5eed7aa9357b6e0e0095cd2beccff0b7c8b6f1d5685be4) // fixed_comms[4].y
+                mstore(0x0a00, 0x2cf4d93a31dce8794d8b61bb05e87a7f91d5a3ea700b9df57544758b2c9e0312) // fixed_comms[5].x
+                mstore(0x0a20, 0x173256a75ce4e6de9119b898510d97f353df97c6ed493ac47d038a6cbcafc03d) // fixed_comms[5].y
+                mstore(0x0a40, 0x0884fd7fdfadc59694a97c5c79cb5000bdfaad5c9d2f76707a4322e8d58d4c40) // fixed_comms[6].x
+                mstore(0x0a60, 0x2b19a965005e508214ff24bd1759eda00d55699c6a30020d6b791470089decf8) // fixed_comms[6].y
                 mstore(0x0a80, 0x2331a274903ac028148e54224f6a1be68c53dc297c4d3cfd17b10d7d3bcf9364) // fixed_comms[7].x
                 mstore(0x0aa0, 0x029ca8c3788176e39b4a92cf5df7b60b21c8dcf4a1ec0d9dd63f6bf0f3a86ef9) // fixed_comms[7].y
                 mstore(0x0ac0, 0x124c698695f02914796f4f042aec5c64b20ceaca49e827b3eced711dd6c27423) // fixed_comms[8].x
@@ -362,16 +362,16 @@ contract LinearAbsVerifier {
                 mstore(0x0be0, 0x29ea3250ca67978dba28984910ecb71d8f09f3b8eb64e6da06be76d19d291328) // permutation_comms[0].y
                 mstore(0x0c00, 0x193d9538cae00d6f37d89361cf6481bf99566c9e2e65eb776fa165fcea298c11) // permutation_comms[1].x
                 mstore(0x0c20, 0x10eee2f8547c1b3948b4de70b958514f5b33ebec41caa8a57becf75a98d3ed75) // permutation_comms[1].y
-                mstore(0x0c40, 0x0a9ccd656d5ab638ed1996ed8f25b9c0d478304209f92c84ac7bbfd40f6424f6) // permutation_comms[2].x
-                mstore(0x0c60, 0x232829c6c91e36748da08ace42d9215751bbff4cad8af053b23c4aa1634967ce) // permutation_comms[2].y
-                mstore(0x0c80, 0x2db8a1b26113c5043c2d3c35dcdd01652ff981c39aad82d0ae332afcafc90046) // permutation_comms[3].x
-                mstore(0x0ca0, 0x264e9275318a1e3bb93c8d95896244d7d452afc00b27280ec42f977b25d9e443) // permutation_comms[3].y
+                mstore(0x0c40, 0x285d0b988c075021c52f5f3f9799a0286a3b5f2f9e7c3fb5b8fb80ed748663b2) // permutation_comms[2].x
+                mstore(0x0c60, 0x2745dc9116362661280694479fd433c76cbaff971d1cde913a364c20edc0543f) // permutation_comms[2].y
+                mstore(0x0c80, 0x2a34fe0f598b1bb881058e55d57a74b8f543cb7c7aa1d59273b3bb1ff4ba7039) // permutation_comms[3].x
+                mstore(0x0ca0, 0x16e399e2087c6ad27b53121d823b9731d258ed203eeffebde4b7ff4c4918c21b) // permutation_comms[3].y
                 mstore(0x0cc0, 0x07d9a729f933c247499e24f7719cdebbaee1334fbe07c2ee93ca7f6cf735757c) // permutation_comms[4].x
                 mstore(0x0ce0, 0x0849e07ecc857b62b7e067898fa8c04a3a792e7140751309cbfd368656dab656) // permutation_comms[4].y
-                mstore(0x0d00, 0x19ad008130420943092391492140aeedf490f4a20db2f4c5962b1c6849649b98) // permutation_comms[5].x
-                mstore(0x0d20, 0x26891a7d2f0e2977bc169630575e151ca0b50315305cec89121f87e296965feb) // permutation_comms[5].y
-                mstore(0x0d40, 0x2195a8825aded285860d448c5abe8dbf21a7927189536dfc0e407995115fc01d) // permutation_comms[6].x
-                mstore(0x0d60, 0x23f7ceea005b71f23bdbb8a16e641c04fd7306252f4634fdb7495d8d652c76ae) // permutation_comms[6].y
+                mstore(0x0d00, 0x0ff4916882f3d7cd1336b73ac9bcb7f4083ece7697f3969179429d587665e863) // permutation_comms[5].x
+                mstore(0x0d20, 0x260dd6bba69ca14edea0e2ca82df0552826586422b46042026256dca26834991) // permutation_comms[5].y
+                mstore(0x0d40, 0x06149fd2a28a0a929a6e15f077f7353c1856854a37fd0f3bbd782e416d2301a9) // permutation_comms[6].x
+                mstore(0x0d60, 0x29bbf356890c6ecd15f4aff0369c79c4d699baf4b30d3857a01c5aa657e3b62d) // permutation_comms[6].y
                 mstore(0x0d80, 0x2dfb9babf0f1ad2efcd97ee4f71ce87e3e8185c8e877179a34a5403da6470877) // permutation_comms[7].x
                 mstore(0x0da0, 0x2b14035d83e531b07651d4c99b8377419891cb84610a2a3b15652f1dabf261ee) // permutation_comms[7].y
 
@@ -856,7 +856,7 @@ contract LinearAbsVerifier {
                         let var2 := mulmod(var1, a_0, R)
                         let var3 := sub(R, var1)
                         let var4 := addmod(var0, var3, R)
-                        let var5 := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000
+                        let var5 := 0x0
                         let var6 := mulmod(var4, var5, R)
                         let var7 := addmod(var2, var6, R)
                         input_0 := var7
@@ -901,7 +901,7 @@ contract LinearAbsVerifier {
                         let var2 := mulmod(var1, a_1, R)
                         let var3 := sub(R, var1)
                         let var4 := addmod(var0, var3, R)
-                        let var5 := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000
+                        let var5 := 0x0
                         let var6 := mulmod(var4, var5, R)
                         let var7 := addmod(var2, var6, R)
                         input_0 := var7
@@ -946,7 +946,7 @@ contract LinearAbsVerifier {
                         let var2 := mulmod(var1, a_0, R)
                         let var3 := sub(R, var1)
                         let var4 := addmod(var0, var3, R)
-                        let var5 := 0x0
+                        let var5 := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000
                         let var6 := mulmod(var4, var5, R)
                         let var7 := addmod(var2, var6, R)
                         input_0 := var7
@@ -991,7 +991,7 @@ contract LinearAbsVerifier {
                         let var2 := mulmod(var1, a_1, R)
                         let var3 := sub(R, var1)
                         let var4 := addmod(var0, var3, R)
-                        let var5 := 0x0
+                        let var5 := 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000
                         let var6 := mulmod(var4, var5, R)
                         let var7 := addmod(var2, var6, R)
                         input_0 := var7

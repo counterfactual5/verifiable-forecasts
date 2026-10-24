@@ -20,13 +20,6 @@ def samples():
     return t0, ds.build_samples(grid, stride=60)
 
 
-def _params(tmp_path, cut, bounds=(20, 60, 120, 260), until=None):
-    path = tmp_path / str(cut) / "vol_params.json"
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"bounds": list(bounds), "until": cut if until is None else until}))
-    return path
-
-
 def test_folds_never_read_across_their_cut(samples):
     t0, s = samples
     cuts, test_s = [t0 + DAY + 3600, t0 + 2 * DAY, t0 + 3 * DAY - 3600], DAY // 2
@@ -42,31 +35,23 @@ def test_folds_never_read_across_their_cut(samples):
         assert end < start
 
 
-def test_params_must_be_calibrated_up_to_the_cut(tmp_path):
-    cut = 1_700_100_000
-    assert wf.load_params(_params(tmp_path, cut), cut)[0] == (20, 60, 120, 260)
-    with pytest.raises(ValueError, match="--until"):
-        wf.load_params(_params(tmp_path, cut + 1, until=cut), cut + 1)
-    with pytest.raises(ValueError, match="increasing"):
-        wf.load_params(_params(tmp_path, cut + 2, bounds=(20, 20, 120, 260)), cut + 2)
-
-
-def test_each_fold_labels_with_its_own_bounds(samples):
+def test_fold_baseline_comes_from_its_own_training_rounds(samples):
     t0, s = samples
-    cut = t0 + 2 * DAY
-    low = wf.evaluate_fold(s, cut, (5, 10, 20, 40), steps=5, test_s=DAY)
-    high = wf.evaluate_fold(s, cut, (500, 1000, 2000, 4000), steps=5, test_s=DAY)
-    assert low["bounds"] == [5, 10, 20, 40]
-    assert low["bucket_share"]["test"] != high["bucket_share"]["test"]
-    _, test = wf.fold_split(s, cut, DAY)
-    assert high["bucket_share"]["test"] == wf.tr.shares(wf.bucket((500, 1000, 2000, 4000), test.rv))
-    assert cm.BOUNDS not in {tuple(low["bounds"]), tuple(high["bounds"])}
-    assert low["baselines"]["uniform"]["log_score"] == round(float(np.log(1 / cm.BUCKETS)), 4)
-    assert set(low["models"]) == {spec.name for spec in wf.tr.SPECS}
+    early = wf.evaluate_fold(s, t0 + DAY + 3600, steps=5, test_s=DAY // 2)
+    late = wf.evaluate_fold(s, t0 + 3 * DAY - 3600, steps=5, test_s=DAY // 2)
+    trn, test = wf.fold_split(s, t0 + DAY + 3600, DAY // 2)
+    q = early["baseline_quantiles"]
+    assert q == wf.climatological(wf.tr.targets(trn)).tolist()
+    assert all(a < b for a, b in zip(q, q[1:], strict=False))
+    assert all(v * 4096 == round(v * 4096) for v in q), "on the 2^-12 output grid"
+    assert q != late["baseline_quantiles"]
+    want = np.mean([cm.pinball(y, q) for y in wf.tr.targets(test)])
+    assert early["baselines"]["climatological"]["mean_pinball"] == round(float(want), 5)
+    assert set(early["models"]) == {spec.name for spec in wf.tr.SPECS}
 
 
 def test_model_card_table_is_generated_from_the_committed_report():
     report = json.loads(wf.OUT.read_text())
     assert [f["cut"][:10] for f in report["folds"]] == [wf.tr.utc(c)[:10] for c in wf.CUTS]
-    assert report["mean_log_score"] == wf.summary(report["folds"])
+    assert report["mean_pinball"] == wf.summary(report["folds"])
     assert wf.card_block(wf.CARD) == wf.render(report)

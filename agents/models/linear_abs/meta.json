@@ -19,7 +19,7 @@
     "t_open_first": "2026-10-15T01:25:00Z",
     "t_open_last": "2026-10-22T07:21:00Z"
   },
-  "onnx_sha256": "848f8065bcee533157cab6d3b55b08fad8f55d3781c54937470224fafc968767",
+  "onnx_sha256": "d5b78e7b22eff5299e1a77fd1395c8098148dacb591903be1f821086c4f3382a",
   "train": {
     "period": {
       "rounds": 39910,

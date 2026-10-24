@@ -3,16 +3,16 @@
   "steps": 3000,
   "stride_s": 60,
   "lead_s": 300,
-  "synthetic_augmentation": false,
   "folds": [
     {
       "cut": "2026-09-24T00:00:00Z",
       "test_end": "2026-10-01T00:00:00Z",
-      "bounds": [
-        334,
-        637,
-        1120,
-        2094
+      "baseline_quantiles": [
+        5.1357421875,
+        6.04736328125,
+        6.7568359375,
+        7.507568359375,
+        8.28076171875
       ],
       "train": {
         "rounds": 19750,
@@ -24,118 +24,80 @@
         "t_open_first": "2026-09-24T01:25:00Z",
         "t_open_last": "2026-09-30T22:54:00Z"
       },
-      "bucket_share": {
-        "train": [
-          0.1978,
-          0.1851,
-          0.2111,
-          0.1951,
-          0.2109
-        ],
-        "test": [
-          0.3015,
-          0.2098,
-          0.1789,
-          0.1545,
-          0.1554
-        ]
-      },
       "baselines": {
-        "uniform": {
-          "log_score": -1.6094,
-          "accuracy": 0.3015,
-          "mean_probs": [
-            0.2,
-            0.2,
-            0.2,
-            0.2,
-            0.2
+        "climatological": {
+          "mean_pinball": 0.35812,
+          "coverage50": 0.4378,
+          "coverage80": 0.7845,
+          "mean_quantiles": [
+            5.1357,
+            6.0474,
+            6.7568,
+            7.5076,
+            8.2808
           ]
         },
-        "train_prior": {
-          "log_score": -1.6149,
-          "accuracy": 0.1789,
-          "mean_probs": [
-            0.1978,
-            0.1851,
-            0.2111,
-            0.1951,
-            0.2109
-          ]
-        },
-        "train_lag_onehot": {
-          "log_score": -1.5294,
-          "accuracy": 0.3763,
-          "mean_probs": [
-            0.2178,
-            0.2011,
-            0.1966,
-            0.1923,
-            0.1923
-          ]
-        },
-        "train_lag_transition": {
-          "log_score": -1.4281,
-          "accuracy": 0.3825,
-          "mean_probs": [
-            0.2469,
-            0.1882,
-            0.2023,
-            0.1789,
-            0.1837
+        "train_lag_residual": {
+          "mean_pinball": 0.32426,
+          "coverage50": 0.4938,
+          "coverage80": 0.8249,
+          "mean_quantiles": [
+            4.9745,
+            5.584,
+            6.3102,
+            7.1413,
+            8.0088
           ]
         }
       },
       "models": {
         "linear_abs": {
-          "log_score": -1.4015,
-          "accuracy": 0.3864,
-          "mean_probs": [
-            0.2554,
-            0.1912,
-            0.2023,
-            0.171,
-            0.1801
+          "mean_pinball": 0.29382,
+          "coverage50": 0.4921,
+          "coverage80": 0.8137,
+          "mean_quantiles": [
+            5.2467,
+            5.9106,
+            6.5833,
+            7.2766,
+            7.9634
           ]
         },
         "mlp16": {
-          "log_score": -1.4599,
-          "accuracy": 0.3769,
-          "mean_probs": [
-            0.2572,
-            0.1875,
-            0.2056,
-            0.1736,
-            0.1762
+          "mean_pinball": 0.29268,
+          "coverage50": 0.4744,
+          "coverage80": 0.7847,
+          "mean_quantiles": [
+            5.2847,
+            5.8918,
+            6.5518,
+            7.2024,
+            7.8838
           ]
         },
         "mlp32_abs": {
-          "log_score": -1.4889,
-          "accuracy": 0.3727,
-          "mean_probs": [
-            0.265,
-            0.1856,
-            0.2013,
-            0.1745,
-            0.1735
+          "mean_pinball": 0.29907,
+          "coverage50": 0.4589,
+          "coverage80": 0.7526,
+          "mean_quantiles": [
+            5.3131,
+            5.8182,
+            6.4337,
+            7.1359,
+            7.8158
           ]
         }
-      },
-      "bounds_source": {
-        "method": "swap-srvp-p20-p40-p60-p80",
-        "windows": 3968,
-        "swapCount": 105934,
-        "until": 1790208000
       }
     },
     {
       "cut": "2026-10-01T00:00:00Z",
       "test_end": "2026-10-08T00:00:00Z",
-      "bounds": [
-        280,
-        573,
-        999,
-        1976
+      "baseline_quantiles": [
+        5.0107421875,
+        5.88330078125,
+        6.65673828125,
+        7.43017578125,
+        8.167724609375
       ],
       "train": {
         "rounds": 29830,
@@ -147,118 +109,80 @@
         "t_open_first": "2026-10-01T01:25:00Z",
         "t_open_last": "2026-10-07T22:54:00Z"
       },
-      "bucket_share": {
-        "train": [
-          0.1965,
-          0.1911,
-          0.2,
-          0.2059,
-          0.2065
-        ],
-        "test": [
-          0.4444,
-          0.2026,
-          0.1385,
-          0.1197,
-          0.0948
-        ]
-      },
       "baselines": {
-        "uniform": {
-          "log_score": -1.6094,
-          "accuracy": 0.4444,
-          "mean_probs": [
-            0.2,
-            0.2,
-            0.2,
-            0.2,
-            0.2
+        "climatological": {
+          "mean_pinball": 0.43597,
+          "coverage50": 0.369,
+          "coverage80": 0.6795,
+          "mean_quantiles": [
+            5.0107,
+            5.8833,
+            6.6567,
+            7.4302,
+            8.1677
           ]
         },
-        "train_prior": {
-          "log_score": -1.62,
-          "accuracy": 0.0948,
-          "mean_probs": [
-            0.1965,
-            0.1911,
-            0.2,
-            0.2059,
-            0.2065
-          ]
-        },
-        "train_lag_onehot": {
-          "log_score": -1.4634,
-          "accuracy": 0.4569,
-          "mean_probs": [
-            0.2484,
-            0.2001,
-            0.1879,
-            0.1842,
-            0.1793
-          ]
-        },
-        "train_lag_transition": {
-          "log_score": -1.3202,
-          "accuracy": 0.4646,
-          "mean_probs": [
-            0.3221,
-            0.1966,
-            0.1786,
-            0.163,
-            0.1397
+        "train_lag_residual": {
+          "mean_pinball": 0.33087,
+          "coverage50": 0.4945,
+          "coverage80": 0.8051,
+          "mean_quantiles": [
+            4.4306,
+            5.0222,
+            5.7799,
+            6.5916,
+            7.4026
           ]
         }
       },
       "models": {
         "linear_abs": {
-          "log_score": -1.2383,
-          "accuracy": 0.4937,
-          "mean_probs": [
-            0.345,
-            0.2014,
-            0.1757,
-            0.1487,
-            0.1291
+          "mean_pinball": 0.33485,
+          "coverage50": 0.4236,
+          "coverage80": 0.7471,
+          "mean_quantiles": [
+            4.9439,
+            5.6098,
+            6.2858,
+            7.0004,
+            7.6658
           ]
         },
         "mlp16": {
-          "log_score": -1.2985,
-          "accuracy": 0.4803,
-          "mean_probs": [
-            0.3475,
-            0.1914,
-            0.176,
-            0.1576,
-            0.1275
+          "mean_pinball": 0.33375,
+          "coverage50": 0.4193,
+          "coverage80": 0.7327,
+          "mean_quantiles": [
+            4.9536,
+            5.6058,
+            6.2754,
+            6.9783,
+            7.6201
           ]
         },
         "mlp32_abs": {
-          "log_score": -1.2833,
-          "accuracy": 0.4709,
-          "mean_probs": [
-            0.3665,
-            0.1902,
-            0.1698,
-            0.1496,
-            0.1239
+          "mean_pinball": 0.29677,
+          "coverage50": 0.5336,
+          "coverage80": 0.7683,
+          "mean_quantiles": [
+            4.86,
+            5.271,
+            6.0344,
+            6.7894,
+            7.4709
           ]
         }
-      },
-      "bounds_source": {
-        "method": "swap-srvp-p20-p40-p60-p80",
-        "windows": 5985,
-        "swapCount": 161050,
-        "until": 1790812800
       }
     },
     {
       "cut": "2026-10-08T00:00:00Z",
       "test_end": "2026-10-15T00:00:00Z",
-      "bounds": [
-        202,
-        474,
-        856,
-        1712
+      "baseline_quantiles": [
+        4.727294921875,
+        5.587158203125,
+        6.481689453125,
+        7.293701171875,
+        8.041748046875
       ],
       "train": {
         "rounds": 39910,
@@ -270,118 +194,80 @@
         "t_open_first": "2026-10-08T01:25:00Z",
         "t_open_last": "2026-10-14T22:54:00Z"
       },
-      "bucket_share": {
-        "train": [
-          0.1952,
-          0.199,
-          0.194,
-          0.2005,
-          0.2113
-        ],
-        "test": [
-          0.268,
-          0.1587,
-          0.1624,
-          0.2134,
-          0.1975
-        ]
-      },
       "baselines": {
-        "uniform": {
-          "log_score": -1.6094,
-          "accuracy": 0.268,
-          "mean_probs": [
-            0.2,
-            0.2,
-            0.2,
-            0.2,
-            0.2
+        "climatological": {
+          "mean_pinball": 0.40919,
+          "coverage50": 0.4398,
+          "coverage80": 0.7291,
+          "mean_quantiles": [
+            4.7273,
+            5.5872,
+            6.4817,
+            7.2937,
+            8.0417
           ]
         },
-        "train_prior": {
-          "log_score": -1.6103,
-          "accuracy": 0.1975,
-          "mean_probs": [
-            0.1952,
-            0.199,
-            0.194,
-            0.2005,
-            0.2113
-          ]
-        },
-        "train_lag_onehot": {
-          "log_score": -1.5217,
-          "accuracy": 0.3831,
-          "mean_probs": [
-            0.2138,
-            0.1913,
-            0.1927,
-            0.2027,
-            0.1995
-          ]
-        },
-        "train_lag_transition": {
-          "log_score": -1.3924,
-          "accuracy": 0.381,
-          "mean_probs": [
-            0.2253,
-            0.1981,
-            0.1869,
-            0.1905,
-            0.1992
+        "train_lag_residual": {
+          "mean_pinball": 0.33789,
+          "coverage50": 0.4861,
+          "coverage80": 0.7859,
+          "mean_quantiles": [
+            4.8023,
+            5.4086,
+            6.1708,
+            6.9748,
+            7.7597
           ]
         }
       },
       "models": {
         "linear_abs": {
-          "log_score": -1.3327,
-          "accuracy": 0.4084,
-          "mean_probs": [
-            0.2421,
-            0.1875,
-            0.1798,
-            0.1911,
-            0.1995
+          "mean_pinball": 0.3204,
+          "coverage50": 0.4425,
+          "coverage80": 0.7596,
+          "mean_quantiles": [
+            5.0268,
+            5.6809,
+            6.3432,
+            7.077,
+            7.7805
           ]
         },
         "mlp16": {
-          "log_score": -1.3568,
-          "accuracy": 0.4078,
-          "mean_probs": [
-            0.2337,
-            0.1878,
-            0.1886,
-            0.1978,
-            0.1921
+          "mean_pinball": 0.32436,
+          "coverage50": 0.4224,
+          "coverage80": 0.7372,
+          "mean_quantiles": [
+            5.0426,
+            5.6721,
+            6.31,
+            7.0282,
+            7.7291
           ]
         },
         "mlp32_abs": {
-          "log_score": -1.3774,
-          "accuracy": 0.391,
-          "mean_probs": [
-            0.2421,
-            0.1934,
-            0.1831,
-            0.1892,
-            0.1922
+          "mean_pinball": 0.2985,
+          "coverage50": 0.4622,
+          "coverage80": 0.7505,
+          "mean_quantiles": [
+            5.1221,
+            5.5569,
+            6.2213,
+            6.8826,
+            7.5616
           ]
         }
-      },
-      "bounds_source": {
-        "method": "swap-srvp-p20-p40-p60-p80",
-        "windows": 8000,
-        "swapCount": 213139,
-        "until": 1791417600
       }
     },
     {
       "cut": "2026-10-15T00:00:00Z",
       "test_end": "2026-10-22T00:00:00Z",
-      "bounds": [
-        187,
-        462,
-        857,
-        1701
+      "baseline_quantiles": [
+        4.5849609375,
+        5.517333984375,
+        6.473876953125,
+        7.28271484375,
+        8.021484375
       ],
       "train": {
         "rounds": 49990,
@@ -393,117 +279,77 @@
         "t_open_first": "2026-10-15T01:25:00Z",
         "t_open_last": "2026-10-21T22:54:00Z"
       },
-      "bucket_share": {
-        "train": [
-          0.1955,
-          0.1982,
-          0.1955,
-          0.2014,
-          0.2094
-        ],
-        "test": [
-          0.0826,
-          0.235,
-          0.212,
-          0.2279,
-          0.2425
-        ]
-      },
       "baselines": {
-        "uniform": {
-          "log_score": -1.6094,
-          "accuracy": 0.0826,
-          "mean_probs": [
-            0.2,
-            0.2,
-            0.2,
-            0.2,
-            0.2
+        "climatological": {
+          "mean_pinball": 0.3404,
+          "coverage50": 0.5778,
+          "coverage80": 0.8231,
+          "mean_quantiles": [
+            4.585,
+            5.5173,
+            6.4739,
+            7.2827,
+            8.0215
           ]
         },
-        "train_prior": {
-          "log_score": -1.6055,
-          "accuracy": 0.2425,
-          "mean_probs": [
-            0.1955,
-            0.1982,
-            0.1955,
-            0.2014,
-            0.2094
-          ]
-        },
-        "train_lag_onehot": {
-          "log_score": -1.5383,
-          "accuracy": 0.3629,
-          "mean_probs": [
-            0.1758,
-            0.2072,
-            0.2014,
-            0.206,
-            0.2096
-          ]
-        },
-        "train_lag_transition": {
-          "log_score": -1.4399,
-          "accuracy": 0.3511,
-          "mean_probs": [
-            0.1381,
-            0.1938,
-            0.2098,
-            0.2228,
-            0.2355
+        "train_lag_residual": {
+          "mean_pinball": 0.32946,
+          "coverage50": 0.505,
+          "coverage80": 0.8115,
+          "mean_quantiles": [
+            5.2714,
+            5.8861,
+            6.6466,
+            7.4634,
+            8.2425
           ]
         }
       },
       "models": {
         "linear_abs": {
-          "log_score": -1.4064,
-          "accuracy": 0.3557,
-          "mean_probs": [
-            0.1304,
-            0.1976,
-            0.2157,
-            0.2136,
-            0.2428
+          "mean_pinball": 0.29403,
+          "coverage50": 0.5424,
+          "coverage80": 0.8236,
+          "mean_quantiles": [
+            5.184,
+            5.8341,
+            6.5013,
+            7.2301,
+            7.9333
           ]
         },
         "mlp16": {
-          "log_score": -1.4169,
-          "accuracy": 0.3493,
-          "mean_probs": [
-            0.1323,
-            0.198,
-            0.212,
-            0.2169,
-            0.2407
+          "mean_pinball": 0.29451,
+          "coverage50": 0.5164,
+          "coverage80": 0.8158,
+          "mean_quantiles": [
+            5.2082,
+            5.8475,
+            6.509,
+            7.2039,
+            7.8798
           ]
         },
         "mlp32_abs": {
-          "log_score": -1.4424,
-          "accuracy": 0.3325,
-          "mean_probs": [
-            0.1287,
-            0.1876,
-            0.2131,
-            0.2304,
-            0.2401
+          "mean_pinball": 0.28894,
+          "coverage50": 0.4839,
+          "coverage80": 0.7721,
+          "mean_quantiles": [
+            5.4496,
+            5.975,
+            6.5763,
+            7.2367,
+            7.8951
           ]
         }
-      },
-      "bounds_source": {
-        "method": "swap-srvp-p20-p40-p60-p80",
-        "windows": 10017,
-        "swapCount": 258566,
-        "until": 1792022400
       }
     }
   ],
-  "mean_log_score": {
-    "linear_abs": -1.3447,
-    "mlp16": -1.383,
-    "mlp32_abs": -1.398,
-    "uniform": -1.6094,
-    "train_prior": -1.6127,
-    "train_lag_transition": -1.3951
+  "mean_pinball": {
+    "linear_abs": 0.31078,
+    "mlp16": 0.31133,
+    "mlp32_abs": 0.29582,
+    "climatological": 0.38592,
+    "train_lag_residual": 0.33062
   }
 }

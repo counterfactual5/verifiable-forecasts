@@ -82,7 +82,8 @@ def synth(n, rng, bounds=cm.BOUNDS):
 
 
 def head_init(base_q):
-    """Pre-head biases that reproduce the given increasing quantiles."""
+    """Pre-head biases that reproduce the given increasing quantiles (the start: a constant
+    forecast at the training targets' quantiles)."""
     a = np.empty(cm.K)
     a[0] = base_q[0]
     a[1:] = np.maximum(np.diff(base_q) - HEAD_GAP, 1e-3)
@@ -156,9 +157,9 @@ def loss_grad(spec, p, x, y):
     return loss, g
 
 
-def train(spec, x, y, steps, seed, base_q):
+def train(spec, x, y, steps, seed):
     rng = np.random.default_rng(seed)
-    p = init_params(spec, rng, float(np.sqrt(np.mean(x**2))), base_q)
+    p = init_params(spec, rng, float(np.sqrt(np.mean(x**2))), np.quantile(y, LEVELS))
     m = {k: np.zeros_like(v) for k, v in p.items()}
     v = {k: np.zeros_like(val) for k, val in p.items()}
     lr, b1, b2 = 0.02, 0.9, 0.999
@@ -300,7 +301,7 @@ def main():
     cal = np.concatenate([inputs(trn)[order[np.linspace(0, len(order) - 1, 32).astype(int)]],
                           edge])
     for i, spec in enumerate(SPECS):
-        p = train(spec, inputs(trn), y_tr, a.steps, SEED_MODEL + i, base_q)
+        p = train(spec, inputs(trn), y_tr, a.steps, SEED_MODEL + i)
         res = scores(forward(spec, p, inputs(test))[0], y_te)
         report["validation_models"][spec.name] = scores(forward(spec, p, inputs(val))[0], y_val)
         d = MODELS / spec.name
