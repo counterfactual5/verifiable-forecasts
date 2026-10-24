@@ -360,11 +360,14 @@
   #error { color: var(--bad); padding: 8px 32px; }
   .load-failed > .sub, .load-failed > a { display: block; padding: 0 32px; }
   .load-failed > a { text-decoration: underline; }
-  .fee-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
+  .fee-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px; margin-top: 12px; }
+  #fee-card .nowrap { white-space: normal; word-break: keep-all; }
+  #fee-card .chart + .sub .nowrap { display: inline-block; max-width: 100%; }
   .fee-tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
   .fee-tile .sub { margin-top: 0; }
   .fee-tile .swatch { width: 16px; }
-  .fee-tile.best { border-color: var(--ok); box-shadow: 3px 3px 0 var(--ok); }
+  .fee-tile.main { border-color: color-mix(in srgb, var(--vermil) 45%, var(--line)); background: color-mix(in srgb, var(--vermil) 6%, var(--panel)); }
+  .fee-tile.ref { border-style: dashed; background: var(--panel); }
   .fee-mae { font: 600 22px/1.3 var(--mono); }
   @media (max-width: 600px) {
     header { padding: 18px 16px 4px; }
@@ -389,16 +392,17 @@
   #nav { position: sticky; top: 0; z-index: 30; margin-top: 10px; padding: 0 40px; border-bottom: 1px solid var(--line-2);
          background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
   #nav:empty { display: none; }
-  .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding: 8px 0; }
+  /* The 2px underline must land on the nav's bottom edge, so the tab row has no bottom padding. */
+  .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding: 6px 0 0; }
   .tabs::-webkit-scrollbar { display: none; }
-  .tab { flex: none; display: inline-flex; align-items: baseline; gap: 7px; padding: 8px 14px; border-radius: 10px; border: 1px solid transparent;
+  .tab { flex: none; display: inline-flex; align-items: baseline; gap: 7px; padding: 10px 14px 11px; border-bottom: 2px solid transparent;
          color: var(--muted); font: 600 14px/1.1 var(--sans); white-space: nowrap; text-decoration: none !important;
-         transition: background .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease); }
+         transition: color .2s var(--ease), border-color .2s var(--ease); }
   .tab .k { font: 600 10.5px/1 var(--mono); color: var(--faint); }
   .tab .en { font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
-  .tab:hover { background: color-mix(in srgb, var(--accent) 5%, var(--panel)); color: var(--text); }
-  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .tab[aria-current="page"] { background: #e3e8fa; color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
+  .tab:hover { color: var(--text); border-bottom-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+  .tab[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
   .tab[aria-current="page"] .k, .tab[aria-current="page"] .en { color: var(--accent); }
   .pagehead { margin: 8px 0 18px; }
   .pagehead h2 { margin: 6px 0 6px; font: 700 34px/1.2 var(--display); letter-spacing: -.005em; }
@@ -449,11 +453,16 @@
   .tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px; margin-top: 16px; }
   .tier { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); font-size: 13px; color: var(--muted); }
   .tier h3 { margin: 0 0 6px; font: 700 15px/1.3 var(--display); color: var(--text); display: flex; gap: 8px; align-items: center; }
-  .tier.off { opacity: .6; border-style: dashed; }
+  .tier.off { border-style: dashed; color: var(--faint); }
+  .tier p { margin: 0; }
+  .tier .bond { margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--line-2); }
+  .tier .bond b { color: var(--text); font-weight: 600; margin-right: 4px; }
+  .tier .tag { display: inline-block; font-size: 11px; color: var(--faint); white-space: nowrap; }
+  .tiers-rule { margin: 12px 0 0; font-size: 12.5px; color: var(--muted); }
   @media (max-width: 1000px) { .pipe { grid-template-columns: 1fr; gap: 22px; } .pipe li:not(:last-child)::after { content: "↓"; right: auto; left: 22px; top: auto; bottom: -21px; margin: 0; } }
   @media (max-width: 600px) {
     #nav { padding: 0 8px; }
-    .tab { padding: 7px 10px; font-size: 13px; }
+    .tab { padding: 9px 10px 10px; font-size: 13px; }
     .tab .en { display: none; }
     .pagehead h2 { font-size: 26px; }
   }
@@ -612,7 +621,7 @@ function render({ data: d, src }) {
   const isZk = (a) => (a.model_type ?? "zk") === "zk";
   const typeBadge = (a) => isZk(a)
     ? `<span class="badge zk" title="reveal carries an EZKL proof the contract verified">zk proof</span>`
-    : `<span class="badge commit" title="committed before the deadline; no proof of which model made it">commit-only</span>`;
+    : `<span class="badge commit" title="committed before the deadline; black-box tier, the model is not required to be disclosed">commit-only</span>`;
   const rows = d.agents.map((a) => {
     const max = Math.max(...a.probs);
     const bars = a.probs.map((p, i) => `<div class="${i === o.winning_bucket ? "win" : ""}"
@@ -727,7 +736,7 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-opacity=".7" stroke-dasharray="5 4"/>` : "";
   const last = (s) => s.values.reduce((x, v) => v ?? x, -Infinity);
   const legend = (rankLegend ? series.slice().sort((a, b) => last(b) - last(a)) : series).map((s) => `<span class="nowrap">${swatch(s.color, s.dash)} ${s.name}</span>`).join(" &nbsp; ");
-  CHARTS.push({ W, n, L, R, x, labels, series: series.map((s) => ({ name: s.name, color: s.color, values: s.values })), tipFmt });
+  CHARTS.push({ W, n, L, R, x, labels, series: series.map((s) => ({ name: s.tipName ?? s.name, color: s.color, values: s.values })), tipFmt });
   return `<div class="chart" data-chart="${id}"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}<g class="series">${lines}</g>${xl}
     <line class="guide" x1="0" x2="0" y1="${T}" y2="${H - B}"/></svg><div class="tip" aria-hidden="true"></div></div><div class="sub">${legend}</div>`;
 }
@@ -757,6 +766,9 @@ function chartHover(app) {
   app.addEventListener("pointerleave", () => clear(null));
 }
 
+// Legend names may wrap only at spaces: word joiners stop the line breaks CJK brackets and commas otherwise allow.
+const glue = (s) => s.replace(/（/g, "\u2060（").replace(/，/g, "，\u2060");
+const REF_FEE = glue("事后最优费率（参照，事前无法得到） · hindsight fair LVR fee");
 const lowestFee = (fs) => Object.entries(fs.mae_bps).map(([key, mae]) => ({ key, mae })).reduce((a, b) => (b.mae < a.mae ? b : a));
 
 function summaryLine(d) {
@@ -1008,7 +1020,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
       return tierBadge("commit", how, "可复现", "reproducible") +
         (failed ? ` <span class="badge bad" title="${failed} of ${checked} rounds did not reproduce from the onchain features">reproduce failed</span>` : "");
     }
-    return tierBadge("commit", "committed before the deadline; no proof of which model made it", "仅提交", `commit-only · ${a.forecast_source ?? "?"}`);
+    return tierBadge("commit", "committed before the deadline; black-box tier, the model is not required to be disclosed", "仅提交", `commit-only · ${a.forecast_source ?? "?"}`);
   };
   document.querySelector("h1").textContent = "可验证 AI 预测协议 · Verifiable AI Forecasts";
   const subtitle = (x) => scopeBadge(x) + (x.live === true ? `案例 #1 · ${x.replay.hours} h 主网回放 · ` : "") +
@@ -1088,36 +1100,37 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   let feeCard = "";
   if (fs && rounds.some((r) => r.fee)) {
     const fee = (k) => rounds.map((r) => r.fee?.[k] ?? null);
+    // Drawing order puts the forecast on top; the baselines stay thin and grey so they read as context, not rivals.
     const feeSeries = [
-      { name: "fair LVR fee", color: "#1b1a17", width: 2.5, values: fee("fair_bps") },
-      { name: "fixed 5 bps", color: "#8a8170", dash: "6 4", values: fee("fixed_bps") },
-      { name: "prev-hour RV", color: "#e8590c", values: fee("prev_hour_bps") },
-      { name: "forecast (on-chain)", color: "#1d3fc4", values: fee("forecast_bps") },
+      { name: "对比基线：固定 5 bps · baseline fixed 5 bps", tipName: "固定 fixed", color: "#a8a194", width: 1.4, dash: "2 3", values: fee("fixed_bps") },
+      { name: "对比基线：上一小时 RV · baseline prev-hour RV", tipName: "上一小时 prev-hour", color: "#7d776c", width: 1.4, values: fee("prev_hour_bps") },
+      { name: REF_FEE, tipName: "事后参照 hindsight", color: "#3a3630", width: 2, values: fee("fair_bps") },
+      { name: glue("预测驱动费率（本协议输出） · forecast-driven fee"), tipName: "预测驱动 forecast", color: "#d8431b", width: 3, dash: "7 4", values: fee("forecast_bps") },
     ];
-    const strategies = [["fixed", "fixed 5 bps", "fixed"], ["prev_hour", "prev-hour RV", "prev_hour"],
-                        ["forecast", "forecast (on-chain)", "forecast"]];
-    const best = lowestFee(fs).mae;
-    const tiles = strategies.map(([k, name, meanKey], i) => {
-      const mae = fs.mae_bps[k], win = mae === best;
-      return `<div class="fee-tile${win ? " best" : ""}"><div class="sub"><span class="nowrap">${swatch(feeSeries[i + 1].color, feeSeries[i + 1].dash)}
-        ${name}</span></div><div><span class="fee-mae" data-mae="${k}">${mae.toFixed(2)}</span> <span class="sub">bps MAE</span>
-        ${win ? `<span class="badge ok">lowest</span>` : ""}</div><div class="sub">mean ${fs.mean_bps[meanKey].toFixed(2)} bps</div></div>`;
-    }).join("");
+    const byName = (re) => feeSeries.find((s) => re.test(s.name));
+    const strategies = [["forecast", "预测驱动费率（本协议） · forecast", byName(/forecast/)],
+                        ["fixed", "对比基线：固定 5 bps", byName(/fixed/)], ["prev_hour", "对比基线：上一小时 RV", byName(/prev-hour/)]];
+    const tiles = strategies.map(([k, name, s]) => `<div class="fee-tile${k === "forecast" ? " main" : ""}"><div class="sub"><span class="nowrap">${swatch(s.color, s.dash)}
+        ${name}</span></div><div><span class="fee-mae" data-mae="${k}">${fs.mae_bps[k].toFixed(2)}</span> <span class="sub">bps 偏离参照 MAE</span></div>
+        <div class="sub">mean ${fs.mean_bps[k].toFixed(2)} bps</div></div>`).join("");
+    const ref = byName(/fair/);
     const fallback = fs.equal_weight_fallback_rounds ? ` ${fs.equal_weight_fallback_rounds} of ${fs.rounds} rounds used the equal-weight fallback.` : "";
-    const feeTitle = "AMM 能用它定手续费吗？ Forecast-driven fee vs fair LVR fee (bps)";
+    const feeTitle = "AMM 能用它定手续费吗？ Forecast-driven fee vs hindsight fair LVR fee (bps)";
     const low = lowestFee(fs);
     feeCard = card(feeTitle,
-      `<p class="takeaway" style="margin-top:0">预测驱动费率误差 <b>${fs.mae_bps.forecast.toFixed(2)}</b> bps，固定 ${fs.mean_bps.fixed} bps 为
-      <b>${fs.mae_bps.fixed.toFixed(2)}</b> bps：${low.key === "forecast" ? "预测驱动费率误差最小。"
-        : `暂未赢过${low.key === "fixed" ? "固定费率" : low.key.replace("_", " ")}（如实展示）。`}</p>` +
+      `<p class="takeaway" style="margin-top:0">越贴近参照线越好；参照线要等这一小时结束才算得出，事前只能用下面三种可用策略。
+      预测驱动费率偏离参照 <b>${fs.mae_bps.forecast.toFixed(2)}</b> bps，固定 ${fs.mean_bps.fixed} bps 为
+      <b>${fs.mae_bps.fixed.toFixed(2)}</b> bps，上一小时 RV 为 <b>${fs.mae_bps.prev_hour.toFixed(2)}</b> bps：${low.key === "forecast" ? "预测驱动费率最贴近参照。"
+        : `暂未赢过${low.key === "fixed" ? "固定费率" : "上一小时 RV"}（如实展示）。`}</p>` +
       lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), label: chartLabel(feeTitle, feeSeries) }) +
-      `<div class="fee-tiles"><div class="fee-tile"><div class="sub"><span class="nowrap">${swatch(feeSeries[0].color)} fair LVR fee</span></div>
+      `<div class="fee-tiles"><div class="fee-tile ref"><div class="sub"><span class="nowrap">${swatch(ref.color)} 参照线 · reference</span></div>
         <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div>
-        <div class="sub">reference</div></div>${tiles}</div>
-      <div class="sub" style="margin-top:8px">LVR（loss-versus-rebalancing）是套利者从 LP 身上拿走的损失；公平费率 = 刚好补偿这部分损失的费率，
-      各策略离它越近越好。Fair = LVR break-even fee σ²/8 × 2L√P ÷ the hour's real mainnet volume.
+        <div class="sub">${REF_FEE}</div></div>${tiles}</div>
+      <div class="sub" style="margin-top:8px">LVR（loss-versus-rebalancing）是套利者从 LP 身上拿走的损失；参照线 = 事后看刚好补偿这一小时 LVR 的费率，
+      不是一种策略。参照线假设成交量不受费率影响，只衡量 LP 能否抵消 LVR（盈亏平衡），不是让 LP 收益最大的费率。
+      Hindsight fair fee = LVR break-even fee σ²/8 × 2L√P ÷ the hour's real mainnet volume; it assumes volume does not react to the fee.
       The forecast fee is computed and recorded on-chain by VolFeeConsumer each round before startTime from the revealed,
-      ERC-8004 reputation-weighted forecasts.${fallback} MAE against the fair fee over ${fs.rounds} rounds. Simulated: no real pool fee changes.</div>`,
+      ERC-8004 reputation-weighted forecasts.${fallback} MAE against the hindsight reference over ${fs.rounds} rounds. Simulated: no real pool fee changes.</div>`,
       "wide", "fee-card");
   }
 
@@ -1371,7 +1384,7 @@ function playerBody(d) {
     const shares = f.mirror?.weights?.length !== d.agents.length ? "" : (STATE.model?.rounds[STATE.round]?.agents ?? [])
       .filter((a) => a.weight > 0).map((a) => `<span class="nowrap">${a.name} ${(a.share * 100).toFixed(1)}%</span>`).join(" · ");
     return `<div class="pl-big">${f.forecast_bps.toFixed(2)} <span>bps 手续费</span></div>
-      <p>事后公允费率 ${f.fair_bps.toFixed(2)} bps · 误差 <b>${e.toFixed(2)}</b> vs 固定 ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
+      <p>事后最优费率（参照，事前无法得到）${f.fair_bps.toFixed(2)} bps · 误差 <b>${e.toFixed(2)}</b> vs 固定 ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
         ${e <= ef ? ok("本轮优于固定") : mute("本轮固定更近")}</p>
       <p class="pl-src dim">${f.mirror?.equal_weight_fallback ? "声誉权重尚未形成 → 等权混合" : `声誉权重 ${shares || "—"}`}
         <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>`;
@@ -1656,7 +1669,7 @@ function flowFrame(now) {
     ctx.fillText(`${r.fee.toFixed(2)} bps`, g.fx - (g.narrow ? 8 : 0), g.fy + g.fr + (g.narrow ? 14 : 18));
     ctx.font = `${g.narrow ? 9.5 : 11}px ${FONT_MONO}`;
     ctx.fillStyle = "#57524a";
-    ctx.fillText(`fair ${r.fair.toFixed(2)}`, g.fx - (g.narrow ? 8 : 0), g.fy + g.fr + (g.narrow ? 30 : 37));
+    ctx.fillText(`事后参照 ${r.fair.toFixed(2)}`, g.fx - (g.narrow ? 8 : 0), g.fy + g.fr + (g.narrow ? 30 : 37));
   }
   ctx.fillStyle = "#57524a"; ctx.font = `${g.narrow ? 9.5 : 11}px ${FONT_MONO}`;
   ctx.fillText("fee", g.fx, g.fy - g.fr - 10);
@@ -1780,13 +1793,15 @@ function usesCard() {
 
 function tiersCard(agents, tierOf) {
   const n = (t) => agents.filter((a) => tierOf(a) === t).length;
-  const tier = (cls, title, count, body) => `<div class="tier${count ? "" : " off"}"><h3>${title}<span class="badge ${cls}">${count ? `${count} 个 agent` : "路线图"}</span></h3>${body}</div>`;
+  const tier = (cls, title, count, body, bond) => `<div class="tier${count == null ? " off" : ""}"><h3>${title}<span class="badge ${cls}">${count == null ? "路线图" : `${count} 个 agent`}</span></h3>
+    <p>${body}</p><p class="bond"><b>押金</b> ${bond} <span class="tag">设计（未实现）</span></p></div>`;
   return `<section class="card wide" id="tiers"><h2>验证档位 · Verification tiers</h2><div class="tiers" style="margin-top:0">
-      ${tier("zk", "zk 证明", n("zk"), "证明“这个输出来自注册的这个模型 + 链上这组输入”。小模型，链上验证。")}
-      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每桶误差 ≤ 0.001（容差复核；提交先于结果）。")}
-      ${tier("commit", "仅提交", n("commit-only"), "只证明“事前提交、没改过”，不证明是哪个模型。闭源模型也能参赛。")}
-      ${tier("commit", "TEE", 0, "可信硬件远程证明，未实现。")}
-    </div></section>`;
+      ${tier("zk", "zk 证明", n("zk"), "证明“这个输出来自注册的这个模型 + 链上这组输入”。小模型，链上验证。", "无（出处由证明保证）")}
+      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每桶误差 ≤ 0.001（容差复核；提交先于结果）。", "有，复算对不上就扣（接上 opML 式挑战后链上执行）")}
+      ${tier("commit", "仅提交", n("commit-only"), "黑盒：本来就不要求公开策略或模型，只公开每轮预测；预测在事前定下、没改过。闭源模型也能参与。", "有，防开很多号只留运气好的")}
+      ${tier("commit", "opML", null, "乐观验证：公开模型与输入，有人质疑时链上挑战复算；不阻塞每轮结算。", "有，被挑战且复算对不上就扣")}
+      ${tier("commit", "TEE", null, "可信硬件远程证明，适合权重不公开的模型。", "无（硬件证明，需信任厂商）")}
+    </div><p class="tiers-rule">所有档共用：不公开的轮次按最低分记入信誉；三档分成相同，档位只标注出处，权重由消费方决定。（设计，未实现；详见 docs/ARCHITECTURE.md 第 9 节）</p></section>`;
 }
 
 load().then((x) => {
