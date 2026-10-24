@@ -155,7 +155,7 @@ const ACCENT = "rgb(29, 63, 196)";
     check(bondTag(/可复现/).includes("乐观挑战已实现，裁决暂由仲裁方"), `${at}: reproducible bond names the implemented optimistic challenge`);
     const commit = t.cells[idx(/仅提交/)];
     check(!!commit && !/不证明是哪个模型|冒用|无法证明/.test(commit.text), `${at}: commit-only not described as unable to prove provenance (${commit?.text})`);
-    check(t.text.includes("所有档共用：不公开的轮次按最低分记入信誉；三档分成相同，档位只标注出处，权重由消费方决定。（合约已实现，本演示未启用押金门槛；详见 docs/ARCHITECTURE.md 第 9 节）"),
+    check(t.text.includes("所有档共用（已实现）：提交后未揭示的轮次按本轮最差可揭示损失记入 ERC-8004 声誉和累计超额；三档分成规则相同，档位只标注出处，权重由消费方决定。ForecasterBond 合约已实现押金、未揭示罚没与挑战罚没（挑战由指定仲裁方裁决，需信任仲裁方）；本演示未启用押金门槛。详见 docs/ARCHITECTURE.md 第 9 节。"),
           `${at}: shared-rule line present`);
     const tierOf = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
     for (const [k, re] of [["zk", /zk/], ["reproducible", /可复现/], ["commit-only", /仅提交/]]) {

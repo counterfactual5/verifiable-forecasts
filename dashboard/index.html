@@ -1179,7 +1179,7 @@ function nowcastHtml(d, agents, tierOf) {
       Left: consensus fan (light = ${band} interval, dark = 50% interval, dashed = consensus median), thin lines = each agent's forecast median,
       black line = realized RV settled on-chain; pick an agent in the legend to see its own intervals. Right: the current hour, one glyph per agent, not yet settled.</div>
     ${scrollTable(`<tr><th>Agent</th><th>档位</th><th class="num">中位数 · 区间 (tick²)</th></tr>${rows}`, 420)}
-    <div class="sub"><b>演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（无许可）。</b></div></section>`;
+    <div class="sub"><b>演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（模型注册需 owner 批准）。</b></div></section>`;
 }
 
 function heroHtml(d, nowcast = "", live = d) {
@@ -1463,7 +1463,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
     <div class="sub">${p.predictor_share_bps / 100}% of each round's fee goes to ${v2
       ? "that round's forecasters pro rata to their positive cumulative excess (Σ baseline loss − own loss over all rounds so far, an unrevealed commit counting at the worst loss); if nobody is above zero the owner keeps it"
       : "forecasters above the uniform baseline, pro rata to their excess log score"}.</div>
-    ${v2 ? `<div class="sub"><b>按至今累计超额分，输的轮会扣掉累计。</b>只赢几轮大的、其余轮次输的 agent，累计超额 ≤ 0 时一分不拿；没人押中结果的轮次全额退款、没有手续费可分。
+    ${v2 ? `<div class="sub"><b>按至今累计超额分，输的轮会扣掉累计。</b>只赢几轮大的、其余轮次输的 agent，累计超额 ≤ 0 时一分不拿。资金流向：下注池 → 抽取手续费 → 预测者份额按正累计超额分给本轮预测者，其余归 owner；作废或无人押中的轮次全额退款、不抽费。
     Fee share follows cumulative excess to date: losing rounds subtract from it, so a few big wins cannot outweigh steady losses.</div>` : ""}`, "wide");
 
   const tamper = Object.fromEntries((d.tamper_checks ?? []).map((t) => [t.agent, t]));
@@ -1527,7 +1527,7 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   const head = (cols) => `<tr><th>Agent · ERC-8004 ${link(d.contracts.erc8004_reputation)}</th>${cols.map((c) => `<th class="num">${c}</th>`).join("")}</tr>`;
   const agentsHead = v2
     ? `<p class="takeaway" style="margin-top:0">平均分位数损失越低越准（ln RV 单位）；气候基线 ${s.baseline_mean_pinball_loss != null ? s.baseline_mean_pinball_loss.toFixed(3) : "–"}。
-    损失低于基线的 agent 按超额（基线损失 − 自身损失）分走预测者手续费，得分（= −损失）同时写入 ERC-8004 声誉。</p>` + roundsNote + scrollTable(
+    累计超额（Σ 基线损失 − 自身损失，未揭示按最差损失计）为正的 agent，按累计超额比例分走该轮预测者手续费；无人为正时归 owner。得分（= −损失）同时写入 ERC-8004 声誉。</p>` + roundsNote + scrollTable(
       head(["平均分位数损失（越低越好）", "相对气候基线（+ = 优于基线）", `跑赢基线 x/${nScored}`, "分到手续费 (WETH)"]) +
       `<tr class="agent-baseline"><td class="sub">气候基线 · climatology baseline</td><td class="num">${s.baseline_mean_pinball_loss != null ? s.baseline_mean_pinball_loss.toFixed(3) : "–"}</td>
       <td class="num">0</td><td class="num">–</td><td class="num">–</td></tr>${agentRows}`, 640)
@@ -1753,7 +1753,7 @@ function playerBody(d) {
   })();
   const stage = (k, n, zh, en, body) => `<li class="pl-stage" data-stage="${k}"><div class="pl-h"><span class="n">${n}</span>${zh}<span class="en">${en}</span></div><div class="pl-b">${body}</div></li>`;
   return `<ol class="pl-stages">
-    ${stage(1, "①", "提交", "commit", `<p class="dim">哈希提交截止 ${hms(r.start - p.commit_lead_s)}（开窗前 ${p.commit_lead_s}s），揭示截止开窗前 ${p.reveal_lead_s}s</p><ul>${commit}</ul>`)}
+    ${stage(1, "①", "提交", "commit", `<p class="dim">哈希提交截止 ${hms(r.start - p.commit_lead_s)}（开窗前 ${p.commit_lead_s}s），揭示截止开窗前 ${p.reveal_lead_s}s</p><ul>${commit}</ul>${isV2(d) ? `<p class="pl-src dim">未在揭示截止前公开：本轮按最差损失记信誉与累计超额。</p>` : ""}`)}
     ${stage(2, "②", "证明", "prove", `<ul>${prove}</ul>${d.tamper_checks?.length ? `<p class="pl-src dim">verifyProof gas 与篡改检查为回放第 0 轮实测</p>` : ""}`)}
     ${stage(3, "③", "结算", "settle", settle)}
     ${stage(4, "④", "被使用", "use", use)}</ol>`;
@@ -2216,7 +2216,7 @@ function pageHeads(d, live = d) {
       p ? [stat(`${entered}/${live.agents.length}`, "agent 已提交"), stat(live.rounds.length, " 小时已结算")] : [])
     + head("rounds", "一轮从提交到被使用", `案例 #1 的 ${rounds.length} 个真实主网小时在 fork 上逐轮回放：选一个小时，看提交、证明、结算和被使用依次发生。`,
       [stat(`${s.settled}/${s.rounds}`, "轮已结算")])
-    + head("agents", "预测者与信誉", "任何预测者都可以无许可参与：在 ERC-8004 注册身份，按三档之一证明预测的来历，得分由合约写进链上声誉。案例 #1 里是 6 个示例 agent。", [])
+    + head("agents", "预测者与信誉", "预测者经市场 owner 注册模型（registerModel 仅 owner 可调），绑定 ERC-8004 身份后按三档之一证明预测来历，得分由合约写进链上声誉。案例 #1 里是 6 个示例 agent。", [])
     + head("fee", "消费方示例 · AMM 动态手续费", fs
       ? `协议的输出要有人用。案例 #1 的消费方 VolFeeConsumer 按 ERC-8004 声誉加权各 agent 的预测，每小时开始前在链上算出推荐手续费。
         Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；按它真正收费的是 Uniswap V4 动态手续费 hook VolFeeHook，${hookStatus(d, live)}；未部署主网、未审计。`
@@ -2280,7 +2280,7 @@ function tiersCard(agents, tierOf) {
       ${tier("commit", "仅提交", n("commit-only"), "黑盒：本来就不要求公开策略或模型，只公开每轮预测；预测在事前定下、没改过。闭源模型也能参与。", "有，防开很多号只留运气好的", BOND_TAG)}
       ${tier("commit", "opML", null, "乐观验证：公开模型与输入，有人质疑时链上挑战复算；不阻塞每轮结算。", "有，被挑战且复算对不上就扣", "路线图")}
       ${tier("commit", "TEE", null, "可信硬件远程证明，适合权重不公开的模型。", "无（硬件证明，需信任厂商）", "路线图")}
-    </div>${zkModels}<p class="tiers-rule">所有档共用：不公开的轮次按最低分记入信誉；三档分成相同，档位只标注出处，权重由消费方决定。（合约已实现，本演示未启用押金门槛；详见 docs/ARCHITECTURE.md 第 9 节）</p></section>`;
+    </div>${zkModels}<p class="tiers-rule">所有档共用（已实现）：提交后未揭示的轮次按本轮最差可揭示损失记入 ERC-8004 声誉和累计超额；三档分成规则相同，档位只标注出处，权重由消费方决定。ForecasterBond 合约已实现押金、未揭示罚没与挑战罚没（挑战由指定仲裁方裁决，需信任仲裁方）；本演示未启用押金门槛。详见 docs/ARCHITECTURE.md 第 9 节。</p></section>`;
 }
 
 load().then((x) => {
