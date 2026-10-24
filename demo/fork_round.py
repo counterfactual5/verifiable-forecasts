@@ -74,7 +74,7 @@ from vol_agents.ezkl_step import OUT as AGENTS_OUT
 REPO = Path(__file__).resolve().parent.parent
 RESULT = REPO / "demo" / "out" / "fork_replay.json"
 LIVE_RESULT = REPO / "dashboard" / "live-replay.json"
-LIVE_HOURS = 12
+LIVE_HOURS = 24
 # A copy of every live result, outside the served dashboard/ and kept by deploy/push.sh (demo/out/
 # is excluded from its rsync). About 125 KB a run: 720 hourly copies (30 days) stay under 100 MB.
 LIVE_ARCHIVE = REPO / "demo" / "out" / "live-archive"

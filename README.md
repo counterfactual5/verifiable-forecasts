@@ -190,15 +190,17 @@ zero-shot timestral-209m (a general time-series model, not trained on this pool)
 See [`docs/DEMO.md`](docs/DEMO.md) for the step-by-step script, Etherscan links per round and the
 recording outline.
 
-## Live mode: the most recent 12 hours, re-forked every hour
+## Live mode: the most recent 24 hours, re-forked every hour
 
 Live dashboard: <https://verifiable.llm.christmas/> (fallback without DNS:
 <http://198.11.181.13/vf/>). A small server runs `demo/live.sh` hourly at HH:07 UTC
-(`deploy/vf-live.timer`): it forks Ethereum mainnet at a fresh block and replays the 12 most recent
+(`deploy/vf-live.timer`): it forks Ethereum mainnet at a fresh block and replays the 24 most recent
 completed mainnet hours exactly like the 24-hour demo above (real pool ticks, real Chainlink
 reports, commit, reveal with EZKL proofs, settle on the real realized vol, `VolFeeConsumer` fee),
 then writes `dashboard/live-replay.json` with `"live": true`. The dashboard shows when it was last
-updated and when the next run starts, and warns when the file is older than 2 hours.
+updated and when the next run starts, and warns when the file is older than 2 hours. Only the
+实时预测 view (`#/live`) reads the live file; every other view reads the fixed 24-hour replay
+`dashboard/sample-replay.json` (labelled 固定回放), so its numbers stay those quoted above.
 
 - It is still a local fork: nothing is broadcast, bets come from two scripted accounts with fork
   test funds, and reputation restarts with each fork (it accumulates over the 12 replayed hours).

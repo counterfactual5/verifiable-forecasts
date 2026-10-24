@@ -419,7 +419,11 @@
   .pipe li:nth-child(even) .ico { --c: var(--vermil); }
   .pipe li b .en { display: block; margin-top: 2px; font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
   .pipe .goto { margin-top: 8px; }
-  .scope-note { margin: 14px 0 0; padding-top: 10px; border-top: 1px dashed var(--line-2); }
+  .uses-lead { margin: 0 0 14px; max-width: 980px; }
+  .uses { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 12px; }
+  .uses li { padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--line-2); background: var(--panel-2); font-size: 13px; color: var(--muted); }
+  .uses h3 { margin: 0 0 6px; font: 700 15px/1.3 var(--display); color: var(--text); display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+  .badge.scope { background: #e3e8fa; color: var(--accent); font-weight: 600; flex-wrap: wrap; row-gap: 0; max-width: 100%; border-radius: 8px; }
   /* ---------- protocol hero + case #1 ---------- */
   .flowline { display: flex; flex-wrap: wrap; gap: 4px 0; max-width: 1180px; }
   .flowline span { white-space: nowrap; }
@@ -524,18 +528,25 @@ async function load() {
     try { r = await fetch(param, { cache: "no-store" }); }
     catch (_) { throw new Error(`Could not load ?data=${param}: network error`); }
     if (!r.ok) throw new Error(`Could not load ?data=${param}: HTTP ${r.status}`);
-    try { return { data: await r.json(), src: param }; }
+    let data;
+    try { data = await r.json(); }
     catch (_) { throw new Error(`Could not load ?data=${param}: invalid JSON`); }
+    return { data, src: param, live: { data, src: param } };
   }
-  const sources = ["live-replay.json", "../demo/out/fork_replay.json", "sample-replay.json",
-                   "../demo/out/fork_round.json", "sample-round.json"];
-  for (const src of sources) {
-    try {
-      const r = await fetch(src, { cache: "no-store" });
-      if (r.ok) return { data: await r.json(), src };
-    } catch (_) { /* try the next source */ }
-  }
-  throw new Error("No round data found. Run `bash demo/run.sh`, or serve the repo root over HTTP.");
+  const first = async (sources) => {
+    for (const src of sources) {
+      try {
+        const r = await fetch(src, { cache: "no-store" });
+        if (r.ok) return { data: await r.json(), src };
+      } catch (_) { /* try the next source */ }
+    }
+    return null;
+  };
+  // The fixed 24 h replay (the numbers the deck quotes) drives every view except #/live, which reads the hourly live file.
+  const live = await first(["live-replay.json"]);
+  const fixed = await first(["sample-replay.json", "../demo/out/fork_replay.json", "../demo/out/fork_round.json", "sample-round.json"]) ?? live;
+  if (!fixed) throw new Error("No round data found. Run `bash demo/run.sh`, or serve the repo root over HTTP.");
+  return { ...fixed, live: live && live.data.schema === fixed.data.schema ? live : fixed };
 }
 
 function segmentChart(fork, real, label) {
@@ -782,7 +793,12 @@ function liveBadge(d) {
     return `<span class="badge warn" id="live-badge">⚠ 实时数据已过期 · 最近更新&nbsp;${when.replace(/\s+/g, "&nbsp;")}（${Math.floor(age / 3600)}&nbsp;小时前）<span class="en"><span class="sep"> · </span>live data stale</span></span> `;
   }
   const next = d.next_run_at ? ` · 下一轮约&nbsp;${hm(d.next_run_at)}` : "";
-  return `<span class="badge live" id="live-badge">LIVE · 最近更新&nbsp;${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
+  return `<span class="badge live" id="live-badge">实时 · 每小时更新 · 最近更新&nbsp;${hm(d.generated_at)}${next}<span class="en"><span class="sep"> · </span>re-forked from mainnet hourly</span></span> `;
+}
+function scopeBadge(d) {
+  if (d.live === true) return liveBadge(d);
+  const at = new Date(d.generated_at * 1000).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  return `<span class="badge scope"><span>固定回放 · 过去 ${d.replay.hours} 小时主网</span><span>（生成时间 ${at}）</span></span> `;
 }
 
 // recompute_tolerance is on the 1e18 probability scale.
@@ -897,17 +913,17 @@ function nowcastHtml(d, agents, tierOf) {
     <div class="sub"><b>演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（无许可）。</b></div></section>`;
 }
 
-function heroHtml(d, nowcast = "") {
-  return `${pageHeads(d)}
+function heroHtml(d, nowcast = "", live = d) {
+  return `${pageHeads(d, live)}
     <div data-v="overview"><p class="claim">可验证 AI 预测协议</p>
     <p class="claim-en flowline"><span>AI 预测者<em>先提交</em>哈希</span><span>再<em>证明</em>预测来自声明的模型</span><span>按<em class="v">真实结果</em>链上结算</span><span>得分写入 <em>ERC-8004 信誉</em></span><span>被<em>消费方</em>按信誉加权使用</span></p></div>
-    ${caseCard(d)}${nowcast.replace("<section ", `<section data-v="live" `)}${flowCard(d)}${playerCard(d)}`;
+    ${caseCard(d, live)}${nowcast.replace("<section ", `<section data-v="live" `)}${flowCard(d)}${playerCard(d)}`;
 }
 
 // Case #1 on the overview: what is forecast, where settlement data comes from, and one line on the hour in progress.
-// The full nowcast chart lives only on the Live view.
-function caseCard(d) {
-  const b = d.params.bounds, pr = d.pending_round, c = d.contracts, n = d.agents.length;
+// The full nowcast chart lives only on the Live view; the hour in progress comes from the live file, the KPIs from d.
+function caseCard(d, live = d) {
+  const b = live.params.bounds, pr = live.pending_round, c = d.contracts, n = d.agents.length;
   const tier = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
   const cnt = (t) => d.agents.filter((a) => tier(a) === t).length;
   const tiers = [["zk", "zk"], ["reproducible", "可复现"], ["commit-only", "仅提交"]].filter(([k]) => cnt(k)).map(([k, zh]) => `${cnt(k)} ${zh}`).join(" · ");
@@ -926,9 +942,9 @@ function caseCard(d) {
       <rect x="${x(q[1]).toFixed(1)}" y="8" width="${(x(q[3]) - x(q[1])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".45"/>
       <line x1="${x(q[2]).toFixed(1)}" x2="${x(q[2]).toFixed(1)}" y1="4" y2="${H - 4}" stroke="var(--vermil)" stroke-width="3" stroke-linecap="round"/></svg>`;
     const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
-    snap = `<div class="cs-snap" id="case-snap"><span class="cs-k">当前小时</span><b>${hour}</b><span class="badge warn">待结算</span>
+    snap = `<div class="cs-snap" id="case-snap"><span class="cs-k">实时 · 当前小时</span><b>${hour}</b><span class="badge warn">待结算</span>
       <span class="nc-cd">剩 <b class="cd" data-end="${pr.end}"></b></span>
-      <span><b>${entered.length}/${n}</b> 已提交</span>
+      <span><b>${entered.length}/${live.agents.length}</b> 已提交</span>
       <span class="cs-k">${m?.equal_weight_fallback ? "等权共识" : "声誉加权共识"}</span>
       <span class="cs-q">中位数 <b>${fmt(q[2])}</b> tick² · 50% ${fmt(q[1])}–${fmt(q[3])}</span>${bar}
       <a class="goto" href="#/live">看实时预测 →</a></div>`;
@@ -947,7 +963,7 @@ function caseCard(d) {
       ${item("预测者", `<a href="#/agents">${n} 个示例 agent</a>（${tiers}）`)}
       ${item("消费方", `<a href="#/fee">VolFeeConsumer 计算推荐 AMM 手续费</a>`)}</dl>
     ${snap}
-    <div class="kpis"><div class="eyebrow cs-kh">案例 #1 · ${d.rounds.length} 小时主网回放成绩</div>${summaryLine(d)}</div></section>`;
+    <div class="kpis"><div class="eyebrow cs-kh">案例 #1 · ${d.live === true ? "实时" : "固定"}回放 · ${d.rounds.length} 小时主网成绩</div>${summaryLine(d)}</div></section>`;
 }
 
 const ICONS = {
@@ -958,12 +974,15 @@ const ICONS = {
   amm: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 3.5v17h17"/><path d="M6.5 5c.6 7.6 4.8 11.8 13 12.4"/><circle cx="10.6" cy="12.6" r="1.7" fill="currentColor"/><path d="M15 6.5h4.5M17.25 4.25v4.5"/></svg>`,
 };
 
-function renderReplay({ data: d, src }) {
+function renderReplay({ data: d, src, live = { data: d, src } }) {
   CHARTS.length = 0;
   const p = d.params, names = BUCKET_NAMES(p.bounds), s = d.summary, rp = d.replay;
   const rounds = d.rounds, labels = rounds.map((r) => r.window_utc[0].slice(11, 16));
   const agents = d.agents.map((a, i) => ({ ...a, color: PALETTE[i % PALETTE.length], sum: s.agents[a.agent],
     forecast_source: a.forecast_source ?? rounds[0]?.agents[a.agent]?.forecast_source }));
+  const L = live.data, split = L !== d;
+  const lagents = L.agents.map((a, i) => ({ ...a, color: agents.find((x) => x.agent === a.agent)?.color ?? PALETTE[i % PALETTE.length],
+    sum: L.summary.agents[a.agent] }));
   const uniform = p.baseline_log_score_float;
   const card = (title, html, cls = "", id = "") =>
     `<section${id ? ` id="${id}"` : ""} class="card ${cls}"><h2>${title}</h2>${html}</section>`;
@@ -992,9 +1011,11 @@ function renderReplay({ data: d, src }) {
     return tierBadge("commit", "committed before the deadline; no proof of which model made it", "仅提交", `commit-only · ${a.forecast_source ?? "?"}`);
   };
   document.querySelector("h1").textContent = "可验证 AI 预测协议 · Verifiable AI Forecasts";
-  document.getElementById("subtitle").innerHTML = liveBadge(d) +
-    `案例 #1 · ${rp.hours} h 主网回放${d.live === true ? "（实时）" : ""} · ${d.network} · fork block ${blockLink(d.fork_block)} · ` +
-    `${s.settled} settled, ${s.voided ? `<span class="badge bad">${s.voided} voided</span>` : "0 voided"}`;
+  const subtitle = (x) => scopeBadge(x) + (x.live === true ? `案例 #1 · ${x.replay.hours} h 主网回放 · ` : "") +
+    `${x.network} · fork block ${blockLink(x.fork_block)} · ` +
+    `${x.summary.settled} settled, ${x.summary.voided ? `<span class="badge bad">${x.summary.voided} voided</span>` : "0 voided"}`;
+  document.getElementById("subtitle").innerHTML = split
+    ? `<span data-v="overview rounds agents fee chain">${subtitle(d)}</span><span data-v="live">${subtitle(L)}</span>` : subtitle(d);
 
   const voidList = Object.entries(s.void_reasons).map(([k, v]) => `${v} × ${k}`).join(", ") || "none";
   const clOk = rp.chainlink_reports.filter((r) => r.ok).length;
@@ -1047,20 +1068,20 @@ function renderReplay({ data: d, src }) {
   const rollCard = card(rollTitle, lineChart(roll, labels, { zero: uniform, max: 0, rankLegend: true, label: chartLabel(rollTitle, roll) }) +
     `<div class="sub">最近 ${W} 轮的平均得分；虚线是瞎猜 ln(1/5)。Dashed line: uniform baseline.</div>`, "wide");
 
-  const pUniform = 1 / (p.bounds.length + 1);
+  const pUniform = 1 / (L.params.bounds.length + 1);
   const pct = (v) => `${(v * 100).toFixed(1)}%`;
   const pwinOf = (r, a) => {
     const ra = r.agents[a.agent];
     return r.outcome.voided || !ra || ra.entered === false || ra.p_win == null ? null : ra.p_win;
   };
-  const pwin = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a), width: 1.8, values: rounds.map((r) => pwinOf(r, a)) }));
+  const pwin = lagents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a), width: 1.8, values: L.rounds.map((r) => pwinOf(r, a)) }));
   const pwinTitle = "每轮押中程度 · Probability on the realized bucket";
   const pwinCard = card(pwinTitle,
-    lineChart(pwin, labels, { zero: pUniform, min: 0, max: 1, rankLegend: true, fmt: (v) => `${Math.round(v * 100)}%`, tip: pct,
-      label: chartLabel(pwinTitle, pwin) }) +
+    lineChart(pwin, L.rounds.map((r) => r.window_utc[0].slice(11, 16)), { zero: pUniform, min: 0, max: 1, rankLegend: true,
+      fmt: (v) => `${Math.round(v * 100)}%`, tip: pct, label: `${pwinTitle}: ${pwin.map((x) => x.name).join(", ")}, ${L.rounds.length} rounds` }) +
     `<div class="sub">每轮各 agent 给真实结果所在档位的概率（p_win，开窗前揭示）；虚线 = 瞎猜每档 ${pct(pUniform)}，
     点在虚线之上 = 这一轮比瞎猜更准。每轮得分 = ln p_win。真实 RV 见上方实时预测图。
-    Each agent's revealed probability on the bucket that actually happened; dashed line: uniform 1/${p.bounds.length + 1}.
+    Each agent's revealed probability on the bucket that actually happened; dashed line: uniform 1/${L.params.bounds.length + 1}.
     Above the line = beat uniform that round. Voided rounds are not shown.</div>`, "wide", "pwin-card");
 
   const fs = s.fee_strategies;
@@ -1208,28 +1229,33 @@ function renderReplay({ data: d, src }) {
     <dt>Settlement token</dt><dd>${link(c.settlement_token)} WETH</dd>
     <dt>VolMarket</dt><dd class="mono">${short(c.market)} (fork)</dd></dl>`);
 
-  const mb = rounds.map((r) => r.mainnet).filter(Boolean);
-  document.getElementById("asof").innerHTML = mb.length ? `Ethereum mainnet · blocks <b>${mb[0].block_from.toLocaleString()}–${mb[mb.length - 1].block_to.toLocaleString()}</b> · ${rp.start_utc.slice(0, 10)} → ${rp.end_utc.slice(5, 10)} · replayed on a fork` : "";
+  const asof = (x) => {
+    const mb = x.rounds.map((r) => r.mainnet).filter(Boolean);
+    return mb.length ? `Ethereum mainnet · blocks <b>${mb[0].block_from.toLocaleString()}–${mb[mb.length - 1].block_to.toLocaleString()}</b> · ${x.replay.start_utc.slice(0, 10)} → ${x.replay.end_utc.slice(5, 10)} · replayed on a fork` : "";
+  };
+  document.getElementById("asof").innerHTML = split
+    ? `<span data-v="overview rounds agents fee chain">${asof(d)}</span><span data-v="live">${asof(L)}</span>` : asof(d);
   STATE.data = d;
   if (!STATE.model) STATE.model = flowModel(d, (a) => agents.find((x) => x.agent === a.agent).color);
-  document.getElementById("hero").innerHTML = heroHtml(d, nowcastHtml(d, agents, tierOf));
+  document.getElementById("hero").innerHTML = heroHtml(d, nowcastHtml(L, lagents, tierOf), L);
   nowcastTick();
-  if (d.pending_round && !STATE.nowcastTimer) STATE.nowcastTimer = setInterval(nowcastTick, 1000);
+  if (L.pending_round && !STATE.nowcastTimer) STATE.nowcastTimer = setInterval(nowcastTick, 1000);
   FLOW.canvas = null;
   flowKick();
   const app = document.getElementById("app");
   app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
   // Every view needs a visible .card.wide: charts take their width from it.
   const v = (view, html) => html.replace(/^\s*<(section|div)/, `<$1 data-v="${view}"`);
-  app.innerHTML = v("overview", howCard()) +
+  app.innerHTML = v("overview", howCard()) + v("overview", usesCard()) +
     v("live", pwinCard) +
     v("rounds", heatCard) + v("rounds", roundsCard) + v("rounds", `<div class="trio">${overview}${bucketCard}</div>`) +
     v("agents", tiersCard(agents, tierOf)) + v("agents", agentsCard) + v("agents", excessCard) + v("agents", rollCard) +
     (feeCard ? v("fee", feeCard) : "") + v("fee", rewardCard) +
     v("chain", feedCard(d)) + v("chain", clCard) + v("chain", `<div class="trio">${contractsCard}</div>`);
   roundListeners.forEach((f) => f());
-  document.getElementById("source").textContent =
-    `Data: ${src} · generated ${d.generated_at ? new Date(d.generated_at * 1000).toISOString() : "?"} · read-only view, no wallet, no writes.`;
+  const gen = (x) => x.generated_at ? new Date(x.generated_at * 1000).toISOString() : "?";
+  document.getElementById("source").textContent = `Data: ${src} · generated ${gen(d)}` +
+    `${split ? ` · 实时预测 / Live: ${live.src} · generated ${gen(L)}` : ""} · read-only view, no wallet, no writes.`;
   document.body.dataset.replay = "1";
   const nav = document.getElementById("nav");
   if (!nav.firstChild) nav.innerHTML = navHtml();
@@ -1700,7 +1726,7 @@ addEventListener("keydown", (e) => {
   if (go >= 0 && go < VIEWS.length) location.hash = `#/${VIEWS[go][0]}`;
 });
 
-function pageHeads(d) {
+function pageHeads(d, live = d) {
   const s = d.summary, rp = d.replay, rounds = d.rounds, fs = s.fee_strategies;
   const stat = (v, l) => `<span><b>${v}</b>${l}</span>`;
   const head = (k, title, lead, stats) => {
@@ -1708,12 +1734,13 @@ function pageHeads(d) {
     return `<div class="pagehead" data-v="${k}"><span class="eyebrow">0${i + 1} / ${VIEWS[i][2]}</span><h2>${title}</h2><p>${lead}</p>
       ${stats.length ? `<div class="stats">${stats.join("")}</div>` : ""}</div>`;
   };
-  const p = d.pending_round, entered = p ? Object.values(p.agents).filter((a) => a.entered).length : 0;
+  const p = live.pending_round, entered = p ? Object.values(p.agents).filter((a) => a.entered).length : 0;
   const mainTx = rp.chainlink_reports.filter((c) => c.mainnet_tx).length + rounds.filter((r) => r.mainnet?.last_swap_tx).length;
   return head("live", "这一小时，各 agent 怎么看？", p
-      ? "案例 #1 的当前小时：预测已在链上提交并公开，要等这一小时结束才结算。每个 agent 的提供方、地址与验证细节见“预测者与信誉”。"
-      : "这份数据不是实时模式：线上 LIVE 模式每小时重新 fork 主网，并为进行中的这一小时开一轮。下面是已结算各小时的押中程度。",
-      p ? [stat(`${entered}/${d.agents.length}`, "agent 已提交")] : [])
+      ? `案例 #1 的当前小时：预测已在链上提交并公开，要等这一小时结束才结算。下方是滚动窗口：最近 ${live.replay.hours} 小时主网，每小时重新 fork 一次、整体更新。
+        每个 agent 的提供方、地址与验证细节见“预测者与信誉”。`
+      : "这份数据不是实时模式：线上实时模式每小时重新 fork 主网，回放最近 24 小时，并为进行中的这一小时开一轮。下面是已结算各小时的押中程度。",
+      p ? [stat(`${entered}/${live.agents.length}`, "agent 已提交"), stat(live.rounds.length, "小时已结算")] : [])
     + head("rounds", "一轮从提交到被使用", `案例 #1 的 ${rounds.length} 个真实主网小时在 fork 上逐轮回放：选一个小时，看提交、证明、结算和被使用依次发生。`,
       [stat(`${s.settled}/${s.rounds}`, "轮已结算")])
     + head("agents", "预测者与信誉", "任何预测者都可以无许可参与：在 ERC-8004 注册身份，按三档之一证明预测的来历，得分由合约写进链上声誉。案例 #1 里是 6 个示例 agent。", [])
@@ -1735,9 +1762,20 @@ function howCard() {
       ${step("settle", "结算", "settle", "窗口结束后合约读结算数据、按 ln p 打分（案例 #1：池子 <span class=\"mono\">observe()</span> 算实际波动率，Chainlink 交叉校验）。", "rounds", "单轮回放")}
       ${step("rep", "信誉", "reputation", "分数由市场合约写入 ERC-8004 声誉；跑赢均匀基线的预测者按超出部分分手续费。", "agents", "预测者与信誉")}
       ${step("amm", "使用", "consume", "消费方按信誉加权读取预测（案例 #1：VolFeeConsumer 计算推荐 AMM 手续费）。", "fee", "消费方示例")}
-    </ol>
-    <p class="sub scope-note">目前合约只实现了案例 #1 这一种结算数据源：Uniswap V3 池的 <span class="mono">observe()</span>（VolMarket 开轮与结算时读取）。
-    其他结算数据源（其他池、预言机报价）和其他消费方（借贷参数、期权定价、Uniswap V4 动态手续费 hook）是可能的后续案例，尚未实现。</p></section>`;
+    </ol></section>`;
+}
+
+function usesCard() {
+  const use = (title, body) => `<li><h3>${title}<span class="badge commit">尚未实现</span></h3>${body}</li>`;
+  return `<section class="card wide" id="usecases"><h2>同一协议还能用在哪 · Other uses</h2>
+    <p class="sub uses-lead">换一个预测目标、结算数据源和消费方，“提交 → 证明 → 结算 → 信誉 → 使用”这条链不变。下面是可能的用法，都还没有做。
+    目前合约只实现了案例 #1 这一种结算数据源：Uniswap V3 池的 <span class="mono">observe()</span>（VolMarket 开轮与结算时读取）。</p>
+    <ul class="uses">
+      ${use("借贷协议", "按预测波动率调整抵押率与清算线：预期波动变大时提前收紧，变小时放宽。")}
+      ${use("期权与波动率金库", "用预测的波动率分布给期权定价，按预测区间调整金库卖出的行权价。")}
+      ${use("保险与协议国库", "按预测设定对冲比例与备付金规模，波动预期高时多留缓冲。")}
+      ${use("Uniswap V4 动态手续费 hook", "把案例 #1 中 VolFeeConsumer 算出的推荐费率真正用于收费；今天只计算、记录与对照，不改池子。")}
+    </ul></section>`;
 }
 
 function tiersCard(agents, tierOf) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One live run: replays the HOURS (default 12) most recent completed mainnet hours on a fresh anvil
+# One live run: replays the HOURS (default 24) most recent completed mainnet hours on a fresh anvil
 # fork (LIVE=1 in demo/fork_round.py) and writes dashboard/live-replay.json. Run hourly by
 # deploy/vf-live.timer on the server; `make live` runs it once locally. Reads MAINNET_RPC_URL,
 # VOL_TSFM_* and optional HOURS from the environment or the repo's .env.
