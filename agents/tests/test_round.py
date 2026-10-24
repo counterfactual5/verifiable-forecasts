@@ -11,6 +11,8 @@ from vol_agents import contract_math as cm
 from vol_agents.chain import DEV_KEYS, Anvil, as_int
 from vol_agents.round import (
     COMPARE,
+    PREDICTION_SIG,
+    SCORING_SIG,
     WINDOW_TICKS,
     commit_all,
     deploy,
@@ -19,7 +21,6 @@ from vol_agents.round import (
     settle_round,
 )
 
-PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)"
 SUMMARY_SIG = "getSummary(uint256,address[],string,string)(int256)"
 FEEDBACK_SIG = "giveFeedback(uint256,int128,uint8,string,string,string,string,bytes32)"
 
@@ -73,21 +74,15 @@ def test_agent_proves_and_submits(submitted):
     c = d.chain
     assert as_int(c.call(d.market, "predictorCount(uint256)(uint256)", rid)[0]) == len(d.agents)
     for a in d.agents:
-        rec, model_id, probs, _ = c.call(
-            d.market,
-            "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)",
-            rid,
-            a.address,
-        )
+        rec, model_id, q, _ = c.call(d.market, PREDICTION_SIG, rid, a.address)
         assert rec is True or rec == "true"
         assert as_int(model_id) == a.model_id
-        probs = [as_int(v) for v in probs]
-        assert sum(probs) == 10**18
+        q = [as_int(v) for v in q]
         sub = d.rounds[rid]["submissions"][a.name]
-        total = sum(sub["outputs"])
-        for got, out, ref in zip(probs, sub["outputs"], sub["onnx_probs"], strict=True):
-            assert got == pytest.approx(out * 10**18 // total, abs=5)
-            assert got / 1e18 == pytest.approx(ref, abs=0.03)
+        assert q == cm.outputs_to_e18(sub["outputs"])
+        assert all(x < y for x, y in zip(q, q[1:], strict=False))
+        for got, ref in zip(q, sub["onnx_quantiles"], strict=True):
+            assert got / 1e18 == pytest.approx(ref, abs=0.02)
         assert a.timings["prove"]["seconds"] < 15 * 60
     a = d.agents[0]
     already_revealed = "0xa89ac151"  # cast sig "AlreadyRevealed()"
@@ -108,15 +103,21 @@ def test_agents_compare_after_round(settled):
     scores = [r["score"] for r in rows]
     assert scores == sorted(scores, reverse=True)
     assert saved["winner"] == rows[0]["agent"]
+    ln_rv, baseline_loss, baseline = d.chain.call(d.market, SCORING_SIG, rid)
+    ln_rv = as_int(ln_rv)
+    assert abs(ln_rv - cm.ln_rv_e18(1225)) < 10**9
+    baseline = [as_int(v) for v in baseline]
+    assert as_int(baseline_loss) == cm.pinball_e18(ln_rv, baseline)
     for r in rows:
         assert r["submitted"] is True
         assert isinstance(r["score"], int)
         onchain = d.chain.call(
-            d.market, "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)", rid,
+            d.market, PREDICTION_SIG, rid,
             next(a.address for a in d.agents if a.name == r["agent"]),
         )
-        assert as_int(onchain[3]) == r["score"]
-        assert -18 * 10**18 <= r["score"] < 0
+        q = [as_int(v) for v in onchain[2]]
+        assert as_int(onchain[3]) == r["score"] == -cm.pinball_e18(ln_rv, q)
+        assert r["score"] <= 0
 
 
 def test_agent_score_written_to_reputation(settled):
@@ -133,7 +134,7 @@ def test_agent_score_written_to_reputation(settled):
                 SUMMARY_SIG,
                 d.agent_ids[a.name],
                 f"[{d.market}]",
-                "logScore",
+                "pinball",
                 "",
             )[0]
         )
@@ -148,7 +149,7 @@ def test_agent_score_written_to_reputation(settled):
         d.agent_ids[a.name],
         123456789,
         18,
-        "logScore",
+        "pinball",
         "vol-300s-12",
         "",
         "",
@@ -160,7 +161,7 @@ def test_agent_score_written_to_reputation(settled):
             SUMMARY_SIG,
             d.agent_ids[a.name],
             f"[{d.market}]",
-            "logScore",
+            "pinball",
             "",
         )[0]
     )
