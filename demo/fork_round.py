@@ -164,6 +164,9 @@ CALIBRATION_HOURS = 24
 # VolFeeConsumer fee bounds in pips (1e-6; 100 pips = 1 bp); the pool's own tier is 500 pips.
 MIN_FEE_PIPS, MAX_FEE_PIPS = 100, 10_000
 FIXED_FEE_PIPS = 500
+# VolFeeConsumer.minRounds: 1 keeps the replay weighting identical to the Python mirror, which
+# has no history floor.
+CONSUMER_MIN_ROUNDS = 1
 VOID_REASONS = {1: "pool tick out of range", 2: "Chainlink answer stale or invalid",
                 3: "Chainlink decimals", 4: "pool price deviates from Chainlink",
                 5: "Chainlink call failed"}
@@ -631,7 +634,8 @@ def forecast_source(agent, sub):
 def deploy_fee_consumer(c, owner, market, fee):
     return c.deploy(owner, "src/VolFeeConsumer.sol:VolFeeConsumer", market, fee["tag1"],
                     fee["tag2_zk"], fee["tag2_commit"], fee["baseline_score_e18"],
-                    fee["fee_per_var_e18"], fee["min_fee_pips"], fee["max_fee_pips"])
+                    fee["fee_per_var_e18"], fee["min_fee_pips"], fee["max_fee_pips"],
+                    CONSUMER_MIN_ROUNDS)
 
 
 def fund_trader(c):

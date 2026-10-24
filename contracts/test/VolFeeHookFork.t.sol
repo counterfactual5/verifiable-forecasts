@@ -128,7 +128,8 @@ contract VolFeeHookForkTest is Test {
             -4e17,
             1e18,
             MIN_FEE,
-            MAX_FEE
+            MAX_FEE,
+            1
         );
         vm.warp(start - REVEAL_LEAD);
         consumer.record(id);
