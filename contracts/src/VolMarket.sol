@@ -7,6 +7,7 @@ import {IHalo2Verifier} from "./interfaces/IHalo2Verifier.sol";
 import {IERC8004Identity} from "./interfaces/IERC8004Identity.sol";
 import {IERC8004Reputation} from "./interfaces/IERC8004Reputation.sol";
 import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
+import {IBondGate} from "./interfaces/IBondGate.sol";
 import {MarketMath} from "./lib/MarketMath.sol";
 import {TickPriceMath} from "./lib/TickPriceMath.sol";
 
@@ -54,6 +55,7 @@ contract VolMarket {
     error NotCommitted();
     error AlreadyRevealed();
     error CommitmentMismatch();
+    error NotBonded();
 
     // ---------------------------------------------------------------- events
     event ModelRegistered(uint256 indexed modelId, address verifier, address operator);
@@ -82,6 +84,7 @@ contract VolMarket {
         uint256 indexed roundId, address indexed predictor, uint256 indexed agentId, bytes32 reason
     );
     event PriceFeedSet(address indexed feed);
+    event BondGateSet(address indexed gate);
     event PriceCheckFailed(uint256 indexed roundId, int24 tick, int256 poolPrice, int256 feedPrice, uint8 reason);
 
     // ---------------------------------------------------------------- types
@@ -189,6 +192,9 @@ contract VolMarket {
     uint256 private constant BPS = 10_000;
     TickPriceMath public immutable tickPriceMath;
     AggregatorV3Interface public priceFeed;
+    /// @dev Bond registry asked before each commit; zero disables the check. Set at most once, so
+    ///      bonded operators cannot have the gate swapped under them.
+    IBondGate public bondGate;
 
     /// @dev Gas cap on each call settle makes to the reputation registry or the price feed: one that
     ///      burns all gas it gets then fails like a reverting one instead of starving settle. Measured
@@ -345,6 +351,14 @@ contract VolMarket {
         emit PriceFeedSet(feed);
     }
 
+    /// @notice Require bonded models for commits; MAX_PREDICTORS slots then cost a bond each.
+    function setBondGate(address gate) external {
+        if (msg.sender != owner) revert NotOwner();
+        if (address(bondGate) != address(0) || gate == address(0)) revert InvalidParams();
+        bondGate = IBondGate(gate);
+        emit BondGateSet(gate);
+    }
+
     function priceForTick(int24 tick) external view returns (uint256) {
         return _priceForTick(tick);
     }
@@ -461,6 +475,7 @@ contract VolMarket {
         if (block.timestamp >= r.startTime - commitLead) revert TooLateToPredict();
         if (modelId >= models.length) revert UnknownModel();
         if (msg.sender != modelOperator[modelId]) revert NotModelOperator();
+        if (address(bondGate) != address(0) && !bondGate.isBonded(modelId)) revert NotBonded();
         Prediction storage p = r.predictions[msg.sender];
         if (p.commitment != bytes32(0)) revert AlreadyPredicted();
         if (r.predictors.length >= MAX_PREDICTORS) revert TooManyPredictors();

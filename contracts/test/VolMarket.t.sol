@@ -11,6 +11,7 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockPool} from "./mocks/MockPool.sol";
 import {MockAggregator} from "./mocks/MockAggregator.sol";
 import {InstanceVerifier} from "./mocks/InstanceVerifier.sol";
+import {MockBondGate} from "./mocks/MockBondGate.sol";
 import {AggregatorV3Interface} from "../src/interfaces/AggregatorV3Interface.sol";
 import {IdentityRegistryLite} from "../src/erc8004/IdentityRegistryLite.sol";
 import {ReputationRegistryLite} from "../src/erc8004/ReputationRegistryLite.sol";
@@ -1164,6 +1165,35 @@ contract VolMarketTest is Test {
         assertEq(excess, 0, "unrevealed: no excess even with loss 0");
         (,,, score) = market.getPrediction(id, bob);
         assertEq(score, -int256(_loss(49, _out(LN49, 300))));
+    }
+
+    // -------- bond gate ---------------------------------------------------
+
+    function test_BondGateRejectsUnbondedCommit() public {
+        _deploy(0);
+        MockBondGate gate = new MockBondGate();
+        market.setBondGate(address(gate));
+        uint256 id = _create();
+        uint256 modelId = market.registerModel(address(0), alice);
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.NotBonded.selector);
+        market.commitPrediction(id, modelId, keccak256("c"));
+        gate.setBonded(modelId, true);
+        vm.prank(alice);
+        market.commitPrediction(id, modelId, keccak256("c"));
+        assertEq(market.predictorCount(id), 1);
+    }
+
+    function test_BondGateSetOnceByOwner() public {
+        _deploy(0);
+        vm.prank(alice);
+        vm.expectRevert(VolMarket.NotOwner.selector);
+        market.setBondGate(address(1));
+        vm.expectRevert(VolMarket.InvalidParams.selector);
+        market.setBondGate(address(0));
+        market.setBondGate(address(1));
+        vm.expectRevert(VolMarket.InvalidParams.selector);
+        market.setBondGate(address(2));
     }
 
     // -------- commit-only models ------------------------------------------
