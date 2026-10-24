@@ -2,7 +2,10 @@
 # Small multiples acceptance: with a vol-replay/v2 replay the rounds view replaces the forecast heat strip
 # with one compact fan per forecaster (reputation-weighted consensus first, then each agent): wide and 50%
 # bands, a median line in the row colour, realized RV as a black line with points, all rows on one hour axis
-# and one log RV scale, vertically aligned, each ending with its interval coverage (matching the JSON).
+# and one log RV scale, vertically aligned, each ending with aligned columns: interval coverage, mean 80% width
+# (geometric mean of q90/q10, "×") and mean pinball loss (summary, "—" for the consensus), matching the JSON.
+# Realized RV is black in the consensus row and thin grey in agent rows; settled hours outside a row's 80%
+# band are larger vermilion dots and their read-out says "outside 80%".
 # Hovering / tapping an hour shows median, bounds and realized RV; clicking a column selects that round.
 # A v1 replay keeps the heat strip. No overflow at 375 / 390 / 1440 px.
 # DASHBOARD_HTML=<file> checks another index.html (fail-first); SHOT_DIR=<dir> saves 1440 / 390 screenshots.
@@ -62,10 +65,13 @@ const cov = (get) => { const xs = hours.filter((x) => x.settled && get(x)), v = 
       const rows = [...document.querySelectorAll("#heat .sm-row[data-row]")];
       return { heat: document.querySelectorAll("#heat .hm i").length, rows: rows.map((r) => {
         const s = r.querySelector("svg"), b = s?.getBoundingClientRect(), p = (c) => r.querySelector(c)?.getAttribute("d") ?? "";
-        const cv = r.querySelector("[data-cov]");
-        return { id: r.dataset.row, left: b?.left, width: b?.width, lo: s?.dataset.lo, hi: s?.dataset.hi, wide: p(".nc-band-wide"), mid: p(".nc-band-50"),
+        const cv = r.querySelector("[data-cov]"), wd = r.querySelector("[data-width]"), ls = r.querySelector("[data-loss]");
+        const dot = (c) => ({ fill: c.getAttribute("fill"), r: +c.getAttribute("r") });
+        return { id: r.dataset.row, left: b?.left, sw: b?.width, lo: s?.dataset.lo, hi: s?.dataset.hi, wide: p(".nc-band-wide"), mid: p(".nc-band-50"),
           med: p(".sm-med"), real: p(".sm-real"), realStroke: r.querySelector(".sm-real")?.getAttribute("stroke"), dots: r.querySelectorAll("svg circle").length,
-          cov: cv && { n: +cv.dataset.n, wide: +cv.dataset.wide, mid: +cv.dataset.mid, text: cv.textContent.replace(/\s+/g, " ") } };
+          cov: cv && { n: +cv.dataset.n, wide: +cv.dataset.wide, mid: +cv.dataset.mid, text: cv.textContent.replace(/\s+/g, " ") },
+          width: wd && { text: wd.textContent.trim(), x: wd.getBoundingClientRect().left }, loss: ls && { text: ls.textContent.trim(), x: ls.getBoundingClientRect().left },
+          out: [...r.querySelectorAll("svg circle.sm-out")].map(dot), inn: [...r.querySelectorAll("svg circle:not(.sm-out)")].map(dot) };
       }) };
     });
     const ids = st.rows.map((r) => r.id);
@@ -73,13 +79,38 @@ const cov = (get) => { const xs = hours.filter((x) => x.settled && get(x)), v = 
     check(ids[0] === "consensus" && JSON.stringify(ids.slice(1)) === JSON.stringify(names), `v2: rows = consensus then each agent (${ids.join(", ")})`);
     check(st.rows.every((r) => /Z/.test(r.wide) && /Z/.test(r.mid) && /M/.test(r.med)), "v2: every row has wide and 50% bands and a median line");
     const nv = hours.filter((h) => h.v != null).length;
-    check(st.rows.every((r) => r.realStroke === "#1b1a17" && r.dots === nv && (r.real.match(/[ML]/g) || []).length === nv), `v2: every row draws realized RV as a black line with ${nv} points`);
+    const grey = (c) => /^#[0-9a-f]{6}$/i.test(c || "") && c.toLowerCase() !== "#1b1a17" && (() => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)); return Math.max(r, g, b) - Math.min(r, g, b) < 40 && r > 120; })();
+    check(st.rows.every((r) => r.dots === nv && (r.real.match(/[ML]/g) || []).length === nv), `v2: every row draws realized RV with ${nv} points`);
+    check(st.rows[0].realStroke === "#1b1a17" && st.rows.slice(1).every((r) => grey(r.realStroke)), `v2: realized line black in the consensus row, thin grey in agent rows (${st.rows.map((r) => r.realStroke).join(" ")})`);
+    const ln = (x) => Math.log(x);
     check(new Set(st.rows.map((r) => `${r.lo}/${r.hi}`)).size === 1, "v2: rows share one log RV scale");
-    check(st.rows.every((r) => Math.abs(r.left - st.rows[0].left) < 1 && Math.abs(r.width - st.rows[0].width) < 1), "v2: rows are vertically aligned on one hour axis");
+    check(st.rows.every((r) => Math.abs(r.left - st.rows[0].left) < 1 && Math.abs(r.sw - st.rows[0].sw) < 1), `v2: rows are vertically aligned on one hour axis (${st.rows.map((r) => `${Math.round(r.left)}/${Math.round(r.sw)}`).join(" ")})`);
     for (const r of st.rows) {
       const want = cov(r.id === "consensus" ? (x) => x.c : (x) => x.q[r.id]);
       check(r.cov && r.cov.n === want.n && r.cov.wide === want.wide && r.cov.mid === want.mid && r.cov.text.includes(`80%: ${want.wide}/${want.n} · 50%: ${want.mid}/${want.n}`),
             `v2: ${r.id} coverage 80% ${want.wide}/${want.n}, 50% ${want.mid}/${want.n} (got ${r.cov?.text})`);
+      const get = r.id === "consensus" ? (x) => x.c : (x) => x.q[r.id];
+      const xs = hours.filter((x) => x.settled && get(x));
+      const ratio = Math.exp(xs.reduce((s, x) => s + ln(get(x)[4]) - ln(get(x)[0]), 0) / xs.length);
+      check(r.width && r.width.text.includes(`×${ratio.toFixed(1)}`), `v2: ${r.id} mean 80% width ×${ratio.toFixed(1)} (got ${r.width?.text})`);
+      const loss = r.id === "consensus" ? null : d.summary.agents[r.id].mean_pinball_loss;
+      check(r.loss && (loss == null ? /—/.test(r.loss.text) : r.loss.text.includes(loss.toFixed(3))), `v2: ${r.id} loss ${loss == null ? "—" : loss.toFixed(3)} (got ${r.loss?.text})`);
+      const outN = xs.filter((x) => { const v = Math.max(1, x.v), q = get(x); return v < q[0] || v > q[4]; }).length;
+      check(r.out.length === outN && r.out.every((o) => /vermil|#d8431b/i.test(o.fill) && r.inn.every((i) => o.r > i.r)),
+            `v2: ${r.id} ${outN} settled hours outside 80% drawn as larger vermilion dots (${r.out.length})`);
+    }
+    check(st.rows.every((r) => Math.abs(r.width.x - st.rows[0].width.x) < 1 && Math.abs(r.loss.x - st.rows[0].loss.x) < 1), "v2: width and loss columns aligned across rows");
+    const cardText = await page.locator("#smult-card").innerText();
+    check(cardText.includes("朱红点 = 实际值落在 80% 区间外；覆盖率要和区间宽度一起看（区间越宽越容易覆盖）；loss 越低越准。") && /q90\/q10/.test(cardText) && /ln RV/.test(cardText),
+          "v2: caption explains vermilion dots, coverage vs width, loss; column units stated");
+    const oi = hours.findIndex((x) => x.settled && (Math.max(1, x.v) < x.c[0] || Math.max(1, x.v) > x.c[4]));
+    if (oi >= 0) {
+      const oh = page.locator(`#heat .sm-row[data-row="consensus"] .sm-hit[data-h="${oi}"]`);
+      await oh.scrollIntoViewIfNeeded(); await page.waitForTimeout(100);
+      const ob = await oh.boundingBox();
+      await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2); await page.waitForTimeout(120);
+      const ot = await page.evaluate(() => document.getElementById("tipbox")?.innerText ?? "");
+      check(/outside 80%/.test(ot), `v2: read-out at ${hours[oi].t} says outside 80% (${ot.replace(/\s+/g, " ").slice(0, 100)})`);
     }
     const i = 7, h = hours[i];
     const hit = page.locator(`#heat .sm-row[data-row="consensus"] .sm-hit[data-h="${i}"]`);
