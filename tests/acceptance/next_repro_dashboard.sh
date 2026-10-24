@@ -97,6 +97,34 @@ for a in zk:
         errs.append(f"zk model_hash {a['model_hash']}")
     if sa[a["agent"]].get("reproduced_rounds") is not None:
         errs.append(f"zk {a['agent']} reproduced_rounds {sa[a['agent']].get('reproduced_rounds')}")
+# Predictor fee: each round's pool goes to that round's committed models pro rata to max(0, cumulative
+# excess after the round); a revealed round adds baseline loss - loss, an unrevealed commit subtracts.
+cum = {a["agent"]: 0 for a in ag}
+for r in rounds:
+    ras = {n: r["agents"].get(n, {}) for n in cum}
+    if any("cumulative_excess_e18" not in ra or "fee_weight_e18" not in ra for ra in ras.values()):
+        errs.append(f"round {r['h']} lacks cumulative_excess_e18 / fee_weight_e18"); break
+    if not r["outcome"]["voided"]:
+        base = int(r["baseline_loss_e18"])
+        for n, ra in ras.items():
+            got = int(ra["cumulative_excess_e18"])
+            if ra.get("pinball_loss_e18") is not None:
+                want = cum[n] + base - int(ra["pinball_loss_e18"])
+                if got != want: errs.append(f"{n} round {r['h']} cumulative {got} != {want}")
+            elif ra.get("entered") and got >= cum[n]:
+                errs.append(f"{n} round {r['h']} unrevealed commit did not lower cumulative ({cum[n]} -> {got})")
+            cum[n] = got
+    weights = {n: int(ra["fee_weight_e18"]) for n, ra in ras.items()}
+    for n, ra in ras.items():
+        want = max(0, cum[n]) if ra.get("entered") and not r["outcome"]["voided"] else 0
+        if weights[n] != want: errs.append(f"{n} round {r['h']} fee weight {weights[n]} != {want}")
+    pool, total = int(r["fee_split"]["predictors_wei"]), sum(weights.values())
+    rewards = {n: int(ra.get("predictor_reward_wei") or 0) for n, ra in ras.items()}
+    if total == 0 and (pool or any(rewards.values())):
+        errs.append(f"round {r['h']} nobody above zero cumulative but pool {pool} rewards {rewards}")
+    if total and (sum(rewards.values()) != pool
+                  or any(abs(rewards[n] - pool * w // total) > len(cum) for n, w in weights.items())):
+        errs.append(f"round {r['h']} rewards {rewards} not pro rata to weights {weights} of pool {pool}")
 s = d["summary"]
 if s["rv_matches_mainnet"] is not True or s["features_match_mainnet"] is not True: errs.append("mainnet match")
 if "fee_strategies" not in s or any("fee" not in r for r in rounds): errs.append("fee fields")

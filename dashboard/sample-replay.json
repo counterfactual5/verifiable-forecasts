@@ -1,29 +1,21 @@
 {
  "schema": "vol-replay/v2",
  "network": "anvil fork of Ethereum mainnet",
- "fork_block": 26252894,
- "fork_timestamp": 1792729199,
- "generated_at": 1792824329,
- "elapsed_s": 411,
+ "fork_block": 26253193,
+ "fork_timestamp": 1792732799,
+ "generated_at": 1792826484,
+ "elapsed_s": 392,
  "replay": {
   "hours": 24,
-  "start": 1792735200,
-  "end": 1792821600,
-  "start_utc": "2026-10-23 06:00:00Z",
-  "end_utc": "2026-10-24 06:00:00Z",
-  "grid_start": 1792729800,
+  "start": 1792738800,
+  "end": 1792825200,
+  "start_utc": "2026-10-23 07:00:00Z",
+  "end_utc": "2026-10-24 07:00:00Z",
+  "grid_start": 1792733400,
   "grid_step_s": 300,
   "segments_replayed": 306,
   "pool_source": "mainnet observe() 5-minute floor mean ticks (archive calls)",
   "chainlink_reports": [
-   {
-    "mainnet_tx": "0x897808b67def127c57d9cb015344a33d45526b96abad5a293a66d6aefcaacba3",
-    "mainnet_block": 26252962,
-    "mainnet_updated_at": 1792730015,
-    "replayed_at": 1792730015,
-    "ok": true,
-    "answer_usd": 2398.61889965
-   },
    {
     "mainnet_tx": "0x0ac1187eb16419e5ba9f13d163b20dc6b31e6398a9643f87a172a52f296da10d",
     "mainnet_block": 26253262,
@@ -287,6 +279,14 @@
     "replayed_at": 1792819511,
     "ok": true,
     "answer_usd": 2372.74013596
+   },
+   {
+    "mainnet_tx": "0x7ce20e452d3d889693b8400ff7651f6a6ecbae064f292f66fa887d450ae98c12",
+    "mainnet_block": 26260696,
+    "mainnet_updated_at": 1792823135,
+    "replayed_at": 1792823135,
+    "ok": true,
+    "answer_usd": 2375.44055261
    }
   ]
  },
@@ -298,7 +298,15 @@
   "erc8004_identity": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
   "erc8004_reputation": "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
   "settlement_token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-  "fee_consumer": "0x3659f991727f8fD58D167D39390F4208b9387f3A"
+  "fee_consumer": "0x3659f991727f8fD58D167D39390F4208b9387f3A",
+  "v4_hook": {
+   "pool_manager": "0x000000000004444c5dc75cB358380D2e3dE08A90",
+   "hook": "0xDc3f017cC362a64Dad403Ff949138FCb358F1080",
+   "pool_id": "0x89bb9bce956394750beda796752b6d7e6e65024ecbf0be68229fe7a66f91c7eb",
+   "swap_router": "0x49BCE9cb624bca705FE6F0657F3ef7cA0Bbaa552",
+   "fallback_fee_pips": 500,
+   "tick_spacing": 10
+  }
  },
  "params": {
   "delta_s": 300,
@@ -354,7 +362,7 @@
     "750000000000000000",
     "900000000000000000"
    ],
-   "fee_per_var_e18": "311889682660692096",
+   "fee_per_var_e18": "316353657796637440",
    "min_fee_pips": 100,
    "max_fee_pips": 10000,
    "fixed_fee_pips": 500,
@@ -363,23 +371,14 @@
    "tag2_commit": "vol-300s-12-commit",
    "calibration": {
     "window": [
-     1792648800,
-     1792735200
+     1792652400,
+     1792738800
     ],
     "hours": 24,
     "fee_per_var": "ratio of sums: sum fair pips / sum rv over the calibration hours, 1e18-scaled, so fee_for_var(rv) totals the fair fee unclamped",
     "expected_var": "midpoint-weighted mean of exp(mix quantile) over the K levels (Vincentized reputation-weighted mix), tick^2 1e18-scaled",
     "fair": "LVR break-even fee: (sigma_hour^2 / 8) * 2*L*sqrt(P) / hour's swap volume in token1, sigma_hour^2 = real realized_vol * 18/11 * ln(1.0001)^2 (12/11 to a full hour, 3/2 for the 2/3 variance of window-mean differences)",
     "hours_data": [
-     {
-      "start": 1792648800,
-      "rv": 417,
-      "fair_bps": 2.0491890060510762,
-      "liquidity": "2104769871754454103",
-      "sqrt_price_x96": "1605072560884796674204777599446029",
-      "volume_token1": "354936076247291797045",
-      "swap_count": 142
-     },
      {
       "start": 1792652400,
       "rv": 280,
@@ -586,6 +585,15 @@
       "sqrt_price_x96": "1620448957222912098452180693987393",
       "volume_token1": "317412232066724404260",
       "swap_count": 181
+     },
+     {
+      "start": 1792735200,
+      "rv": 548,
+      "fair_bps": 3.9525265646078847,
+      "liquidity": "2183097188976531177",
+      "sqrt_price_x96": "1616536316687065867171827718891269",
+      "volume_token1": "252616151455239722942",
+      "swap_count": 110
      }
     ]
    }
@@ -682,464 +690,27 @@
    "agent": "agent-linear_abs",
    "honest_proof_verifies": true,
    "tampered_output_verifies": false,
-   "verify_proof_gas": 551962
+   "verify_proof_gas": 553030
   },
   {
    "agent": "agent-mlp16",
    "honest_proof_verifies": true,
    "tampered_output_verifies": false,
-   "verify_proof_gas": 552010
+   "verify_proof_gas": 552946
   },
   {
    "agent": "agent-mlp32_abs",
    "honest_proof_verifies": true,
    "tampered_output_verifies": false,
-   "verify_proof_gas": 551902
+   "verify_proof_gas": 553078
   }
  ],
  "rounds": [
   {
    "h": 0,
-   "start": 1792735200,
-   "created_at": 1792734900,
-   "id": 0,
-   "features": [
-    640,
-    0,
-    384,
-    1024,
-    1664,
-    -384,
-    -1664,
-    -2048,
-    -512,
-    896,
-    896,
-    -640,
-    -640,
-    -896,
-    -640,
-    -256
-   ],
-   "features_match_mainnet": true,
-   "bets": [
-    {
-     "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
-     "bucket": 2,
-     "amount_wei": "1000000000000000000",
-     "payout_wei": "1980000000000000000"
-    },
-    {
-     "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-     "bucket": 3,
-     "amount_wei": "1000000000000000000",
-     "payout_wei": "0"
-    }
-   ],
-   "agents": {
-    "agent-linear_abs": {
-     "entered": true,
-     "quantiles": [
-      4.921875,
-      5.606689453125,
-      6.228271484375,
-      6.973876953125,
-      7.712158203125
-     ],
-     "quantiles_e18": [
-      "4921875000000000000",
-      "5606689453125000000",
-      "6228271484375000000",
-      "6973876953125000000",
-      "7712158203125000000"
-     ],
-     "outputs": [
-      20160,
-      22965,
-      25511,
-      28565,
-      31589
-     ],
-     "prove_seconds": 7.07,
-     "proof_cached": true,
-     "reveal_gas": 774775,
-     "forecast_source": "ezkl",
-     "score_e18": "-131965419319801554",
-     "pinball_loss_e18": "131965419319801554",
-     "pinball_loss": 0.13196541931980155,
-     "excess_e18": "32192208235396890",
-     "excess": 0.03219220823539689,
-     "beat_baseline": true,
-     "covered50": true,
-     "covered80": true,
-     "predictor_reward_wei": "1054757353390762"
-    },
-    "agent-mlp16": {
-     "entered": true,
-     "quantiles": [
-      4.609619140625,
-      5.272216796875,
-      5.93994140625,
-      6.6826171875,
-      7.43310546875
-     ],
-     "quantiles_e18": [
-      "4609619140625000000",
-      "5272216796875000000",
-      "5939941406250000000",
-      "6682617187500000000",
-      "7433105468750000000"
-     ],
-     "outputs": [
-      18881,
-      21595,
-      24330,
-      27372,
-      30446
-     ],
-     "prove_seconds": 7.0,
-     "proof_cached": true,
-     "reveal_gas": 774823,
-     "forecast_source": "ezkl",
-     "score_e18": "-163623134163551554",
-     "pinball_loss_e18": "163623134163551554",
-     "pinball_loss": 0.16362313416355156,
-     "excess_e18": "534493391646890",
-     "excess": 0.00053449339164689,
-     "beat_baseline": true,
-     "covered50": true,
-     "covered80": true,
-     "predictor_reward_wei": "17512338111631"
-    },
-    "agent-mlp32_abs": {
-     "entered": true,
-     "quantiles": [
-      5.357666015625,
-      5.928466796875,
-      6.46826171875,
-      7.12353515625,
-      7.861328125
-     ],
-     "quantiles_e18": [
-      "5357666015625000000",
-      "5928466796875000000",
-      "6468261718750000000",
-      "7123535156250000000",
-      "7861328125000000000"
-     ],
-     "outputs": [
-      21945,
-      24283,
-      26494,
-      29178,
-      32200
-     ],
-     "prove_seconds": 7.56,
-     "proof_cached": true,
-     "reveal_gas": 774715,
-     "forecast_source": "ezkl",
-     "score_e18": "-126025303336448444",
-     "pinball_loss_e18": "126025303336448444",
-     "pinball_loss": 0.12602530333644846,
-     "excess_e18": "38132324218750000",
-     "excess": 0.03813232421875,
-     "beat_baseline": true,
-     "covered50": true,
-     "covered80": true,
-     "predictor_reward_wei": "1249381498700141"
-    },
-    "agent-timesfm-3.0": {
-     "entered": true,
-     "quantiles": [
-      5.711181640625,
-      6.035888671875,
-      6.409423828125,
-      6.767822265625,
-      7.05908203125
-     ],
-     "quantiles_e18": [
-      "5711181640625000000",
-      "6035888671875000000",
-      "6409423828125000000",
-      "6767822265625000000",
-      "7059082031250000000"
-     ],
-     "outputs": [
-      23393,
-      24723,
-      26253,
-      27721,
-      28914
-     ],
-     "prove_seconds": null,
-     "proof_cached": false,
-     "reveal_gas": 205678,
-     "forecast_source": "self-hosted inference: timesfm-3.0",
-     "context_source": "onchain",
-     "context_points": 16,
-     "context_reason": "model reads the onchain features only",
-     "score_e18": "-73869541617698444",
-     "pinball_loss_e18": "73869541617698444",
-     "pinball_loss": 0.07386954161769844,
-     "excess_e18": "90288085937500000",
-     "excess": 0.0902880859375,
-     "beat_baseline": true,
-     "covered50": true,
-     "covered80": true,
-     "predictor_reward_wei": "2958232062547451",
-     "reproduced": true,
-     "recompute_verdict": "exact",
-     "recompute_max_abs_diff": 0,
-     "recompute_context": "onchain"
-    },
-    "agent-timestral-209m": {
-     "entered": true,
-     "quantiles": [
-      5.557861328125,
-      6.016845703125,
-      6.5302734375,
-      6.979248046875,
-      7.349609375
-     ],
-     "quantiles_e18": [
-      "5557861328125000000",
-      "6016845703125000000",
-      "6530273437500000000",
-      "6979248046875000000",
-      "7349609375000000000"
-     ],
-     "outputs": [
-      22765,
-      24645,
-      26748,
-      28587,
-      30104
-     ],
-     "prove_seconds": null,
-     "proof_cached": false,
-     "reveal_gas": 205678,
-     "forecast_source": "self-hosted inference: timestral-209m",
-     "context_source": "swaps",
-     "context_points": 512,
-     "context_reason": null,
-     "score_e18": "-106354893180198444",
-     "pinball_loss_e18": "106354893180198444",
-     "pinball_loss": 0.10635489318019845,
-     "excess_e18": "57802734375000000",
-     "excess": 0.057802734375,
-     "beat_baseline": true,
-     "covered50": true,
-     "covered80": true,
-     "predictor_reward_wei": "1893870053346856",
-     "reproduced": true,
-     "recompute_verdict": "exact",
-     "recompute_max_abs_diff": 0,
-     "recompute_context": "swaps"
-    },
-    "agent-chronos-2": {
-     "entered": true,
-     "quantiles": [
-      5.46728515625,
-      5.90380859375,
-      6.34375,
-      6.74169921875,
-      7.080078125
-     ],
-     "quantiles_e18": [
-      "5467285156250000000",
-      "5903808593750000000",
-      "6343750000000000000",
-      "6741699218750000000",
-      "7080078125000000000"
-     ],
-     "outputs": [
-      22394,
-      24182,
-      25984,
-      27614,
-      29000
-     ],
-     "prove_seconds": null,
-     "proof_cached": false,
-     "reveal_gas": 205666,
-     "forecast_source": "self-hosted inference: chronos-2",
-     "context_source": "swaps",
-     "context_points": 512,
-     "context_reason": null,
-     "score_e18": "-77897861930198444",
-     "pinball_loss_e18": "77897861930198444",
-     "pinball_loss": 0.07789786193019844,
-     "excess_e18": "86259765625000000",
-     "excess": 0.086259765625,
-     "beat_baseline": true,
-     "covered50": true,
-     "covered80": true,
-     "predictor_reward_wei": "2826246693903159",
-     "reproduced": true,
-     "recompute_verdict": "exact",
-     "recompute_max_abs_diff": 0,
-     "recompute_context": "swaps"
-    }
-   },
-   "fee": {
-    "onchain": {
-     "fee_pips": 218,
-     "mix_quantiles_e18": [
-      "5270914713541666666",
-      "5793986002604166666",
-      "6319986979166666666",
-      "6878133138020833333",
-      "7415893554687500000"
-     ],
-     "expected_var_e18": "700906860210590828736",
-     "tx": "0xf473361634aca941e2bb24794f940e16c059a785657728e495e2763cb5e99398",
-     "block": 26252960,
-     "timestamp": 1792735170
-    },
-    "mirror": {
-     "fee_pips": 218,
-     "mix_quantiles_e18": [
-      "5270914713541666666",
-      "5793986002604166666",
-      "6319986979166666666",
-      "6878133138020833333",
-      "7415893554687500000"
-     ],
-     "expected_var_e18": "700906860210590828736",
-     "weights": [
-      "1",
-      "1",
-      "1",
-      "1",
-      "1",
-      "1"
-     ],
-     "equal_weight_fallback": true
-    },
-    "mirror_matches": true,
-    "fixed_bps": 5.0,
-    "forecast_bps": 2.18,
-    "prev_hour": {
-     "window": [
-      1792731300,
-      1792734900
-     ],
-     "segment_ticks": [
-      198521,
-      198518,
-      198505,
-      198489,
-      198485,
-      198492,
-      198499,
-      198494,
-      198489,
-      198482,
-      198477,
-      198475
-     ],
-     "realized_vol": 676
-    },
-    "prev_hour_bps": 2.1,
-    "fair_bps": 3.9525265646078847,
-    "fair_inputs": {
-     "realized_vol": 548,
-     "state_block": 26253391,
-     "liquidity": "2183097188976531177",
-     "sqrt_price_x96": "1616536316687065867171827718891269",
-     "volume_token1": "252616151455239722942",
-     "volume_token": "WETH wei"
-    }
-   },
-   "end": 1792738800,
-   "window_utc": [
-    "2026-10-23 06:00:00Z",
-    "2026-10-23 07:00:00Z"
-   ],
-   "mainnet": {
-    "block_from": 26253391,
-    "block_to": 26253690,
-    "swap_count": 110,
-    "swap_txs": [
-     "0x648137358c90237c583b9072d4659590423982c61d9ab6e879067a65209819df",
-     "0xbe3b71f2bfe727499fc81a90dacd016edf7e75cec443be9cc57ed8e20f3a8983",
-     "0x08d71a31e60b722408484eee5232d8472fe3ad69e9a3b2fbba256b95b6af124b"
-    ],
-    "last_swap_tx": "0x412a4ad68f2001d986cbe36dca8c2ae95a21b4125c08f52007f2fcf1e815bfb3"
-   },
-   "real_segment_ticks": [
-    198488,
-    198485,
-    198476,
-    198468,
-    198467,
-    198479,
-    198475,
-    198477,
-    198473,
-    198469,
-    198455,
-    198456
-   ],
-   "real_realized_vol": 548,
-   "real_bucket": 2,
-   "rv_matches_mainnet": true,
-   "ln_rv": 6.306275286948016,
-   "ln_rv_e18": "6306275286948015550",
-   "ln_rv_matches_mirror": false,
-   "baseline_quantiles": [
-    4.69140625,
-    5.587158203125,
-    6.44091796875,
-    7.276611328125,
-    8.00244140625
-   ],
-   "baseline_quantiles_e18": [
-    "4691406250000000000",
-    "5587158203125000000",
-    "6440917968750000000",
-    "7276611328125000000",
-    "8002441406250000000"
-   ],
-   "baseline_loss": 0.16415762755519844,
-   "baseline_loss_e18": "164157627555198444",
-   "outcome": {
-    "settle_block": 26252994,
-    "settle_tx": "0x9fab36ecbc61d2c70a208d45ea248ecd16fb9c924bb4f5f832079ed4ff6a329c",
-    "gas_used": 1743581,
-    "voided": false,
-    "void_reason": null,
-    "winning_bucket": 2,
-    "realized_vol": 548,
-    "total_stake_wei": "2000000000000000000",
-    "pools_wei": [
-     "0",
-     "0",
-     "1000000000000000000",
-     "1000000000000000000",
-     "0"
-    ],
-    "erc8004_feedback_logs": 6
-   },
-   "chainlink": {
-    "feed_price_usd": 2402.31363829,
-    "feed_updated_at": 1792737275,
-    "feed_age_s": 1535,
-    "pool_mean_tick": 198456,
-    "pool_price_usd": 2407.66657132,
-    "deviation_bps": 22.28
-   },
-   "fee_split": {
-    "fee_wei": "20000000000000000",
-    "owner_wei": "10000000000000000",
-    "predictors_wei": "10000000000000000"
-   }
-  },
-  {
-   "h": 1,
    "start": 1792738800,
    "created_at": 1792738500,
-   "id": 1,
+   "id": 0,
    "features": [
     -640,
     -896,
@@ -1209,6 +780,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "38586425781250000",
+     "cumulative_excess_e18": "38586425781250000",
      "predictor_reward_wei": "1214302726706976"
     },
     "agent-mlp16": {
@@ -1246,6 +819,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "30668945312500000",
+     "cumulative_excess_e18": "30668945312500000",
      "predictor_reward_wei": "965142097620565"
     },
     "agent-mlp32_abs": {
@@ -1273,7 +848,7 @@
      ],
      "prove_seconds": 8.33,
      "proof_cached": true,
-     "reveal_gas": 775312,
+     "reveal_gas": 775300,
      "forecast_source": "ezkl",
      "score_e18": "-146960483586551692",
      "pinball_loss_e18": "146960483586551692",
@@ -1283,6 +858,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "22827148437500000",
+     "cumulative_excess_e18": "22827148437500000",
      "predictor_reward_wei": "718363207510929"
     },
     "agent-timesfm-3.0": {
@@ -1310,7 +887,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205690,
+     "reveal_gas": 205678,
      "forecast_source": "self-hosted inference: timesfm-3.0",
      "context_source": "onchain",
      "context_points": 16,
@@ -1323,6 +900,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "109421386718750000",
+     "cumulative_excess_e18": "109421386718750000",
      "predictor_reward_wei": "3443456748388484",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -1354,7 +933,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205690,
+     "reveal_gas": 205678,
      "forecast_source": "self-hosted inference: timestral-209m",
      "context_source": "swaps",
      "context_points": 512,
@@ -1367,6 +946,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "47900390625000000",
+     "cumulative_excess_e18": "47900390625000000",
      "predictor_reward_wei": "1507410281429350",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -1398,7 +979,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205690,
+     "reveal_gas": 205678,
      "forecast_source": "self-hosted inference: chronos-2",
      "context_source": "swaps",
      "context_points": 512,
@@ -1411,6 +992,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "68361816406250000",
+     "cumulative_excess_e18": "68361816406250000",
      "predictor_reward_wei": "2151324938343696",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -1420,7 +1003,7 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 247,
+     "fee_pips": 250,
      "mix_quantiles_e18": [
       "5415161132812500000",
       "5915852864583333333",
@@ -1429,12 +1012,12 @@
       "7528238932291666666"
      ],
      "expected_var_e18": "792799897375777237383",
-     "tx": "0xe16076f20b14a59b2884e8671959226f56ec8ed8a4694096928d85dff472e360",
-     "block": 26252992,
+     "tx": "0x5f8d741e4c21d1698cf04ce520b41ca68e31b718d22469dbf3255f7d6ac547db",
+     "block": 26253269,
      "timestamp": 1792738770
     },
     "mirror": {
-     "fee_pips": 247,
+     "fee_pips": 250,
      "mix_quantiles_e18": [
       "5415161132812500000",
       "5915852864583333333",
@@ -1455,7 +1038,7 @@
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 2.47,
+    "forecast_bps": 2.5,
     "prev_hour": {
      "window": [
       1792734900,
@@ -1477,7 +1060,7 @@
      ],
      "realized_vol": 691
     },
-    "prev_hour_bps": 2.15,
+    "prev_hour_bps": 2.18,
     "fair_bps": 5.892741952162288,
     "fair_inputs": {
      "realized_vol": 518,
@@ -1487,6 +1070,17 @@
      "volume_token1": "225629456863262560266",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 250,
+    "recorded": true,
+    "round_id": 0,
+    "effective_fee_pips": 250.0,
+    "lp_fee_usdc": 2.499999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 225340,
+    "tx": "0xe45fc3f072f2184c984479844412c801998ceceef16484b39bfde12a9684307c",
+    "timestamp": 1792738801
    },
    "end": 1792742400,
    "window_utc": [
@@ -1541,9 +1135,9 @@
    "baseline_loss": 0.1697876320240517,
    "baseline_loss_e18": "169787632024051692",
    "outcome": {
-    "settle_block": 26253035,
-    "settle_tx": "0x5bd4d374d09831f2ebbea469d6d79c2e2baf1992b09352196463cf547b7e8d47",
-    "gas_used": 1254404,
+    "settle_block": 26253305,
+    "settle_tx": "0xce9cefb38bcc45a5829c2ee7159faaadd18c3542b22e1d64596475964f1d6cce",
+    "gas_used": 2013916,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -1573,10 +1167,10 @@
    }
   },
   {
-   "h": 2,
+   "h": 1,
    "start": 1792742400,
    "created_at": 1792742100,
-   "id": 2,
+   "id": 1,
    "features": [
     256,
     -512,
@@ -1646,7 +1240,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "466686635982772"
+     "fee_weight_e18": "52717285156250000",
+     "cumulative_excess_e18": "52717285156250000",
+     "predictor_reward_wei": "886687823984369"
     },
     "agent-mlp16": {
      "entered": true,
@@ -1683,7 +1279,9 @@
      "beat_baseline": false,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "0"
+     "fee_weight_e18": "4653320312500000",
+     "cumulative_excess_e18": "4653320312500000",
+     "predictor_reward_wei": "78267354814718"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -1720,7 +1318,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1090007768017870"
+     "fee_weight_e18": "55831621460564553",
+     "cumulative_excess_e18": "55831621460564553",
+     "predictor_reward_wei": "939069961506123"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -1760,7 +1360,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "3287982491046613",
+     "fee_weight_e18": "208978594116814553",
+     "cumulative_excess_e18": "208978594116814553",
+     "predictor_reward_wei": "3514952910180024",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -1804,7 +1406,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2481147401945726",
+     "fee_weight_e18": "123027343750000000",
+     "cumulative_excess_e18": "123027343750000000",
+     "predictor_reward_wei": "2069280453212631",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -1848,7 +1452,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2674175703007019",
+     "fee_weight_e18": "149333496093750000",
+     "cumulative_excess_e18": "149333496093750000",
+     "predictor_reward_wei": "2511741496302135",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -1857,42 +1463,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 235,
+     "fee_pips": 238,
      "mix_quantiles_e18": [
-      "5433289186760095650",
-      "5921905426010197362",
-      "6427802116830002762",
-      "6953602258214446397",
-      "7440551929383464631"
+      "5386515299479166666",
+      "5887369791666666666",
+      "6407755533854166666",
+      "6952148437500000000",
+      "7460205078125000000"
      ],
-     "expected_var_e18": "755871367029420215957",
-     "tx": "0xdd4e854391c44cde11d3cfa6dcb446526d4b66adc8334764e42f81dfe9b168de",
-     "block": 26253033,
+     "expected_var_e18": "752550780113119409230",
+     "tx": "0x1de0d25bac9c3983e587425cc4c5431b65dcaa20f5d673322a765c9f2e12eb01",
+     "block": 26253303,
      "timestamp": 1792742370
     },
     "mirror": {
-     "fee_pips": 235,
+     "fee_pips": 238,
      "mix_quantiles_e18": [
-      "5433289186760095650",
-      "5921905426010197362",
-      "6427802116830002762",
-      "6953602258214446397",
-      "7440551929383464631"
+      "5386515299479166666",
+      "5887369791666666666",
+      "6407755533854166666",
+      "6952148437500000000",
+      "7460205078125000000"
      ],
-     "expected_var_e18": "755871367029420215957",
+     "expected_var_e18": "752550780113119409230",
      "weights": [
-      "234879419764113559",
-      "203221704920363559",
-      "240819535747466669",
-      "292975297466216669",
-      "260489945903716669",
-      "288946977153716669"
+      "1",
+      "1",
+      "1",
+      "1",
+      "1",
+      "1"
      ],
-     "equal_weight_fallback": false
+     "equal_weight_fallback": true
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 2.35,
+    "forecast_bps": 2.38,
     "prev_hour": {
      "window": [
       1792738500,
@@ -1914,7 +1520,7 @@
      ],
      "realized_vol": 595
     },
-    "prev_hour_bps": 1.85,
+    "prev_hour_bps": 1.88,
     "fair_bps": 3.9241442406722236,
     "fair_inputs": {
      "realized_vol": 707,
@@ -1924,6 +1530,17 @@
      "volume_token1": "326734057430897713625",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 238,
+    "recorded": true,
+    "round_id": 1,
+    "effective_fee_pips": 238.0,
+    "lp_fee_usdc": 2.379999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208236,
+    "tx": "0xa8f883d5d73184e2cb2cae10f637727da188ae57845e3e5afcf1aae6c98d5e7a",
+    "timestamp": 1792742419
    },
    "end": 1792746000,
    "window_utc": [
@@ -1978,9 +1595,9 @@
    "baseline_loss": 0.16270462908965727,
    "baseline_loss_e18": "162704629089657276",
    "outcome": {
-    "settle_block": 26253076,
-    "settle_tx": "0xae467c6da8d2a92efdc51a3faf38f3b3bef6687ca016ad04940c2665b21e83ef",
-    "gas_used": 1248270,
+    "settle_block": 26253348,
+    "settle_tx": "0x22f958799990e3c07873cec432dc22e14cfccb96a93f792077820ff551082b49",
+    "gas_used": 1414285,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -2010,10 +1627,10 @@
    }
   },
   {
-   "h": 3,
+   "h": 2,
    "start": 1792746000,
    "created_at": 1792745700,
-   "id": 3,
+   "id": 2,
    "features": [
     -1024,
     384,
@@ -2083,6 +1700,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-13267354926931984",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -2110,7 +1729,7 @@
      ],
      "prove_seconds": 8.98,
      "proof_cached": true,
-     "reveal_gas": 774397,
+     "reveal_gas": 774385,
      "forecast_source": "ezkl",
      "score_e18": "-203350739421647975",
      "pinball_loss_e18": "203350739421647975",
@@ -2120,7 +1739,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "365367296366018"
+     "fee_weight_e18": "10101785698068016",
+     "cumulative_excess_e18": "10101785698068016",
+     "predictor_reward_wei": "152414225442098"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -2157,7 +1778,9 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "0"
+     "fee_weight_e18": "27669247002382569",
+     "cumulative_excess_e18": "27669247002382569",
+     "predictor_reward_wei": "417469443173873"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -2197,7 +1820,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "2702764321313854",
+     "fee_weight_e18": "249283016533632569",
+     "cumulative_excess_e18": "249283016533632569",
+     "predictor_reward_wei": "3761144714058821",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -2241,7 +1866,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "2277753277203426",
+     "fee_weight_e18": "156993875541818016",
+     "cumulative_excess_e18": "156993875541818016",
+     "predictor_reward_wei": "2368700015526536",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -2285,7 +1912,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "4654115105116702",
+     "fee_weight_e18": "218737039604318016",
+     "cumulative_excess_e18": "218737039604318016",
+     "predictor_reward_wei": "3300271601798672",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -2294,42 +1923,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 215,
+     "fee_pips": 218,
      "mix_quantiles_e18": [
-      "5279112978992112378",
-      "5794127690464777397",
-      "6329756648212945042",
-      "6865245274599914055",
-      "7381877150421341371"
+      "5276254673726234692",
+      "5792657784527931180",
+      "6328742455457469044",
+      "6865509104739865019",
+      "7383513583505421004"
      ],
-     "expected_var_e18": "692171256459198952398",
-     "tx": "0x2584690d5e77c5cf640d2694afdd610f922ea02a481caa34d239ae0f9946d2ef",
-     "block": 26253074,
+     "expected_var_e18": "692249977188675304654",
+     "tx": "0xe8ab388c8e354c7ef68d93562c85d5fc56cd308e3104030a64b1521eb3369eb9",
+     "block": 26253346,
      "timestamp": 1792745970
     },
     "mirror": {
-     "fee_pips": 215,
+     "fee_pips": 218,
      "mix_quantiles_e18": [
-      "5279112978992112378",
-      "5794127690464777397",
-      "6329756648212945042",
-      "6865245274599914055",
-      "7381877150421341371"
+      "5276254673726234692",
+      "5792657784527931180",
+      "6328742455457469044",
+      "6865509104739865019",
+      "7383513583505421004"
      ],
-     "expected_var_e18": "692171256459198952398",
+     "expected_var_e18": "692249977188675304654",
      "weights": [
-      "235261526302613490",
-      "215473928646363490",
-      "230351945622415045",
-      "299726945622415045",
-      "252723771794290045",
-      "277183000309915045"
+      "235643632841113421",
+      "227726152372363421",
+      "219884355497363421",
+      "306478593778613421",
+      "244957597684863421",
+      "265419023466113421"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 2.15,
+    "forecast_bps": 2.18,
     "prev_hour": {
      "window": [
       1792742100,
@@ -2351,7 +1980,7 @@
      ],
      "realized_vol": 644
     },
-    "prev_hour_bps": 2.0,
+    "prev_hour_bps": 2.03,
     "fair_bps": 7.8095156305621884,
     "fair_inputs": {
      "realized_vol": 1121,
@@ -2361,6 +1990,17 @@
      "volume_token1": "315471194684020477673",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 218,
+    "recorded": true,
+    "round_id": 2,
+    "effective_fee_pips": 218.0,
+    "lp_fee_usdc": 2.179999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208236,
+    "tx": "0xc54cd31130b3540dd7457ccfe76ce210f28560cf145409673123dd0ad1087ea0",
+    "timestamp": 1792746019
    },
    "end": 1792749600,
    "window_utc": [
@@ -2415,9 +2055,9 @@
    "baseline_loss": 0.208799204807216,
    "baseline_loss_e18": "208799204807215991",
    "outcome": {
-    "settle_block": 26253116,
-    "settle_tx": "0xc9c245fc6d89310a78d195e052c96f02edc7d7ca2c6918a3267ad283aea8d9c6",
-    "gas_used": 1250801,
+    "settle_block": 26253391,
+    "settle_tx": "0x4171a35115f06006586b239b6b8bd58f1f47335e1d1fd4ece04eec904da97a66",
+    "gas_used": 1394776,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -2447,10 +2087,10 @@
    }
   },
   {
-   "h": 4,
+   "h": 3,
    "start": 1792749600,
    "created_at": 1792749300,
-   "id": 4,
+   "id": 3,
    "features": [
     384,
     -896,
@@ -2520,6 +2160,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "25555887260568016",
+     "cumulative_excess_e18": "25555887260568016",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -2557,6 +2199,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "70951395073068016",
+     "cumulative_excess_e18": "70951395073068016",
      "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
@@ -2594,6 +2238,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "73802059502382569",
+     "cumulative_excess_e18": "73802059502382569",
      "predictor_reward_wei": "0"
     },
     "agent-timesfm-3.0": {
@@ -2634,6 +2280,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "353286922783632569",
+     "cumulative_excess_e18": "353286922783632569",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -2678,6 +2326,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "223375711479318016",
+     "cumulative_excess_e18": "223375711479318016",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -2722,6 +2372,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "288329324760568016",
+     "cumulative_excess_e18": "288329324760568016",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -2731,42 +2383,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 217,
+     "fee_pips": 220,
      "mix_quantiles_e18": [
-      "5307101080137054463",
-      "5820631295509135302",
-      "6345412645118445946",
-      "6870705698645923248",
-      "7372905940872326372"
+      "5307178972092891153",
+      "5820030929915583104",
+      "6344292931252289066",
+      "6869308872749660041",
+      "7370781731676382241"
      ],
-     "expected_var_e18": "696536759329347795242",
-     "tx": "0x7c4d19fad78db82f490cd5471ed27229bd285f46a3a03a3ba03ed2fda548f95d",
-     "block": 26253114,
+     "expected_var_e18": "695548651513976298382",
+     "tx": "0x65f6743934b61628337fed831bb05d302afea8ad240ed31a4aa7c2b5691cb1cb",
+     "block": 26253389,
      "timestamp": 1792749570
     },
     "mirror": {
-     "fee_pips": 217,
+     "fee_pips": 220,
      "mix_quantiles_e18": [
-      "5307101080137054463",
-      "5820631295509135302",
-      "6345412645118445946",
-      "6870705698645923248",
-      "7372905940872326372"
+      "5307178972092891153",
+      "5820030929915583104",
+      "6344292931252289066",
+      "6869308872749660041",
+      "7370781731676382241"
      ],
-     "expected_var_e18": "696536759329347795242",
+     "expected_var_e18": "695548651513976298382",
      "weights": [
-      "229598040658161606",
-      "203024147428994939",
-      "232616191420717494",
-      "301050436212384160",
-      "261571568902612643",
-      "279825963433862643"
+      "226957351105185629",
+      "202925368683310629",
+      "228514519257342906",
+      "305088005585467906",
+      "262112380402060629",
+      "275265456573935629"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 2.17,
+    "forecast_bps": 2.2,
     "prev_hour": {
      "window": [
       1792745700,
@@ -2788,7 +2440,7 @@
      ],
      "realized_vol": 1161
     },
-    "prev_hour_bps": 3.62,
+    "prev_hour_bps": 3.67,
     "fair_bps": 2.436067629864263,
     "fair_inputs": {
      "realized_vol": 438,
@@ -2798,6 +2450,17 @@
      "volume_token1": "326295510015396897989",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 220,
+    "recorded": true,
+    "round_id": 3,
+    "effective_fee_pips": 220.0,
+    "lp_fee_usdc": 2.199999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 207387,
+    "tx": "0x857a86ba7b3a38c1901ab3f91f0828019de394fed976ac4a2504459d35523f38",
+    "timestamp": 1792749618
    },
    "end": 1792753200,
    "window_utc": [
@@ -2852,9 +2515,9 @@
    "baseline_loss": 0.1865632652123554,
    "baseline_loss_e18": "186563265212355386",
    "outcome": {
-    "settle_block": 26253155,
-    "settle_tx": "0x37c9abca3ea1d8fc5c6094d3f060a9089b98c09227fae0f9b4fea5badc592d8d",
-    "gas_used": 1246347,
+    "settle_block": 26253433,
+    "settle_tx": "0x51e01595a908e30a6541f0b569031e13959b1c77549067d422bb709038c3f252",
+    "gas_used": 1412207,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -2884,10 +2547,10 @@
    }
   },
   {
-   "h": 5,
+   "h": 4,
    "start": 1792753200,
    "created_at": 1792752900,
-   "id": 5,
+   "id": 4,
    "features": [
     -768,
     -384,
@@ -2947,7 +2610,7 @@
      ],
      "prove_seconds": 5.79,
      "proof_cached": true,
-     "reveal_gas": 774934,
+     "reveal_gas": 774910,
      "forecast_source": "ezkl",
      "score_e18": "-139153331048000848",
      "pinball_loss_e18": "139153331048000848",
@@ -2957,6 +2620,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "91197977104318016",
+     "cumulative_excess_e18": "91197977104318016",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -2994,6 +2659,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "122516336479318016",
+     "cumulative_excess_e18": "122516336479318016",
      "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
@@ -3031,6 +2698,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "92372838812630871",
+     "cumulative_excess_e18": "92372838812630871",
      "predictor_reward_wei": "0"
     },
     "agent-timesfm-3.0": {
@@ -3071,6 +2740,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "475616024346132569",
+     "cumulative_excess_e18": "475616024346132569",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -3115,6 +2786,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "299550027885568016",
+     "cumulative_excess_e18": "299550027885568016",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -3159,6 +2832,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "371275104070816318",
+     "cumulative_excess_e18": "371275104070816318",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -3168,42 +2843,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 200,
+     "fee_pips": 202,
      "mix_quantiles_e18": [
-      "5180568266601472649",
-      "5709884516350605855",
-      "6238352932103526397",
-      "6799695412131517075",
-      "7314657061135535383"
+      "5182850152390112409",
+      "5710742751424707865",
+      "6238055133126582851",
+      "6797616048164851400",
+      "7310310257969744591"
      ],
-     "expected_var_e18": "642086870557277170908",
-     "tx": "0xb8aec0e614f322acad65634e4c4bdae0258fa2654e88a9596988fbbd9a57e939",
-     "block": 26253153,
+     "expected_var_e18": "640839283127652782229",
+     "tx": "0xf60b104afd9f8287883177ec4876c883fcd7e46e91f42386b4c4aafbb48821c9",
+     "block": 26253431,
      "timestamp": 1792753170
     },
     "mirror": {
-     "fee_pips": 200,
+     "fee_pips": 202,
      "mix_quantiles_e18": [
-      "5180568266601472649",
-      "5709884516350605855",
-      "6238352932103526397",
-      "6799695412131517075",
-      "7314657061135535383"
+      "5182850152390112409",
+      "5710742751424707865",
+      "6238055133126582851",
+      "6797616048164851400",
+      "7310310257969744591"
      ],
-     "expected_var_e18": "642086870557277170908",
+     "expected_var_e18": "640839283127652782229",
      "weights": [
-      "195213779042000489",
-      "193141635487312989",
-      "206932958520167405",
-      "275375341332667405",
-      "244181718194088767",
-      "266731767022213767"
+      "181991898801296132",
+      "189781612342962799",
+      "195637432777734317",
+      "269508689288150983",
+      "238745642290879466",
+      "259326696978379466"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 2.0,
+    "forecast_bps": 2.02,
     "prev_hour": {
      "window": [
       1792749300,
@@ -3225,7 +2900,7 @@
      ],
      "realized_vol": 571
     },
-    "prev_hour_bps": 1.78,
+    "prev_hour_bps": 1.8,
     "fair_bps": 1.446612174409138,
     "fair_inputs": {
      "realized_vol": 365,
@@ -3235,6 +2910,17 @@
      "volume_token1": "458075283345801454714",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 202,
+    "recorded": true,
+    "round_id": 4,
+    "effective_fee_pips": 202.0,
+    "lp_fee_usdc": 2.019999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 207563,
+    "tx": "0x097c0fccde920de501547e82eb19a056c775d7bfed77e56feb4f272db80884bc",
+    "timestamp": 1792753213
    },
    "end": 1792756800,
    "window_utc": [
@@ -3289,9 +2975,9 @@
    "baseline_loss": 0.20479542089175085,
    "baseline_loss_e18": "204795420891750848",
    "outcome": {
-    "settle_block": 26253190,
-    "settle_tx": "0xb4ff9d096d74158e33695a35b6adf3cf6eb7b0ea64199b5c2dc66ca5509aaeff",
-    "gas_used": 1249598,
+    "settle_block": 26253470,
+    "settle_tx": "0x2c29b7af999d742115a52bc056e59735d52c8964cd51c450de89b4aa84de75ac",
+    "gas_used": 1415458,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -3321,10 +3007,10 @@
    }
   },
   {
-   "h": 6,
+   "h": 5,
    "start": 1792756800,
    "created_at": 1792756500,
-   "id": 6,
+   "id": 5,
    "features": [
     0,
     0,
@@ -3384,7 +3070,7 @@
      ],
      "prove_seconds": 6.65,
      "proof_cached": true,
-     "reveal_gas": 774508,
+     "reveal_gas": 774520,
      "forecast_source": "ezkl",
      "score_e18": "-159707867631383092",
      "pinball_loss_e18": "159707867631383092",
@@ -3394,7 +3080,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "39527744352430"
+     "fee_weight_e18": "91887222310301830",
+     "cumulative_excess_e18": "91887222310301830",
+     "predictor_reward_wei": "575571693570528"
     },
     "agent-mlp16": {
      "entered": true,
@@ -3421,7 +3109,7 @@
      ],
      "prove_seconds": 6.73,
      "proof_cached": true,
-     "reveal_gas": 774616,
+     "reveal_gas": 774604,
      "forecast_source": "ezkl",
      "score_e18": "-152193219193883092",
      "pinball_loss_e18": "152193219193883092",
@@ -3431,7 +3119,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "470487727471802"
+     "fee_weight_e18": "130720230122801830",
+     "cumulative_excess_e18": "130720230122801830",
+     "predictor_reward_wei": "818817484564172"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -3458,7 +3148,7 @@
      ],
      "prove_seconds": 8.37,
      "proof_cached": true,
-     "reveal_gas": 774640,
+     "reveal_gas": 774628,
      "forecast_source": "ezkl",
      "score_e18": "-154890973100133092",
      "pinball_loss_e18": "154890973100133092",
@@ -3468,7 +3158,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "315773373557927"
+     "fee_weight_e18": "97878978549864685",
+     "cumulative_excess_e18": "97878978549864685",
+     "predictor_reward_wei": "613103411251805"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -3508,7 +3200,9 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
-     "predictor_reward_wei": "0",
+     "fee_weight_e18": "445169111526584011",
+     "cumulative_excess_e18": "445169111526584011",
+     "predictor_reward_wei": "2788491511707354",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -3539,7 +3233,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205678,
+     "reveal_gas": 205666,
      "forecast_source": "self-hosted inference: timestral-209m",
      "context_source": "swaps",
      "context_points": 512,
@@ -3552,7 +3246,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "4532360498231702",
+     "fee_weight_e18": "378580789604318016",
+     "cumulative_excess_e18": "378580789604318016",
+     "predictor_reward_wei": "2371389413535417",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -3596,7 +3292,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "4641850656386139",
+     "fee_weight_e18": "452215045477066318",
+     "cumulative_excess_e18": "452215045477066318",
+     "predictor_reward_wei": "2832626485370724",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -3605,42 +3303,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 171,
+     "fee_pips": 174,
      "mix_quantiles_e18": [
-      "5077901327258605715",
-      "5574779702491501768",
-      "6102798899976476161",
-      "6629538861286214256",
-      "7154089558937353719"
+      "5078837740449139420",
+      "5575368142043064781",
+      "6102785188945392240",
+      "6628988681986833848",
+      "7152546235285685718"
      ],
-     "expected_var_e18": "551013619539708019612",
-     "tx": "0x7c9eb95671ac49bbcfcb789994220c7718cda5c8b7970c4f0907807ce5fda640",
-     "block": 26253188,
+     "expected_var_e18": "550700727962933670275",
+     "tx": "0xb4fd98a8aeb5dd988d24334795573619c1193159db93ad4ea30150c8663a5323",
+     "block": 26253468,
      "timestamp": 1792756770
     },
     "mirror": {
-     "fee_pips": 171,
+     "fee_pips": 174,
      "mix_quantiles_e18": [
-      "5077901327258605715",
-      "5574779702491501768",
-      "6102798899976476161",
-      "6629538861286214256",
-      "7154089558937353719"
+      "5078837740449139420",
+      "5575368142043064781",
+      "6102785188945392240",
+      "6628988681986833848",
+      "7152546235285685718"
      ],
-     "expected_var_e18": "551013619539708019612",
+     "expected_var_e18": "550700727962933670275",
      "weights": [
-      "199991986445412337",
-      "202739545039162337",
-      "210829244090445869",
-      "277157369090445869",
-      "244678056517082959",
-      "263360185423332959"
+      "191270128115737031",
+      "202619005068862031",
+      "203331671176190669",
+      "273202886996503169",
+      "240725084170424531",
+      "256963487490737031"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 1.71,
+    "forecast_bps": 1.74,
     "prev_hour": {
      "window": [
       1792752900,
@@ -3662,7 +3360,7 @@
      ],
      "realized_vol": 557
     },
-    "prev_hour_bps": 1.73,
+    "prev_hour_bps": 1.76,
     "fair_bps": 2.745560681855943,
     "fair_inputs": {
      "realized_vol": 569,
@@ -3672,6 +3370,17 @@
      "volume_token1": "377690027508865649984",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 174,
+    "recorded": true,
+    "round_id": 5,
+    "effective_fee_pips": 174.0,
+    "lp_fee_usdc": 1.739999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 207563,
+    "tx": "0xf8da0d5a2e6afc226d9fec270d814f2ec344161162c1447b136607a7b0e2995a",
+    "timestamp": 1792756813
    },
    "end": 1792760400,
    "window_utc": [
@@ -3726,9 +3435,9 @@
    "baseline_loss": 0.1603971128373669,
    "baseline_loss_e18": "160397112837366906",
    "outcome": {
-    "settle_block": 26253225,
-    "settle_tx": "0x9dee737fb810e07a6a754d52df44d71e495ec33dcdda80d2563d24571a68e0bd",
-    "gas_used": 1251758,
+    "settle_block": 26253507,
+    "settle_tx": "0xdebbca1080a51a97226b2dfe834bb981ec37bcbeefb027c6351f581de0e93025",
+    "gas_used": 1417773,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -3758,10 +3467,10 @@
    }
   },
   {
-   "h": 7,
+   "h": 6,
    "start": 1792760400,
    "created_at": 1792760100,
-   "id": 7,
+   "id": 6,
    "features": [
     -896,
     -896,
@@ -3831,7 +3540,9 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "0"
+     "fee_weight_e18": "50319839497801830",
+     "cumulative_excess_e18": "50319839497801830",
+     "predictor_reward_wei": "371749479204378"
     },
     "agent-mlp16": {
      "entered": true,
@@ -3868,7 +3579,9 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "0"
+     "fee_weight_e18": "4914566060301830",
+     "cumulative_excess_e18": "4914566060301830",
+     "predictor_reward_wei": "36307496042639"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -3905,7 +3618,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "3318047337278106"
+     "fee_weight_e18": "136211498081114685",
+     "cumulative_excess_e18": "136211498081114685",
+     "predictor_reward_wei": "1006294017998895"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -3932,7 +3647,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205678,
+     "reveal_gas": 205690,
      "forecast_source": "self-hosted inference: timesfm-3.0",
      "context_source": "onchain",
      "context_points": 16,
@@ -3945,7 +3660,9 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
-     "predictor_reward_wei": "0",
+     "fee_weight_e18": "304015794349964334",
+     "cumulative_excess_e18": "304015794349964334",
+     "predictor_reward_wei": "2245987156307237",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -3989,7 +3706,9 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
-     "predictor_reward_wei": "0",
+     "fee_weight_e18": "328723859146448339",
+     "cumulative_excess_e18": "328723859146448339",
+     "predictor_reward_wei": "2428523712701503",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -4020,7 +3739,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205690,
+     "reveal_gas": 205678,
      "forecast_source": "self-hosted inference: chronos-2",
      "context_source": "swaps",
      "context_points": 512,
@@ -4033,7 +3752,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "6681952662721894",
+     "fee_weight_e18": "529409869695816318",
+     "cumulative_excess_e18": "529409869695816318",
+     "predictor_reward_wei": "3911138137745348",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -4042,42 +3763,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 231,
+     "fee_pips": 234,
      "mix_quantiles_e18": [
-      "5368909219348459351",
-      "5869133360579161242",
-      "6387365648243057512",
-      "6937418119975779468",
-      "7453247402820014517"
+      "5367341598873961066",
+      "5867450202143865993",
+      "6385665844657705966",
+      "6935499641979631359",
+      "7451075184899791883"
      ],
-     "expected_var_e18": "742103149274966386773",
-     "tx": "0x034782cd169fd0220c936e1f522cc75e976f27aa4cf15017ed17d130a0b836b8",
-     "block": 26253223,
+     "expected_var_e18": "740685071530736318144",
+     "tx": "0xca0ecfa5b01690fe617ced6b2e1192f03577d8652f487118eab06ea02f4390ca",
+     "block": 26253505,
      "timestamp": 1792760370
     },
     "mirror": {
-     "fee_pips": 231,
+     "fee_pips": 234,
      "mix_quantiles_e18": [
-      "5368909219348459351",
-      "5869133360579161242",
-      "6387365648243057512",
-      "6937418119975779468",
-      "7453247402820014517"
+      "5367341598873961066",
+      "5867450202143865993",
+      "6385665844657705966",
+      "6935499641979631359",
+      "7451075184899791883"
      ],
-     "expected_var_e18": "742103149274966386773",
+     "expected_var_e18": "740685071530736318144",
      "weights": [
-      "204608573377162658",
-      "204552014132370992",
-      "205794402992440319",
-      "278360894201148935",
-      "243602336197304843",
-      "260299354103179560"
+      "198554404099772478",
+      "204818075974772478",
+      "198789376441435049",
+      "275438013548135389",
+      "240224814256022478",
+      "254569829493072138"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 2.31,
+    "forecast_bps": 2.34,
     "prev_hour": {
      "window": [
       1792756500,
@@ -4099,7 +3820,7 @@
      ],
      "realized_vol": 558
     },
-    "prev_hour_bps": 1.74,
+    "prev_hour_bps": 1.76,
     "fair_bps": 3.041071389762294,
     "fair_inputs": {
      "realized_vol": 1696,
@@ -4109,6 +3830,17 @@
      "volume_token1": "1010612683862743090333",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 234,
+    "recorded": true,
+    "round_id": 6,
+    "effective_fee_pips": 234.0,
+    "lp_fee_usdc": 2.339999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 207563,
+    "tx": "0xee946fcd1ad0127350a9d0dbdd1c248d17e328819ca8779654e3f86b3cd77ccf",
+    "timestamp": 1792760419
    },
    "end": 1792764000,
    "window_utc": [
@@ -4163,9 +3895,9 @@
    "baseline_loss": 0.2820876417805545,
    "baseline_loss_e18": "282087641780554515",
    "outcome": {
-    "settle_block": 26253265,
-    "settle_tx": "0x85115b0d3dc489148907e334de36d616995ddfb0b5c85f55568b81ba564c3b9f",
-    "gas_used": 1244279,
+    "settle_block": 26253550,
+    "settle_tx": "0xb141c6b2364c1dd019eabf9e17511da7536e8850cb6c9409b5ef6e6b3f91ae6f",
+    "gas_used": 1410759,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -4195,10 +3927,10 @@
    }
   },
   {
-   "h": 8,
+   "h": 7,
    "start": 1792764000,
    "created_at": 1792763700,
-   "id": 8,
+   "id": 7,
    "features": [
     0,
     -1024,
@@ -4268,6 +4000,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "120322280904051830",
+     "cumulative_excess_e18": "120322280904051830",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -4305,6 +4039,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "255507827779051830",
+     "cumulative_excess_e18": "255507827779051830",
      "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
@@ -4342,6 +4078,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "296760814487364685",
+     "cumulative_excess_e18": "296760814487364685",
      "predictor_reward_wei": "0"
     },
     "agent-timesfm-3.0": {
@@ -4382,6 +4120,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "460129075599964334",
+     "cumulative_excess_e18": "460129075599964334",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -4426,6 +4166,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "297656964615198339",
+     "cumulative_excess_e18": "297656964615198339",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -4470,6 +4212,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "675925982977066318",
+     "cumulative_excess_e18": "675925982977066318",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -4479,42 +4223,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 381,
+     "fee_pips": 387,
      "mix_quantiles_e18": [
-      "5823351858097713932",
-      "6356801265880734927",
-      "6893665096650361802",
-      "7436685684307880321",
-      "7959993078010894544"
+      "5823364335043463303",
+      "6356787177592114669",
+      "6893862183974856980",
+      "7436859206044686534",
+      "7960251382340131433"
      ],
-     "expected_var_e18": "1223860975579429213112",
-     "tx": "0x9a2b4a26cf922369208c98bf5c6ecb05be535fc2f20b3dde41602d4c5ba88afe",
-     "block": 26253263,
+     "expected_var_e18": "1224081952796046357013",
+     "tx": "0x3fe48cdd85b7a0c289edde8883535d802f13eaaab4bd32c576ac28e5bdd7d98f",
+     "block": 26253548,
      "timestamp": 1792763970
     },
     "mirror": {
-     "fee_pips": 381,
+     "fee_pips": 387,
      "mix_quantiles_e18": [
-      "5823351858097713932",
-      "6356801265880734927",
-      "6893665096650361802",
-      "7436685684307880321",
-      "7959993078010894544"
+      "5823364335043463303",
+      "6356787177592114669",
+      "6893862183974856980",
+      "7436859206044686534",
+      "7960251382340131433"
      ],
-     "expected_var_e18": "1223860975579429213112",
+     "expected_var_e18": "1224081952796046357013",
      "weights": [
-      "204969773102215424",
-      "205994814954893996",
-      "206674326276917705",
-      "263738025519127609",
-      "249584643592732467",
-      "264169113181696510"
+      "199984831991899069",
+      "206456999960649069",
+      "200983458031826211",
+      "258865146861279432",
+      "247767093207568433",
+      "260039469186359817"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 3.81,
+    "forecast_bps": 3.87,
     "prev_hour": {
      "window": [
       1792760100,
@@ -4536,7 +4280,7 @@
      ],
      "realized_vol": 1619
     },
-    "prev_hour_bps": 5.04,
+    "prev_hour_bps": 5.12,
     "fair_bps": 8.577424937538645,
     "fair_inputs": {
      "realized_vol": 6386,
@@ -4546,6 +4290,17 @@
      "volume_token1": "1509120732334825174898",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 387,
+    "recorded": true,
+    "round_id": 7,
+    "effective_fee_pips": 387.0,
+    "lp_fee_usdc": 3.869999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 207563,
+    "tx": "0x120c1747c61b6451b76c9fd0672a745851a9feb3b44ba9d44c87a51c5a0ae32c",
+    "timestamp": 1792764019
    },
    "end": 1792767600,
    "window_utc": [
@@ -4600,9 +4355,9 @@
    "baseline_loss": 0.8317227022623637,
    "baseline_loss_e18": "831722702262363665",
    "outcome": {
-    "settle_block": 26253304,
-    "settle_tx": "0xa6af7a3e96a343bfa539e85419357ba4b4990d0dd577d4aee716c8c7d24b1726",
-    "gas_used": 1245027,
+    "settle_block": 26253595,
+    "settle_tx": "0xdd995d0d2444c3bdb9425f8bf267c7f38f2fef47ff117c0d6aa4c97a80f704d8",
+    "gas_used": 1411042,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 4,
@@ -4632,10 +4387,10 @@
    }
   },
   {
-   "h": 9,
+   "h": 8,
    "start": 1792767600,
    "created_at": 1792767300,
-   "id": 9,
+   "id": 8,
    "features": [
     768,
     -3840,
@@ -4705,6 +4460,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-211072104320132119",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -4742,6 +4499,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-314123862132632119",
      "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
@@ -4779,6 +4538,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "145869358950680736",
+     "cumulative_excess_e18": "145869358950680736",
      "predictor_reward_wei": "0"
     },
     "agent-timesfm-3.0": {
@@ -4819,6 +4580,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-348609059624219615",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -4863,6 +4626,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "280728082549981365",
+     "cumulative_excess_e18": "280728082549981365",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -4907,6 +4672,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "441555523534132369",
+     "cumulative_excess_e18": "441555523534132369",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -4916,42 +4683,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 802,
+     "fee_pips": 811,
      "mix_quantiles_e18": [
-      "6712957704162189566",
-      "7134552760282393988",
-      "7659454589953801281",
-      "8187762973160304215",
-      "8647430891183973294"
+      "6710063312374546874",
+      "7131571366146370076",
+      "7656470007339630528",
+      "8184456538088542766",
+      "8643663444041130261"
      ],
-     "expected_var_e18": "2572456515178257141760",
-     "tx": "0x4f8174292e02105c9ca6c64a7f4dba49d54da2a9cd6155053e96413c783ba858",
-     "block": 26253302,
+     "expected_var_e18": "2563927790977913487758",
+     "tx": "0x16ee5efb0d668b79d97b1cb44396fb93a5ee94d9afe78418cc587c6ce8feb5c2",
+     "block": 26253593,
      "timestamp": 1792767570
     },
     "mirror": {
-     "fee_pips": 802,
+     "fee_pips": 811,
      "mix_quantiles_e18": [
-      "6712957704162189566",
-      "7134552760282393988",
-      "7659454589953801281",
-      "8187762973160304215",
-      "8647430891183973294"
+      "6710063312374546874",
+      "7131571366146370076",
+      "7656470007339630528",
+      "8184456538088542766",
+      "8643663444041130261"
      ],
-     "expected_var_e18": "2572456515178257141760",
+     "expected_var_e18": "2563927790977913487758",
      "weights": [
-      "184747278275796071",
-      "175114404740639821",
-      "196226250096629317",
-      "223721257345079273",
-      "222749096499327274",
-      "251391976724248271"
+      "177585543777465001",
+      "171099076143536430",
+      "189855780717938266",
+      "213827823042059645",
+      "217357546584414503",
+      "246026976662895643"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 8.02,
+    "forecast_bps": 8.11,
     "prev_hour": {
      "window": [
       1792763700,
@@ -4973,7 +4740,7 @@
      ],
      "realized_vol": 6533
     },
-    "prev_hour_bps": 20.37,
+    "prev_hour_bps": 20.66,
     "fair_bps": 1.4559313738274666,
     "fair_inputs": {
      "realized_vol": 514,
@@ -4983,6 +4750,17 @@
      "volume_token1": "641314547482616109095",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 811,
+    "recorded": true,
+    "round_id": 8,
+    "effective_fee_pips": 811.0,
+    "lp_fee_usdc": 8.109999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 207563,
+    "tx": "0xf0d63a0e297a64dd58d6c81d67820401683cb11438c874f58a7b558637547916",
+    "timestamp": 1792767613
    },
    "end": 1792771200,
    "window_utc": [
@@ -5037,9 +4815,9 @@
    "baseline_loss": 0.1705628297044835,
    "baseline_loss_e18": "170562829704483487",
    "outcome": {
-    "settle_block": 26253339,
-    "settle_tx": "0x94d872fa6175bc84c1cd2813107428f717f2cae62d055eb084ee922187c652f0",
-    "gas_used": 1235257,
+    "settle_block": 26253632,
+    "settle_tx": "0x7dec7681b469a350e2d54fecfe3fcb46fd80bb233b5f9374e2dfe43d6015e446",
+    "gas_used": 1355362,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -5069,10 +4847,10 @@
    }
   },
   {
-   "h": 10,
+   "h": 9,
    "start": 1792771200,
    "created_at": 1792770900,
-   "id": 10,
+   "id": 9,
    "features": [
     -5376,
     -1664,
@@ -5132,7 +4910,7 @@
      ],
      "prove_seconds": 6.9,
      "proof_cached": true,
-     "reveal_gas": 774652,
+     "reveal_gas": 774640,
      "forecast_source": "ezkl",
      "score_e18": "-155110350470325934",
      "pinball_loss_e18": "155110350470325934",
@@ -5142,7 +4920,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1831427211230570"
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-152678549632632119",
+     "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
      "entered": true,
@@ -5179,7 +4959,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "464939628170918"
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-299299643382632119",
+     "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -5216,7 +4998,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2025611482811837"
+     "fee_weight_e18": "210454319888180736",
+     "cumulative_excess_e18": "210454319888180736",
+     "predictor_reward_wei": "1889555284887906"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -5256,6 +5040,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-493967464614764008",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -5300,7 +5086,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "1692496703100194",
+     "fee_weight_e18": "334691951921829496",
+     "cumulative_excess_e18": "334691951921829496",
+     "predictor_reward_wei": "3005017653709179",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -5344,7 +5132,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "3985524974686481",
+     "fee_weight_e18": "568630718846632369",
+     "cumulative_excess_e18": "568630718846632369",
+     "predictor_reward_wei": "5105427061402915",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -5353,42 +5143,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 397,
+     "fee_pips": 402,
      "mix_quantiles_e18": [
-      "5954280970419212374",
-      "6397480454735509454",
-      "6930825430137001548",
-      "7478964643461805405",
-      "7992518786564580073"
+      "5952520785745945054",
+      "6395840191098707274",
+      "6928736926526930198",
+      "7476723121197722346",
+      "7990093717538392711"
      ],
-     "expected_var_e18": "1275555027320197441194",
-     "tx": "0x59dababd93a4db738b7e5e9474b00b6ecc0b01b67f10c813b8349b82863222a0",
-     "block": 26253337,
+     "expected_var_e18": "1272772967168240307370",
+     "tx": "0x22811a8ec2b8207582ecb38a16cfd4188912ec6e1422c0c47d757647a52493b9",
+     "block": 26253630,
      "timestamp": 1792771170
     },
     "mirror": {
-     "fee_pips": 397,
+     "fee_pips": 402,
      "mix_quantiles_e18": [
-      "5954280970419212374",
-      "6397480454735509454",
-      "6930825430137001548",
-      "7478964643461805405",
-      "7992518786564580073"
+      "5952520785745945054",
+      "6395840191098707274",
+      "6928736926526930198",
+      "7476723121197722346",
+      "7990093717538392711"
      ],
-     "expected_var_e18": "1275555027320197441194",
+     "expected_var_e18": "1272772967168240307370",
      "weights": [
-      "120344756048241113",
-      "131847848496157780",
-      "140609050444537331",
-      "164556164092465070",
-      "142894223809435515",
-      "188086007099643068"
+      "106027923083757057",
+      "122926116443132057",
+      "128082739781671164",
+      "148503772420746120",
+      "128194758547650371",
+      "175478385842883868"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 3.97,
+    "forecast_bps": 4.02,
     "prev_hour": {
      "window": [
       1792767300,
@@ -5410,7 +5200,7 @@
      ],
      "realized_vol": 802
     },
-    "prev_hour_bps": 2.5,
+    "prev_hour_bps": 2.53,
     "fair_bps": 5.888487011265551,
     "fair_inputs": {
      "realized_vol": 1175,
@@ -5420,6 +5210,17 @@
      "volume_token1": "408500947248532221516",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 402,
+    "recorded": true,
+    "round_id": 9,
+    "effective_fee_pips": 402.0,
+    "lp_fee_usdc": 4.019999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0xe24ddb02620c11e4a104b941c9a74ea9ec400fd7c2ab6a48f39cd4c9cac6e083",
+    "timestamp": 1792771213
    },
    "end": 1792774800,
    "window_utc": [
@@ -5474,9 +5275,9 @@
    "baseline_loss": 0.21350390515782594,
    "baseline_loss_e18": "213503905157825934",
    "outcome": {
-    "settle_block": 26253374,
-    "settle_tx": "0x3110ed66170360920e5adfd1072835aaad17d02e21e43b7533c4a3cb0a91e555",
-    "gas_used": 1251173,
+    "settle_block": 26253669,
+    "settle_tx": "0x4bbb106d9c3e59bfac71c133e4e186c9dcccb5ba40fb0ae9306bf40d6a06e022",
+    "gas_used": 1350603,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -5506,10 +5307,10 @@
    }
   },
   {
-   "h": 11,
+   "h": 10,
    "start": 1792774800,
    "created_at": 1792774500,
-   "id": 11,
+   "id": 10,
    "features": [
     512,
     640,
@@ -5579,6 +5380,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-144575522288882119",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -5616,6 +5419,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-291870444163882119",
      "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
@@ -5653,6 +5458,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "179049499645642106",
+     "cumulative_excess_e18": "179049499645642106",
      "predictor_reward_wei": "0"
     },
     "agent-timesfm-3.0": {
@@ -5680,7 +5487,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205690,
+     "reveal_gas": 205678,
      "forecast_source": "self-hosted inference: timesfm-3.0",
      "context_source": "onchain",
      "context_points": 16,
@@ -5693,6 +5500,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-522576874701052638",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -5737,6 +5546,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "365677268398040866",
+     "cumulative_excess_e18": "365677268398040866",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -5781,6 +5592,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "271985629142805109",
+     "cumulative_excess_e18": "271985629142805109",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -5790,42 +5603,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 369,
+     "fee_pips": 377,
      "mix_quantiles_e18": [
-      "5847542039874007532",
-      "6336062635578515636",
-      "6876428611763623369",
-      "7408785366004886106",
-      "7900563118208104947"
+      "5855485143325945102",
+      "6344266742549446073",
+      "6884400878381572005",
+      "7416087055626774362",
+      "7906796373078480414"
      ],
-     "expected_var_e18": "1184372864304845837454",
-     "tx": "0xf2c6799034339860016dd6ea0dbd8a75dc08c2eabf37ddfb654a79358b4d27a8",
-     "block": 26253372,
+     "expected_var_e18": "1192976334306112900117",
+     "tx": "0x2f2e20c22f71164f14854d55f2bc34aed6b9bc6f62a0a6b39d6a4c9f7df5323c",
+     "block": 26253667,
      "timestamp": 1792774770
     },
     "mirror": {
-     "fee_pips": 369,
+     "fee_pips": 377,
      "mix_quantiles_e18": [
-      "5847542039874007532",
-      "6336062635578515636",
-      "6876428611763623369",
-      "7408785366004886106",
-      "7900563118208104947"
+      "5855485143325945102",
+      "6344266742549446073",
+      "6884400878381572005",
+      "7416087055626774362",
+      "7906796373078480414"
      ],
-     "expected_var_e18": "1184372864304845837454",
+     "expected_var_e18": "1192976334306112900117",
      "weights": [
-      "94799042858941770",
-      "81328095593316770",
-      "131087200784358366",
-      "86854935098743331",
-      "146540114159913429",
-      "165468561383328529"
+      "79234556536144904",
+      "67784361223644904",
+      "118894719121790777",
+      "63952672613468516",
+      "133879021743935291",
+      "151748737408840958"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 3.69,
+    "forecast_bps": 3.77,
     "prev_hour": {
      "window": [
       1792770900,
@@ -5847,7 +5660,7 @@
      ],
      "realized_vol": 1140
     },
-    "prev_hour_bps": 3.55,
+    "prev_hour_bps": 3.6,
     "fair_bps": 3.2094331682999244,
     "fair_inputs": {
      "realized_vol": 440,
@@ -5857,6 +5670,17 @@
      "volume_token1": "280757331326609107171",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 377,
+    "recorded": true,
+    "round_id": 10,
+    "effective_fee_pips": 377.0,
+    "lp_fee_usdc": 3.769999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0xe713765f4f42aac2adf4b44f0fa24f29d0e58a63d4d91283f8594e9ad0525984",
+    "timestamp": 1792774816
    },
    "end": 1792778400,
    "window_utc": [
@@ -5911,9 +5735,9 @@
    "baseline_loss": 0.1861076835587693,
    "baseline_loss_e18": "186107683558769314",
    "outcome": {
-    "settle_block": 26253414,
-    "settle_tx": "0xc11c0cb581f98e4ea4c51ce90e441b12fcb8dfa8352fea1ab6db64d9ca6a4c0d",
-    "gas_used": 1246957,
+    "settle_block": 26253709,
+    "settle_tx": "0x0515ebb4f9202cb11640f1e3244b2fba778adf94dab5b26e188abbc735b74d70",
+    "gas_used": 1346697,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -5943,10 +5767,10 @@
    }
   },
   {
-   "h": 12,
+   "h": 11,
    "start": 1792778400,
    "created_at": 1792778100,
-   "id": 12,
+   "id": 11,
    "features": [
     -2432,
     -384,
@@ -6016,7 +5840,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1294752329166314"
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-102789763703033679",
+     "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
      "entered": true,
@@ -6053,7 +5879,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "374870506435860"
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-279772185578033679",
+     "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -6090,7 +5918,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1116037543646577"
+     "fee_weight_e18": "215067566051892106",
+     "cumulative_excess_e18": "215067566051892106",
+     "predictor_reward_wei": "2146449848449589"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -6130,7 +5960,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2590117905301644",
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-438985566107302638",
+     "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -6161,7 +5993,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205678,
+     "reveal_gas": 205690,
      "forecast_source": "self-hosted inference: timestral-209m",
      "context_source": "swaps",
      "context_points": 512,
@@ -6174,7 +6006,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2201513224103754",
+     "fee_weight_e18": "436727073085540866",
+     "cumulative_excess_e18": "436727073085540866",
+     "predictor_reward_wei": "4358689583217353",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -6218,7 +6052,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2422708491345851",
+     "fee_weight_e18": "350174105705305109",
+     "cumulative_excess_e18": "350174105705305109",
+     "predictor_reward_wei": "3494860568333058",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -6227,42 +6063,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 220,
+     "fee_pips": 223,
      "mix_quantiles_e18": [
-      "5289906959192370688",
-      "5814450856438853099",
-      "6345416422787076429",
-      "6886076354307995061",
-      "7405003303514039532"
+      "5291705203180121694",
+      "5817093379342317265",
+      "6348738956662312237",
+      "6888630804223835696",
+      "7407307425903790254"
      ],
-     "expected_var_e18": "706128230341385576376",
-     "tx": "0x74a38e504e3fd0bf42c182e452898dbcb83ec60123396da9b48588c1f2d0b0e6",
-     "block": 26253412,
+     "expected_var_e18": "707984646441261955925",
+     "tx": "0x81f8ea39d78d31bd0701295589f8a400e56aff008da481625fb6df5d242e7c25",
+     "block": 26253707,
      "timestamp": 1792778370
     },
     "mirror": {
-     "fee_pips": 220,
+     "fee_pips": 223,
      "mix_quantiles_e18": [
-      "5289906959192370688",
-      "5814450856438853099",
-      "6345416422787076429",
-      "6886076354307995061",
-      "7405003303514039532"
+      "5291705203180121694",
+      "5817093379342317265",
+      "6348738956662312237",
+      "6888630804223835696",
+      "7407307425903790254"
      ],
-     "expected_var_e18": "706128230341385576376",
+     "expected_var_e18": "707984646441261955925",
      "weights": [
-      "105429537927546080",
-      "89222373509932443",
-      "138981627518833895",
-      "79684716356634372",
-      "152064176808824691",
-      "175918340279261316"
+      "92484549743889332",
+      "77822440368889332",
+      "128797836695970617",
+      "58355658245676143",
+      "141221599899335493",
+      "164615476591815780"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 2.2,
+    "forecast_bps": 2.23,
     "prev_hour": {
      "window": [
       1792774500,
@@ -6284,7 +6120,7 @@
      ],
      "realized_vol": 443
     },
-    "prev_hour_bps": 1.38,
+    "prev_hour_bps": 1.4,
     "fair_bps": 2.3536180033138434,
     "fair_inputs": {
      "realized_vol": 512,
@@ -6294,6 +6130,17 @@
      "volume_token1": "445354505590607157904",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 223,
+    "recorded": true,
+    "round_id": 11,
+    "effective_fee_pips": 223.0,
+    "lp_fee_usdc": 2.229999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0x1b167af6fac1bc15af0997938ea4ae0bbd615d9555afefe64074e834cfe3ad61",
+    "timestamp": 1792778413
    },
    "end": 1792782000,
    "window_utc": [
@@ -6348,9 +6195,9 @@
    "baseline_loss": 0.1709526937460492,
    "baseline_loss_e18": "170952693746049220",
    "outcome": {
-    "settle_block": 26253449,
-    "settle_tx": "0x148eb7f1bdd84d0cfe5ec34b4e414f49fc20e580bc88e90e1fcdb786d4b053d2",
-    "gas_used": 1254096,
+    "settle_block": 26253746,
+    "settle_tx": "0x3bbdcafc5154ab5c69930373303c1866afe5619dc8d6d7dcb1213ddcc3e4ce32",
+    "gas_used": 1353371,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -6380,10 +6227,10 @@
    }
   },
   {
-   "h": 13,
+   "h": 12,
    "start": 1792782000,
    "created_at": 1792781700,
-   "id": 13,
+   "id": 12,
    "features": [
     0,
     640,
@@ -6453,7 +6300,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1439707454408822"
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-36371306671783679",
+     "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
      "entered": true,
@@ -6490,7 +6339,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1023909569119717"
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-232535857453033679",
+     "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -6517,7 +6368,7 @@
      ],
      "prove_seconds": 6.69,
      "proof_cached": true,
-     "reveal_gas": 774334,
+     "reveal_gas": 774322,
      "forecast_source": "ezkl",
      "score_e18": "-163403600994922111",
      "pinball_loss_e18": "163403600994922111",
@@ -6527,7 +6378,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "933150580540002"
+     "fee_weight_e18": "258116882458142106",
+     "cumulative_excess_e18": "258116882458142106",
+     "predictor_reward_wei": "2119061485857067"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -6554,7 +6407,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205690,
+     "reveal_gas": 205678,
      "forecast_source": "self-hosted inference: timesfm-3.0",
      "context_source": "onchain",
      "context_points": 16,
@@ -6567,7 +6420,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2852067078832791",
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-307410297711208414",
+     "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -6611,7 +6466,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1997597400535557",
+     "fee_weight_e18": "528882834804290866",
+     "cumulative_excess_e18": "528882834804290866",
+     "predictor_reward_wei": "4341968007251227",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -6655,7 +6512,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "1753567916563111",
+     "fee_weight_e18": "431071981840460886",
+     "cumulative_excess_e18": "431071981840460886",
+     "predictor_reward_wei": "3538970506891706",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -6664,42 +6523,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 187,
+     "fee_pips": 192,
      "mix_quantiles_e18": [
-      "5116465858196081597",
-      "5656954280614916128",
-      "6181101677043225936",
-      "6730478755160092692",
-      "7245933745212323502"
+      "5119898106981875594",
+      "5662730779878637477",
+      "6189354565553161332",
+      "6741126857946612566",
+      "7259332160242496552"
      ],
-     "expected_var_e18": "601986412131456162506",
-     "tx": "0x9018c9ecabc33feffc5c0bb00e061351f1ecc29f714d41e00195515021614a0c",
-     "block": 26253447,
+     "expected_var_e18": "608167323768362811406",
+     "tx": "0x6b223b953574e638bf8e63ef0805ed82e67282af2d89629b02be3aa940a8c71f",
+     "block": 26253744,
      "timestamp": 1792781970
     },
     "mirror": {
-     "fee_pips": 187,
+     "fee_pips": 192,
      "mix_quantiles_e18": [
-      "5116465858196081597",
-      "5656954280614916128",
-      "6181101677043225936",
-      "6730478755160092692",
-      "7245933745212323502"
+      "5119898106981875594",
+      "5662730779878637477",
+      "6189354565553161332",
+      "6741126857946612566",
+      "7259332160242496552"
      ],
-     "expected_var_e18": "601986412131456162506",
+     "expected_var_e18": "608167323768362811406",
      "weights": [
-      "112380425005991890",
-      "97467705279429390",
-      "139844186499148334",
-      "85721635446819605",
-      "157035701408202397",
-      "151599484074432751"
+      "101244152755253556",
+      "87853705312071738",
+      "130664609294755758",
+      "66880393445056236",
+      "147630770090428373",
+      "139113348339952395"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 1.87,
+    "forecast_bps": 1.92,
     "prev_hour": {
      "window": [
       1792778100,
@@ -6721,7 +6580,7 @@
      ],
      "realized_vol": 497
     },
-    "prev_hour_bps": 1.55,
+    "prev_hour_bps": 1.57,
     "fair_bps": 2.6453193116176084,
     "fair_inputs": {
      "realized_vol": 359,
@@ -6731,6 +6590,17 @@
      "volume_token1": "244811738375231651452",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 192,
+    "recorded": true,
+    "round_id": 12,
+    "effective_fee_pips": 192.0,
+    "lp_fee_usdc": 1.919999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0x2a928352da5c8ae726492db732d7da0776d7f19dad967da35f344fd1dae9354b",
+    "timestamp": 1792782016
    },
    "end": 1792785600,
    "window_utc": [
@@ -6785,9 +6655,9 @@
    "baseline_loss": 0.2064529174011721,
    "baseline_loss_e18": "206452917401172111",
    "outcome": {
-    "settle_block": 26253490,
-    "settle_tx": "0x0e7a244fb1e7cc08d5ba0036d20bebaab24a1989d7e4f22797ba467b7a168ce6",
-    "gas_used": 1249143,
+    "settle_block": 26253786,
+    "settle_tx": "0xc88e9a7b6dc6f9711df2dfabcbb3b6981c08fcfcd5738f85b035de8f91ac5bec",
+    "gas_used": 1348418,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -6817,10 +6687,10 @@
    }
   },
   {
-   "h": 14,
+   "h": 13,
    "start": 1792785600,
    "created_at": 1792785300,
-   "id": 14,
+   "id": 13,
    "features": [
     -256,
     640,
@@ -6890,7 +6760,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1493451950828255"
+     "fee_weight_e18": "38607912644927636",
+     "cumulative_excess_e18": "38607912644927636",
+     "predictor_reward_wei": "273302268398936"
     },
     "agent-mlp16": {
      "entered": true,
@@ -6927,7 +6799,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1947447123825050"
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-134763669386322364",
+     "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -6964,7 +6838,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1715294922037700"
+     "fee_weight_e18": "344233797087353421",
+     "cumulative_excess_e18": "344233797087353421",
+     "predictor_reward_wei": "2436803006388726"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -7004,7 +6880,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "3452546159753048",
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-134074144800747099",
+     "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "tolerant",
      "recompute_max_abs_diff": 244140625000000,
@@ -7048,7 +6926,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "629349349713423",
+     "fee_weight_e18": "560479514491790866",
+     "cumulative_excess_e18": "560479514491790866",
+     "predictor_reward_wei": "3967588823320294",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -7079,7 +6959,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205678,
+     "reveal_gas": 205690,
      "forecast_source": "self-hosted inference: chronos-2",
      "context_source": "swaps",
      "context_points": 512,
@@ -7092,7 +6972,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "761910493842524",
+     "fee_weight_e18": "469323934965460886",
+     "cumulative_excess_e18": "469323934965460886",
+     "predictor_reward_wei": "3322305901892044",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -7101,42 +6983,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 162,
+     "fee_pips": 166,
      "mix_quantiles_e18": [
-      "5007114656412638183",
-      "5519503006887000584",
-      "6045593114565502304",
-      "6575101379372659511",
-      "7103803360389205666"
+      "5011737835962352212",
+      "5525402288947432148",
+      "6052916841494915604",
+      "6583524083722443217",
+      "7113925739875639539"
      ],
-     "expected_var_e18": "521805747453880965870",
-     "tx": "0xc9bbc6fd778ec0da47d3c13459016832ada89c7f9fa83550408ef06963257588",
-     "block": 26253488,
+     "expected_var_e18": "526158958402477303932",
+     "tx": "0xeff1d3d5dde8f450f2e6c6df0e9b552f7a24be5ec4cf7989ea4aa9956fbd18ba",
+     "block": 26253784,
      "timestamp": 1792785570
     },
     "mirror": {
-     "fee_pips": 162,
+     "fee_pips": 166,
      "mix_quantiles_e18": [
-      "5007114656412638183",
-      "5519503006887000584",
-      "6045593114565502304",
-      "6575101379372659511",
-      "7103803360389205666"
+      "5011737835962352212",
+      "5525402288947432148",
+      "6052916841494915604",
+      "6583524083722443217",
+      "7113925739875639539"
      ],
-     "expected_var_e18": "521805747453880965870",
+     "expected_var_e18": "526158958402477303932",
      "weights": [
-      "122018692615047462",
-      "105969451328989770",
-      "146926188441068916",
-      "100626390714880858",
-      "165490028224907282",
-      "161021110061042993"
+      "112613632019291954",
+      "97865096863041954",
+      "139101742832202436",
+      "84597315152269541",
+      "157573368418339833",
+      "150360621136653520"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 1.62,
+    "forecast_bps": 1.66,
     "prev_hour": {
      "window": [
       1792781700,
@@ -7158,7 +7040,7 @@
      ],
      "realized_vol": 419
     },
-    "prev_hour_bps": 1.3,
+    "prev_hour_bps": 1.32,
     "fair_bps": 3.037700117705301,
     "fair_inputs": {
      "realized_vol": 261,
@@ -7168,6 +7050,17 @@
      "volume_token1": "154559983859285470043",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 166,
+    "recorded": true,
+    "round_id": 13,
+    "effective_fee_pips": 166.0,
+    "lp_fee_usdc": 1.659999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0xee549c91881073af8433fcb4e9bc7071df88fba3a2d38706633027ee2d3b471a",
+    "timestamp": 1792785616
    },
    "end": 1792789200,
    "window_utc": [
@@ -7222,9 +7115,9 @@
    "baseline_loss": 0.24286067467819197,
    "baseline_loss_e18": "242860674678191972",
    "outcome": {
-    "settle_block": 26253531,
-    "settle_tx": "0x7c16f1d1f19ed189fd52e839769ee9d4f7fd2caf3676f333aa86428cbfb2c9d9",
-    "gas_used": 1253946,
+    "settle_block": 26253826,
+    "settle_tx": "0x8371476115476c4a9c6cdbe6a3e37d8cf9bf73e4c2051500f45ac3e1a530d472",
+    "gas_used": 1375416,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -7254,10 +7147,10 @@
    }
   },
   {
-   "h": 15,
+   "h": 14,
    "start": 1792789200,
    "created_at": 1792788900,
-   "id": 15,
+   "id": 14,
    "features": [
     128,
     -384,
@@ -7327,6 +7220,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "180995607957427636",
+     "cumulative_excess_e18": "180995607957427636",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -7364,6 +7259,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "48217287644927636",
+     "cumulative_excess_e18": "48217287644927636",
      "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
@@ -7391,7 +7288,7 @@
      ],
      "prove_seconds": 6.56,
      "proof_cached": true,
-     "reveal_gas": 774982,
+     "reveal_gas": 774994,
      "forecast_source": "ezkl",
      "score_e18": "-315426463070806600",
      "pinball_loss_e18": "315426463070806600",
@@ -7401,6 +7298,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "490139558806103421",
+     "cumulative_excess_e18": "490139558806103421",
      "predictor_reward_wei": "0"
     },
     "agent-timesfm-3.0": {
@@ -7441,6 +7340,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "146160230199252901",
+     "cumulative_excess_e18": "146160230199252901",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -7485,6 +7386,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "467508845100836465",
+     "cumulative_excess_e18": "467508845100836465",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -7529,6 +7432,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "423579828074506485",
+     "cumulative_excess_e18": "423579828074506485",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -7538,42 +7443,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 153,
+     "fee_pips": 157,
      "mix_quantiles_e18": [
-      "4917493055637293309",
-      "5445623966007302729",
-      "5983287545516963453",
-      "6526886104524290739",
-      "7053145786414929496"
+      "4920345122166521054",
+      "5450142746365876954",
+      "5989315007214517539",
+      "6534358336241329362",
+      "7062345015896377211"
      ],
-     "expected_var_e18": "493145878771433314033",
-     "tx": "0x130f7293219d1bad4d837b85150b68b2c464bab9e21db4ca3dea3941124c0b89",
-     "block": 26253529,
+     "expected_var_e18": "496722839374543671082",
+     "tx": "0xd93721a36bb2bf4516a4169380e86f9db33c9e40f25d98eeccd59a597fb31936",
+     "block": 26253824,
      "timestamp": 1792789170
     },
     "mirror": {
-     "fee_pips": 153,
+     "fee_pips": 157,
      "mix_quantiles_e18": [
-      "4917493055637293309",
-      "5445623966007302729",
-      "5983287545516963453",
-      "6526886104524290739",
-      "7053145786414929496"
+      "4920345122166521054",
+      "5450142746365876954",
+      "5989315007214517539",
+      "6534358336241329362",
+      "7062345015896377211"
      ],
-     "expected_var_e18": "493145878771433314033",
+     "expected_var_e18": "496722839374543671082",
      "weights": [
-      "129503813050686429",
-      "113230794077472144",
-      "150962977701634922",
-      "114293590669449170",
-      "171708432166091976",
-      "166754587757961263"
+      "121397997149653573",
+      "106308416320326650",
+      "144050934775032480",
+      "100548843992774747",
+      "164879084955505461",
+      "157355173189057001"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 1.53,
+    "forecast_bps": 1.57,
     "prev_hour": {
      "window": [
       1792785300,
@@ -7595,7 +7500,7 @@
      ],
      "realized_vol": 324
     },
-    "prev_hour_bps": 1.01,
+    "prev_hour_bps": 1.02,
     "fair_bps": 1.4751458609980432,
     "fair_inputs": {
      "realized_vol": 126,
@@ -7605,6 +7510,17 @@
      "volume_token1": "154585813608290949095",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 157,
+    "recorded": true,
+    "round_id": 14,
+    "effective_fee_pips": 157.0,
+    "lp_fee_usdc": 1.569999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0x361c8bff3e7506c9c12b326062eac2aebbf5b08f1becb21b38db23ad25bafdbb",
+    "timestamp": 1792789217
    },
    "end": 1792792800,
    "window_utc": [
@@ -7659,9 +7575,9 @@
    "baseline_loss": 0.4613322247895566,
    "baseline_loss_e18": "461332224789556600",
    "outcome": {
-    "settle_block": 26253572,
-    "settle_tx": "0xbd6a1aaf326dbc233c40b63ab736a9d463709727b5119056b2822bf5ef2a3145",
-    "gas_used": 1244601,
+    "settle_block": 26253867,
+    "settle_tx": "0x9da321556d57fe2b2527264cc639f9d16bda7fdb8b02a2569029039dbb168ff8",
+    "gas_used": 1410771,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 0,
@@ -7691,10 +7607,10 @@
    }
   },
   {
-   "h": 16,
+   "h": 15,
    "start": 1792792800,
    "created_at": 1792792500,
-   "id": 16,
+   "id": 15,
    "features": [
     -256,
     -768,
@@ -7764,6 +7680,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-224246091261322364",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -7801,6 +7719,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-347693356886322364",
      "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
@@ -7828,7 +7748,7 @@
      ],
      "prove_seconds": 3.72,
      "proof_cached": true,
-     "reveal_gas": 774127,
+     "reveal_gas": 774139,
      "forecast_source": "ezkl",
      "score_e18": "-1433977626244146725",
      "pinball_loss_e18": "1433977626244146725",
@@ -7838,6 +7758,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-164308683381396579",
      "predictor_reward_wei": "0"
     },
     "agent-timesfm-3.0": {
@@ -7865,7 +7787,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205690,
+     "reveal_gas": 205678,
      "forecast_source": "self-hosted inference: timesfm-3.0",
      "context_source": "onchain",
      "context_points": 16,
@@ -7878,6 +7800,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-705006761988247099",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -7922,6 +7846,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "15057673225836465",
+     "cumulative_excess_e18": "15057673225836465",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -7966,6 +7892,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-107499273487993515",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -7975,42 +7903,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 100,
+     "fee_pips": 101,
      "mix_quantiles_e18": [
-      "4432445035023880249",
-      "4982271265018342939",
-      "5537621886995147028",
-      "6097670047822691913",
-      "6650225507737961719"
+      "4433107251906450195",
+      "4984066315917211830",
+      "5540723116696594700",
+      "6101751147703821845",
+      "6655708099626878773"
      ],
-     "expected_var_e18": "320866964085173635226",
-     "tx": "0xdb0af199f2d88d52c8c61966addb69741c3cf5a62e3551d5ba00367d4b1dc8e8",
-     "block": 26253570,
+     "expected_var_e18": "322146569422986045461",
+     "tx": "0x54a7206845209da3e56a8bea6eda0d6ccd90910a6f1992b5d67f82086fd5318b",
+     "block": 26253865,
      "timestamp": 1792792770
     },
     "mirror": {
-     "fee_pips": 100,
+     "fee_pips": 101,
      "mix_quantiles_e18": [
-      "4432445035023880249",
-      "4982271265018342939",
-      "5537621886995147028",
-      "6097670047822691913",
-      "6650225507737961719"
+      "4433107251906450195",
+      "4984066315917211830",
+      "5540723116696594700",
+      "6101751147703821845",
+      "6655708099626878773"
      ],
-     "expected_var_e18": "320866964085173635226",
+     "expected_var_e18": "322146569422986045461",
      "weights": [
-      "134134451095469631",
-      "120465831303802964",
-      "154905517790521557",
-      "126495372445898189",
-      "170633259627900720",
-      "166453356409478722"
+      "126938381904852208",
+      "114554697474048636",
+      "148768802222168335",
+      "114603949230161155",
+      "164214924893913867",
+      "157703812070604583"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 1.0,
+    "forecast_bps": 1.01,
     "prev_hour": {
      "window": [
       1792788900,
@@ -8042,6 +7970,17 @@
      "volume_token1": "937652942384099632224",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 101,
+    "recorded": true,
+    "round_id": 15,
+    "effective_fee_pips": 101.0,
+    "lp_fee_usdc": 1.009999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0xbba0ef7d54e13a536d4feab16ba36b79354ca297c16c847d49f24fb0fa1f7c1a",
+    "timestamp": 1792792813
    },
    "end": 1792796400,
    "window_utc": [
@@ -8096,9 +8035,9 @@
    "baseline_loss": 0.7795293840566467,
    "baseline_loss_e18": "779529384056646725",
    "outcome": {
-    "settle_block": 26253610,
-    "settle_tx": "0x60d29739861e21a497b4587fe8d1ee4cc98ac795a5d16bcf92806f1a64e4dbda",
-    "gas_used": 1225107,
+    "settle_block": 26253907,
+    "settle_tx": "0xf548dfc308833cd67556638c95c002c4ac332a960fa34c5176942a9197d2807e",
+    "gas_used": 1300822,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 4,
@@ -8128,10 +8067,10 @@
    }
   },
   {
-   "h": 17,
+   "h": 16,
    "start": 1792796400,
    "created_at": 1792796100,
-   "id": 17,
+   "id": 16,
    "features": [
     256,
     0,
@@ -8191,7 +8130,7 @@
      ],
      "prove_seconds": 3.71,
      "proof_cached": true,
-     "reveal_gas": 773710,
+     "reveal_gas": 773722,
      "forecast_source": "ezkl",
      "score_e18": "-147227086825118051",
      "pinball_loss_e18": "147227086825118051",
@@ -8201,7 +8140,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1702640771715478"
+     "fee_weight_e18": "126048974789149840",
+     "cumulative_excess_e18": "126048974789149840",
+     "predictor_reward_wei": "1285126937742048"
     },
     "agent-mlp16": {
      "entered": true,
@@ -8238,7 +8179,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1752552008190069"
+     "fee_weight_e18": "12870263851649840",
+     "cumulative_excess_e18": "12870263851649840",
+     "predictor_reward_wei": "131218225291164"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -8265,7 +8208,7 @@
      ],
      "prove_seconds": 3.21,
      "proof_cached": true,
-     "reveal_gas": 773626,
+     "reveal_gas": 773614,
      "forecast_source": "ezkl",
      "score_e18": "-156676377662854153",
      "pinball_loss_e18": "156676377662854153",
@@ -8275,7 +8218,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "1656711641095612"
+     "fee_weight_e18": "176537091831339523",
+     "cumulative_excess_e18": "176537091831339523",
+     "predictor_reward_wei": "1799876378229972"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -8315,7 +8260,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": false,
-     "predictor_reward_wei": "1204671032303987",
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-457162163268316587",
+     "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -8359,7 +8306,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1846809010405399",
+     "fee_weight_e18": "395013383807558669",
+     "cumulative_excess_e18": "395013383807558669",
+     "predictor_reward_wei": "4027342079924870",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -8403,7 +8352,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1836615536289455",
+     "fee_weight_e18": "270359269124978689",
+     "cumulative_excess_e18": "270359269124978689",
+     "predictor_reward_wei": "2756436378811946",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -8412,42 +8363,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 1074,
+     "fee_pips": 1084,
      "mix_quantiles_e18": [
-      "6971844266526034774",
-      "7386973659346701713",
-      "7940169461334194974",
-      "8486885705783292719",
-      "8960338000277640826"
+      "6966155023057044551",
+      "7380256057648452137",
+      "7934146004954487772",
+      "8481338701603860683",
+      "8955652012450804253"
      ],
-     "expected_var_e18": "3446489644785848044743",
-     "tx": "0xd4761dcb0737b4b4b77bb336b34b4a7643a370ce372e6bf173ea6ad218626f58",
-     "block": 26253608,
+     "expected_var_e18": "3427543546013165442304",
+     "tx": "0x62b5ffb6af8b89ec2214e28344c6644b34de58d450e9ebc42ed59673d2012f34",
+     "block": 26253905,
      "timestamp": 1792796370
     },
     "mirror": {
-     "fee_pips": 1074,
+     "fee_pips": 1084,
      "mix_quantiles_e18": [
-      "6971844266526034774",
-      "7386973659346701713",
-      "7940169461334194974",
-      "8486885705783292719",
-      "8960338000277640826"
+      "6966155023057044551",
+      "7380256057648452137",
+      "7934146004954487772",
+      "8481338701603860683",
+      "8955652012450804253"
      ],
-     "expected_var_e18": "3446489644785848044743",
+     "expected_var_e18": "3427543546013165442304",
      "weights": [
-      "128744817252431436",
-      "118467565055165811",
-      "148437571429433242",
-      "130198598498926960",
-      "148252552457619682",
-      "147285553346599059"
+      "121669177084985961",
+      "112817289064152628",
+      "142278773808231014",
+      "119346818567774312",
+      "140770059561213217",
+      "137841458426124551"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 10.74,
+    "forecast_bps": 10.84,
     "prev_hour": {
      "window": [
       1792792500,
@@ -8469,7 +8420,7 @@
      ],
      "realized_vol": 5617
     },
-    "prev_hour_bps": 17.51,
+    "prev_hour_bps": 17.76,
     "fair_bps": 7.73848422306651,
     "fair_inputs": {
      "realized_vol": 3273,
@@ -8479,6 +8430,17 @@
      "volume_token1": "706599544379508116201",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 1084,
+    "recorded": true,
+    "round_id": 16,
+    "effective_fee_pips": 1084.0,
+    "lp_fee_usdc": 10.839999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0x4a97f87ab2012f3fdd34a1707d817cd93933611e29e3261e1c54f7204b28f8c9",
+    "timestamp": 1792796413
    },
    "end": 1792800000,
    "window_utc": [
@@ -8533,9 +8495,9 @@
    "baseline_loss": 0.49752215287559026,
    "baseline_loss_e18": "497522152875590255",
    "outcome": {
-    "settle_block": 26253648,
-    "settle_tx": "0x904bc0fe0fe4f394cb6edf4a43d3417d54d53edfe4313c648e76d76aee9b615a",
-    "gas_used": 1246562,
+    "settle_block": 26253947,
+    "settle_tx": "0x4e7c779952b000a7326d6497d5c686bc14abd98e18060b34668ded412359f0fa",
+    "gas_used": 1390227,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 4,
@@ -8565,10 +8527,10 @@
    }
   },
   {
-   "h": 18,
+   "h": 17,
    "start": 1792800000,
    "created_at": 1792799700,
-   "id": 18,
+   "id": 17,
    "features": [
     1536,
     512,
@@ -8638,6 +8600,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-17111675163091609",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -8675,7 +8639,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2382087596780471"
+     "fee_weight_e18": "92349754232152690",
+     "cumulative_excess_e18": "92349754232152690",
+     "predictor_reward_wei": "777070441039016"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -8712,7 +8678,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": false,
-     "predictor_reward_wei": "577792265275471"
+     "fee_weight_e18": "195815406722848074",
+     "cumulative_excess_e18": "195815406722848074",
+     "predictor_reward_wei": "1647674817648629"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -8739,7 +8707,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205678,
+     "reveal_gas": 205690,
      "forecast_source": "self-hosted inference: timesfm-3.0",
      "context_source": "onchain",
      "context_points": 16,
@@ -8752,6 +8720,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-859688047595558036",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "tolerant",
@@ -8796,7 +8766,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "3424797956128146",
+     "fee_weight_e18": "509283403338808669",
+     "cumulative_excess_e18": "509283403338808669",
+     "predictor_reward_wei": "4285328988006711",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -8840,7 +8812,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "3615322181815912",
+     "fee_weight_e18": "390986220442981539",
+     "cumulative_excess_e18": "390986220442981539",
+     "predictor_reward_wei": "3289925753305644",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -8849,42 +8823,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 775,
+     "fee_pips": 769,
      "mix_quantiles_e18": [
-      "6680289948361766617",
-      "7132951141239686464",
-      "7633451512289038729",
-      "8126433572686660521",
-      "8623746791630053661"
+      "6649509399201938354",
+      "7104613877231081538",
+      "7608042122331939733",
+      "8104379157956898160",
+      "8606147268927599313"
      ],
-     "expected_var_e18": "2487156530574131282403",
-     "tx": "0x987c0cb76b0a4b0b3a29b611ff2e4972070fafcb606c7653784dbe8d44443011",
-     "block": 26253646,
+     "expected_var_e18": "2431752242428908480824",
+     "tx": "0x49a2911bfaf95419472578cb1a5d121556f324d4bcfaa1e6f80f0fe3fdaeb31a",
+     "block": 26253945,
      "timestamp": 1792799970
     },
     "mirror": {
-     "fee_pips": 775,
+     "fee_pips": 769,
      "mix_quantiles_e18": [
-      "6680289948361766617",
-      "7132951141239686464",
-      "7633451512289038729",
-      "8126433572686660521",
-      "8623746791630053661"
+      "6649509399201938354",
+      "7104613877231081538",
+      "7608042122331939733",
+      "8104379157956898160",
+      "8606147268927599313"
      ],
-     "expected_var_e18": "2487156530574131282403",
+     "expected_var_e18": "2431752242428908480824",
      "weights": [
-      "73058284226318904",
-      "63934461845804198",
-      "76933432688864721",
-      "48195649342505867",
-      "88641477792599018",
-      "83106188647667843"
+      "62944463255206738",
+      "55229009153644238",
+      "66690551247702100",
+      "32896921334773942",
+      "77900948535654165",
+      "70241139366039791"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 7.75,
+    "forecast_bps": 7.69,
     "prev_hour": {
      "window": [
       1792796100,
@@ -8906,7 +8880,7 @@
      ],
      "realized_vol": 4873
     },
-    "prev_hour_bps": 15.19,
+    "prev_hour_bps": 15.41,
     "fair_bps": 4.969687579800329,
     "fair_inputs": {
      "realized_vol": 1199,
@@ -8916,6 +8890,17 @@
      "volume_token1": "437300104732131652417",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 769,
+    "recorded": true,
+    "round_id": 17,
+    "effective_fee_pips": 769.0,
+    "lp_fee_usdc": 7.689999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0xae0d9a57f652b2565e28e8fcbdc3659c03f6b1eb991b476c8bfe409af4b730ae",
+    "timestamp": 1792800018
    },
    "end": 1792803600,
    "window_utc": [
@@ -8970,9 +8955,9 @@
    "baseline_loss": 0.21552587800275141,
    "baseline_loss_e18": "215525878002751424",
    "outcome": {
-    "settle_block": 26253689,
-    "settle_tx": "0xf4b4b5479dc40c80707f20eabe774562903692f4d8ee4d9bb923f4123946c09f",
-    "gas_used": 1252337,
+    "settle_block": 26253989,
+    "settle_tx": "0x99e5219a8efcb62ffad500bce397beb62889d293f6eea7aa5e53978d36b89f51",
+    "gas_used": 1374117,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 3,
@@ -9002,10 +8987,10 @@
    }
   },
   {
-   "h": 19,
+   "h": 18,
    "start": 1792803600,
    "created_at": 1792803300,
-   "id": 19,
+   "id": 18,
    "features": [
     -1408,
     -512,
@@ -9075,7 +9060,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "636699581523338"
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-10971538444341609",
+     "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
      "entered": true,
@@ -9102,7 +9089,7 @@
      ],
      "prove_seconds": 2.83,
      "proof_cached": true,
-     "reveal_gas": 774517,
+     "reveal_gas": 774529,
      "forecast_source": "ezkl",
      "score_e18": "-121029570713453064",
      "pinball_loss_e18": "121029570713453064",
@@ -9112,7 +9099,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "4453245395158511"
+     "fee_weight_e18": "135295495617746561",
+     "cumulative_excess_e18": "135295495617746561",
+     "predictor_reward_wei": "1184323807556697"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -9149,7 +9138,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1670102242270164"
+     "fee_weight_e18": "211921363754098074",
+     "cumulative_excess_e18": "211921363754098074",
+     "predictor_reward_wei": "1855076662219196"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -9189,6 +9180,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-999905702241745777",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -9220,7 +9213,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205690,
+     "reveal_gas": 205678,
      "forecast_source": "self-hosted inference: timestral-209m",
      "context_source": "swaps",
      "context_points": 512,
@@ -9233,7 +9226,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "3239952781047987",
+     "fee_weight_e18": "540528520526308669",
+     "cumulative_excess_e18": "540528520526308669",
+     "predictor_reward_wei": "4731575080159113",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -9277,7 +9272,9 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
-     "predictor_reward_wei": "0",
+     "fee_weight_e18": "254640636109293798",
+     "cumulative_excess_e18": "254640636109293798",
+     "predictor_reward_wei": "2229024450064994",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -9286,42 +9283,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 357,
+     "fee_pips": 359,
      "mix_quantiles_e18": [
-      "5775391050276720221",
-      "6272501055902217074",
-      "6810388634925087317",
-      "7379883127970875840",
-      "7902237215407991531"
+      "5758894931072913854",
+      "6258499101128313099",
+      "6798951339332692959",
+      "7372509920761309763",
+      "7898434680983228364"
      ],
-     "expected_var_e18": "1146272998531318075512",
-     "tx": "0xf99693422b83a3f7f853a64f49c6763e666538e068114f531985f332cdd34313",
-     "block": 26253687,
+     "expected_var_e18": "1136995335568762493496",
+     "tx": "0x016945699db2fc8e902ba04676be5b9a3c1804338d29c2c7bdc5fdc75395a834",
+     "block": 26253987,
      "timestamp": 1792803570
     },
     "mirror": {
-     "fee_pips": 357,
+     "fee_pips": 359,
      "mix_quantiles_e18": [
-      "5775391050276720221",
-      "6272501055902217074",
-      "6810388634925087317",
-      "7379883127970875840",
-      "7902237215407991531"
+      "5758894931072913854",
+      "6258499101128313099",
+      "6798951339332692959",
+      "7372509920761309763",
+      "7898434680983228364"
      ],
-     "expected_var_e18": "1146272998531318075512",
+     "expected_var_e18": "1136995335568762493496",
      "weights": [
-      "81200476894789913",
-      "73154008795831580",
-      "84335378729542290",
-      "52027406875047506",
-      "97565751070235021",
-      "92221468657313911"
+      "72160539078947345",
+      "65502967847329698",
+      "75130428316723209",
+      "37854001546155203",
+      "87981974903559629",
+      "80649379922231395"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 3.57,
+    "forecast_bps": 3.59,
     "prev_hour": {
      "window": [
       1792799700,
@@ -9343,7 +9340,7 @@
      ],
      "realized_vol": 1184
     },
-    "prev_hour_bps": 3.69,
+    "prev_hour_bps": 3.74,
     "fair_bps": 2.8148699498761043,
     "fair_inputs": {
      "realized_vol": 549,
@@ -9353,6 +9350,17 @@
      "volume_token1": "332752712273987321230",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 359,
+    "recorded": true,
+    "round_id": 18,
+    "effective_fee_pips": 359.0,
+    "lp_fee_usdc": 3.589999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0x069dbae4f39be46c98638aa533a0f1aa1b9ae881fc18b02316bdf5182291ace5",
+    "timestamp": 1792803617
    },
    "end": 1792807200,
    "window_utc": [
@@ -9407,9 +9415,9 @@
    "baseline_loss": 0.16397531209904692,
    "baseline_loss_e18": "163975312099046935",
    "outcome": {
-    "settle_block": 26253728,
-    "settle_tx": "0x0e85f1ed8ca087a135a70ab72a7010aece1f146eed08abc99b5b4b57ff3faa47",
-    "gas_used": 1206913,
+    "settle_block": 26254030,
+    "settle_tx": "0x785f126b06809c5e38295eb96d1720d45d6974155baea9367f415638b6219132",
+    "gas_used": 1328693,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 2,
@@ -9439,10 +9447,10 @@
    }
   },
   {
-   "h": 20,
+   "h": 19,
    "start": 1792807200,
    "created_at": 1792806900,
-   "id": 20,
+   "id": 19,
    "features": [
     1280,
     896,
@@ -9512,6 +9520,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-2808155549964193",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -9549,6 +9559,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "191213464367746561",
+     "cumulative_excess_e18": "191213464367746561",
      "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
@@ -9586,6 +9598,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "79827719386602905",
+     "cumulative_excess_e18": "79827719386602905",
      "predictor_reward_wei": "0"
     },
     "agent-timesfm-3.0": {
@@ -9626,6 +9640,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-1013234698171740946",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -9670,6 +9686,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "564670907326936085",
+     "cumulative_excess_e18": "564670907326936085",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -9714,6 +9732,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-287504277789451371",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -9723,42 +9743,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 311,
+     "fee_pips": 317,
      "mix_quantiles_e18": [
-      "5618073975533431749",
-      "6144646256123754497",
-      "6683481264690377638",
-      "7238629137953362466",
-      "7755272016577566064"
+      "5613903687676809955",
+      "6144610762966929263",
+      "6686873209072128471",
+      "7246334580240401675",
+      "7767286261663245012"
      ],
-     "expected_var_e18": "997337930446690099050",
-     "tx": "0x057c988cebba0942fac2418cffe89a68dc7d62c73442931f1716a3c9c6a4af59",
-     "block": 26253726,
+     "expected_var_e18": "1004240207081765478883",
+     "tx": "0x029be7bcfe7485cd0136ef8395a0306ea2b0903340b670795b75d52dc8178f03",
+     "block": 26254028,
      "timestamp": 1792807170
     },
     "mirror": {
-     "fee_pips": 311,
+     "fee_pips": 317,
      "mix_quantiles_e18": [
-      "5618073975533431749",
-      "6144646256123754497",
-      "6683481264690377638",
-      "7238629137953362466",
-      "7755272016577566064"
+      "5613903687676809955",
+      "6144610762966929263",
+      "6686873209072128471",
+      "7246334580240401675",
+      "7767286261663245012"
      ],
-     "expected_var_e18": "997337930446690099050",
+     "expected_var_e18": "1004240207081765478883",
      "weights": [
-      "77356152380796877",
-      "81451084725612367",
-      "88875478584443867",
-      "36067705289725124",
-      "106409078940876003",
-      "101680649906885102"
+      "68604859748390395",
+      "74686050270348412",
+      "80434142075387044",
+      "21795061279920038",
+      "97849030776273744",
+      "91276965059838903"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 3.11,
+    "forecast_bps": 3.17,
     "prev_hour": {
      "window": [
       1792803300,
@@ -9780,7 +9800,7 @@
      ],
      "realized_vol": 645
     },
-    "prev_hour_bps": 2.01,
+    "prev_hour_bps": 2.04,
     "fair_bps": 3.8521619832980623,
     "fair_inputs": {
      "realized_vol": 278,
@@ -9790,6 +9810,17 @@
      "volume_token1": "130398143048044721218",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 317,
+    "recorded": true,
+    "round_id": 19,
+    "effective_fee_pips": 317.0,
+    "lp_fee_usdc": 3.169999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0xaf7e216404745dd7603ae1b5c4a8a1410415916d0610c6b4d06662c49ee16644",
+    "timestamp": 1792807217
    },
    "end": 1792810800,
    "window_utc": [
@@ -9844,9 +9875,9 @@
    "baseline_loss": 0.23202304488093628,
    "baseline_loss_e18": "232023044880936291",
    "outcome": {
-    "settle_block": 26253767,
-    "settle_tx": "0xa5b133b4bc392e5ad9aedacc611da8e694ca34cb5920060a0663a1e09963eb3e",
-    "gas_used": 1253710,
+    "settle_block": 26254071,
+    "settle_tx": "0xa0c984f572b1749fc9425c473dc73b2bde9dbe323d75c6707dc7c8b298f8fb26",
+    "gas_used": 1353450,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -9876,10 +9907,10 @@
    }
   },
   {
-   "h": 21,
+   "h": 20,
    "start": 1792810800,
    "created_at": 1792810500,
-   "id": 21,
+   "id": 20,
    "features": [
     256,
     -768,
@@ -9939,7 +9970,7 @@
      ],
      "prove_seconds": 2.68,
      "proof_cached": true,
-     "reveal_gas": 774604,
+     "reveal_gas": 774616,
      "forecast_source": "ezkl",
      "score_e18": "-168082189799679943",
      "pinball_loss_e18": "168082189799679943",
@@ -9949,7 +9980,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1814066848803947"
+     "fee_weight_e18": "106014915455645693",
+     "cumulative_excess_e18": "106014915455645693",
+     "predictor_reward_wei": "849145526553157"
     },
     "agent-mlp16": {
      "entered": true,
@@ -9986,7 +10019,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1998102905567585"
+     "fee_weight_e18": "311076574435856447",
+     "cumulative_excess_e18": "311076574435856447",
+     "predictor_reward_wei": "2491623753717956"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -10013,7 +10048,7 @@
      ],
      "prove_seconds": 3.27,
      "proof_cached": true,
-     "reveal_gas": 774628,
+     "reveal_gas": 774640,
      "forecast_source": "ezkl",
      "score_e18": "-140816564799679943",
      "pinball_loss_e18": "140816564799679943",
@@ -10023,7 +10058,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2268581373778806"
+     "fee_weight_e18": "215916415392212791",
+     "cumulative_excess_e18": "215916415392212791",
+     "predictor_reward_wei": "1729421350304222"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -10063,7 +10100,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "3072243473051598",
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-828935552947381060",
+     "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -10107,7 +10146,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "847005398798064",
+     "fee_weight_e18": "615481454201936085",
+     "cumulative_excess_e18": "615481454201936085",
+     "predictor_reward_wei": "4929809369424665",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -10151,6 +10192,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-619432817545061257",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -10160,42 +10203,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 180,
+     "fee_pips": 184,
      "mix_quantiles_e18": [
-      "5020926969402391043",
-      "5563998277350514770",
-      "6117707431633834858",
-      "6684338906095575503",
-      "7248279210073587129"
+      "5020106196809195063",
+      "5566871078185115768",
+      "6124335649200139379",
+      "6694530599445149251",
+      "7263352301627565733"
      ],
-     "expected_var_e18": "578043696414581258492",
-     "tx": "0x8b9d0b02682dcab553cc66f1643ca854b8a2fa96d2763013d353bfeddd045cc5",
-     "block": 26253765,
+     "expected_var_e18": "583817236000356858936",
+     "tx": "0x91352f7aacbeea100fe1625300cff0fae55a040abd591e1e0e8c1a6fae7be0b1",
+     "block": 26254069,
      "timestamp": 1792810770
     },
     "mirror": {
-     "fee_pips": 180,
+     "fee_pips": 184,
      "mix_quantiles_e18": [
-      "5020926969402391043",
-      "5563998277350514770",
-      "6117707431633834858",
-      "6684338906095575503",
-      "7248279210073587129"
+      "5020106196809195063",
+      "5566871078185115768",
+      "6124335649200139379",
+      "6694530599445149251",
+      "7263352301627565733"
      ],
-     "expected_var_e18": "578043696414581258492",
+     "expected_var_e18": "583817236000356858936",
      "weights": [
-      "83938827946937943",
-      "89669293907854851",
-      "95380478856027582",
-      "37396913642172890",
-      "112794357202450612",
-      "99922814544099868"
+      "75994586272349752",
+      "83692851222985972",
+      "87725791651214999",
+      "23945419756696901",
+      "105020905165541872",
+      "89974174406751616"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 1.8,
+    "forecast_bps": 1.84,
     "prev_hour": {
      "window": [
       1792806900,
@@ -10227,6 +10270,17 @@
      "volume_token1": "200053341977621567460",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 184,
+    "recorded": true,
+    "round_id": 20,
+    "effective_fee_pips": 184.0,
+    "lp_fee_usdc": 1.839999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208412,
+    "tx": "0xa977f6ba36e41a9aae18d5ca27a4f0a56eada4c10fe278b6964c58d7704f3221",
+    "timestamp": 1792810813
    },
    "end": 1792814400,
    "window_utc": [
@@ -10281,9 +10335,9 @@
    "baseline_loss": 0.2769052608052898,
    "baseline_loss_e18": "276905260805289829",
    "outcome": {
-    "settle_block": 26253802,
-    "settle_tx": "0x6262d58c3aa1ad3ae454b20de7956e06662391f79749c05e1a7eb1ea352feaf0",
-    "gas_used": 1246293,
+    "settle_block": 26254108,
+    "settle_tx": "0xb3e0ffc123e02821ec5c57ee18dc7eb69ec03d5800c7e3e29ccc50124b75470e",
+    "gas_used": 1367918,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -10313,10 +10367,10 @@
    }
   },
   {
-   "h": 22,
+   "h": 21,
    "start": 1792814400,
    "created_at": 1792814100,
-   "id": 22,
+   "id": 21,
    "features": [
     0,
     -256,
@@ -10376,7 +10430,7 @@
      ],
      "prove_seconds": 3.11,
      "proof_cached": true,
-     "reveal_gas": 774505,
+     "reveal_gas": 774493,
      "forecast_source": "ezkl",
      "score_e18": "-262311941313371777",
      "pinball_loss_e18": "262311941313371777",
@@ -10386,6 +10440,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "269171653736895693",
+     "cumulative_excess_e18": "269171653736895693",
      "predictor_reward_wei": "0"
     },
     "agent-mlp16": {
@@ -10423,6 +10479,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
+     "fee_weight_e18": "451369543185856447",
+     "cumulative_excess_e18": "451369543185856447",
      "predictor_reward_wei": "0"
     },
     "agent-mlp32_abs": {
@@ -10460,6 +10518,8 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
+     "fee_weight_e18": "462883328090710643",
+     "cumulative_excess_e18": "462883328090710643",
      "predictor_reward_wei": "0"
     },
     "agent-timesfm-3.0": {
@@ -10500,6 +10560,8 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-669991821114628911",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -10544,6 +10606,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "493158096190938234",
+     "cumulative_excess_e18": "493158096190938234",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -10588,6 +10652,8 @@
      "beat_baseline": false,
      "covered50": false,
      "covered80": false,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-745359691181059108",
      "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
@@ -10597,42 +10663,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 167,
+     "fee_pips": 171,
      "mix_quantiles_e18": [
-      "4904480350459996907",
-      "5456483141692731855",
-      "6038931793698838656",
-      "6623014777369487143",
-      "7188387307207977273"
+      "4897434286827940716",
+      "5453565160267843368",
+      "6040735068295310084",
+      "6630220910361866987",
+      "7201825141314012750"
      ],
-     "expected_var_e18": "538349862244108229571",
-     "tx": "0xbaf95e85c3a16cc692e9e916c417cdd92110ffa55068682b0f7b86523243fac7",
-     "block": 26253800,
+     "expected_var_e18": "541973514321913446400",
+     "tx": "0x09f94b478f8f25a7146076c3905bb4a42e1f220f3ab9ccfcb57a8eb21c9a9e4b",
+     "block": 26254106,
      "timestamp": 1792814370
     },
     "mirror": {
-     "fee_pips": 167,
+     "fee_pips": 171,
      "mix_quantiles_e18": [
-      "4904480350459996907",
-      "5456483141692731855",
-      "6038931793698838656",
-      "6623014777369487143",
-      "7188387307207977273"
+      "4897434286827940716",
+      "5453565160267843368",
+      "6040735068295310084",
+      "6630220910361866987",
+      "7201825141314012750"
      ],
-     "expected_var_e18": "538349862244108229571",
+     "expected_var_e18": "541973514321913446400",
      "weights": [
-      "86750558858862623",
-      "94482173386194088",
-      "90968463188382633",
-      "41401479576973402",
-      "114992920240600880",
-      "75768246246963382"
+      "79344115813600076",
+      "89045196809485614",
+      "83475909560428431",
+      "28822788682511239",
+      "107718068957445090",
+      "65109309701625718"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 1.67,
+    "forecast_bps": 1.71,
     "prev_hour": {
      "window": [
       1792810500,
@@ -10654,7 +10720,7 @@
      ],
      "realized_vol": 332
     },
-    "prev_hour_bps": 1.03,
+    "prev_hour_bps": 1.05,
     "fair_bps": 1.02786875479535,
     "fair_inputs": {
      "realized_vol": 142,
@@ -10664,6 +10730,17 @@
      "volume_token1": "249396245300548854949",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 171,
+    "recorded": true,
+    "round_id": 21,
+    "effective_fee_pips": 171.0,
+    "lp_fee_usdc": 1.709999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208448,
+    "tx": "0x604efbb6c3e4c739f295fef165a0e00015a0f2778d92b649fa8ccb842423424d",
+    "timestamp": 1792814417
    },
    "end": 1792818000,
    "window_utc": [
@@ -10718,9 +10795,9 @@
    "baseline_loss": 0.42546867959462176,
    "baseline_loss_e18": "425468679594621777",
    "outcome": {
-    "settle_block": 26253842,
-    "settle_tx": "0x0b68b9fe16ef529dd74007da7b20e9148cda681ae5d2fc61c23b0000f8b4b7cb",
-    "gas_used": 1253927,
+    "settle_block": 26254149,
+    "settle_tx": "0x077dfd4639b4e05a674c975200222a79a464161da24d19bf277e85bc3897dd34",
+    "gas_used": 1375707,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 0,
@@ -10750,10 +10827,10 @@
    }
   },
   {
-   "h": 23,
+   "h": 22,
    "start": 1792818000,
    "created_at": 1792817700,
-   "id": 23,
+   "id": 22,
    "features": [
     128,
     384,
@@ -10813,7 +10890,7 @@
      ],
      "prove_seconds": 2.59,
      "proof_cached": true,
-     "reveal_gas": 774052,
+     "reveal_gas": 774040,
      "forecast_source": "ezkl",
      "score_e18": "-172415625623618202",
      "pinball_loss_e18": "172415625623618202",
@@ -10823,7 +10900,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1632793975678181"
+     "fee_weight_e18": "407711401077882097",
+     "cumulative_excess_e18": "407711401077882097",
+     "predictor_reward_wei": "1866033457932777"
     },
     "agent-mlp16": {
      "entered": true,
@@ -10860,7 +10939,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1545091467706454"
+     "fee_weight_e18": "582467884276842851",
+     "cumulative_excess_e18": "582467884276842851",
+     "predictor_reward_wei": "2665867467425280"
     },
     "agent-mlp32_abs": {
      "entered": true,
@@ -10887,7 +10968,7 @@
      ],
      "prove_seconds": 1.38,
      "proof_cached": true,
-     "reveal_gas": 773992,
+     "reveal_gas": 773980,
      "forecast_source": "ezkl",
      "score_e18": "-187693945936118202",
      "pinball_loss_e18": "187693945936118202",
@@ -10897,7 +10978,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "1452727605964576"
+     "fee_weight_e18": "586144755119197047",
+     "cumulative_excess_e18": "586144755119197047",
+     "predictor_reward_wei": "2682695949518720"
     },
     "agent-timesfm-3.0": {
      "entered": true,
@@ -10924,7 +11007,7 @@
      ],
      "prove_seconds": null,
      "proof_cached": false,
-     "reveal_gas": 205690,
+     "reveal_gas": 205678,
      "forecast_source": "self-hosted inference: timesfm-3.0",
      "context_source": "onchain",
      "context_points": 16,
@@ -10937,7 +11020,9 @@
      "beat_baseline": true,
      "covered50": true,
      "covered80": true,
-     "predictor_reward_wei": "2515027111150995",
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-456596116742392507",
+     "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -10981,7 +11066,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "1360395956166438",
+     "fee_weight_e18": "608585342284688234",
+     "cumulative_excess_e18": "608585342284688234",
+     "predictor_reward_wei": "2785403125123223",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -11025,7 +11112,9 @@
      "beat_baseline": true,
      "covered50": false,
      "covered80": true,
-     "predictor_reward_wei": "1493963883333356",
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-618599437274809108",
+     "predictor_reward_wei": "0",
      "reproduced": true,
      "recompute_verdict": "exact",
      "recompute_max_abs_diff": 0,
@@ -11034,42 +11123,42 @@
    },
    "fee": {
     "onchain": {
-     "fee_pips": 149,
+     "fee_pips": 152,
      "mix_quantiles_e18": [
-      "4754775504896116224",
-      "5348011073159652118",
-      "5918887983092800897",
-      "6503982162742331732",
-      "7076592200361742065"
+      "4749183834355409669",
+      "5347598574167731577",
+      "5922718553456354090",
+      "6513784913427097433",
+      "7093065712713356664"
      ],
-     "expected_var_e18": "479005135127850818929",
-     "tx": "0xa1593629bdf45b238e422868d81849eceb1d75d021dd735ee6bec03df444176d",
-     "block": 26253840,
+     "expected_var_e18": "483485628584848142912",
+     "tx": "0x4ef3aa2158e1cd21508a37c1e4ef432b68b7eb027d177db12b07a29dbdab9082",
+     "block": 26254147,
      "timestamp": 1792817970
     },
     "mirror": {
-     "fee_pips": 149,
+     "fee_pips": 152,
      "mix_quantiles_e18": [
-      "4754775504896116224",
-      "5348011073159652118",
-      "5918887983092800897",
-      "6503982162742331732",
-      "7076592200361742065"
+      "4749183834355409669",
+      "5347598574167731577",
+      "5922718553456354090",
+      "6513784913427097433",
+      "7093065712713356664"
      ],
-     "expected_var_e18": "479005135127850818929",
+     "expected_var_e18": "483485628584848142912",
      "weights": [
-      "91842017514561375",
-      "99724014975309592",
-      "97107545510921385",
-      "51984990664519392",
-      "116163702282101989",
-      "61324736804965746"
+      "85030712645535081",
+      "94795553549354641",
+      "90264117404419228",
+      "40509261769200474",
+      "109291024014406052",
+      "50485582502644274"
      ],
      "equal_weight_fallback": false
     },
     "mirror_matches": true,
     "fixed_bps": 5.0,
-    "forecast_bps": 1.49,
+    "forecast_bps": 1.52,
     "prev_hour": {
      "window": [
       1792814100,
@@ -11101,6 +11190,17 @@
      "volume_token1": "95841407129435097984",
      "volume_token": "WETH wei"
     }
+   },
+   "hook": {
+    "hook_fee_pips": 152,
+    "recorded": true,
+    "round_id": 22,
+    "effective_fee_pips": 152.0,
+    "lp_fee_usdc": 1.519999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208448,
+    "tx": "0x7995f862f4f658c949e0bef4020846beee1301dd3631b6573ffd70e872db968a",
+    "timestamp": 1792818013
    },
    "end": 1792821600,
    "window_utc": [
@@ -11155,9 +11255,9 @@
    "baseline_loss": 0.3109553729646046,
    "baseline_loss_e18": "310955372964604606",
    "outcome": {
-    "settle_block": 26253877,
-    "settle_tx": "0x6bbc3dfc6011d79ab825638854be12f3cc0e99f48435313d73f3be1027e43e46",
-    "gas_used": 1201921,
+    "settle_block": 26254186,
+    "settle_tx": "0x2193f5d96c10b1d2533ec3563c5fd737ba69f2c74eedeebd9d8240702e6c5f2b",
+    "gas_used": 1369625,
     "voided": false,
     "void_reason": null,
     "winning_bucket": 1,
@@ -11185,6 +11285,466 @@
     "owner_wei": "10000000000000000",
     "predictors_wei": "10000000000000000"
    }
+  },
+  {
+   "h": 23,
+   "start": 1792821600,
+   "created_at": 1792821300,
+   "id": 23,
+   "features": [
+    -256,
+    -768,
+    0,
+    0,
+    0,
+    256,
+    512,
+    128,
+    128,
+    1280,
+    1024,
+    -256,
+    -512,
+    -256,
+    128,
+    0
+   ],
+   "features_match_mainnet": true,
+   "bets": [
+    {
+     "bettor": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+     "bucket": 1,
+     "amount_wei": "1000000000000000000",
+     "payout_wei": "0"
+    },
+    {
+     "bettor": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+     "bucket": 0,
+     "amount_wei": "1000000000000000000",
+     "payout_wei": "1980000000000000000"
+    }
+   ],
+   "agents": {
+    "agent-linear_abs": {
+     "entered": true,
+     "quantiles": [
+      4.270751953125,
+      4.945556640625,
+      5.643310546875,
+      6.41650390625,
+      7.18017578125
+     ],
+     "quantiles_e18": [
+      "4270751953125000000",
+      "4945556640625000000",
+      "5643310546875000000",
+      "6416503906250000000",
+      "7180175781250000000"
+     ],
+     "outputs": [
+      17493,
+      20257,
+      23115,
+      26282,
+      29410
+     ],
+     "prove_seconds": 5.17,
+     "proof_cached": true,
+     "reveal_gas": 774043,
+     "forecast_source": "ezkl",
+     "score_e18": "-191724382839325336",
+     "pinball_loss_e18": "191724382839325336",
+     "pinball_loss": 0.19172438283932533,
+     "excess_e18": "207464878959900674",
+     "excess": 0.20746487895990068,
+     "beat_baseline": true,
+     "covered50": true,
+     "covered80": true,
+     "fee_weight_e18": "615176280037782771",
+     "cumulative_excess_e18": "615176280037782771",
+     "predictor_reward_wei": "2018696004016509"
+    },
+    "agent-mlp16": {
+     "entered": true,
+     "quantiles": [
+      4.035400390625,
+      4.6787109375,
+      5.350830078125,
+      6.11865234375,
+      6.837646484375
+     ],
+     "quantiles_e18": [
+      "4035400390625000000",
+      "4678710937500000000",
+      "5350830078125000000",
+      "6118652343750000000",
+      "6837646484375000000"
+     ],
+     "outputs": [
+      16529,
+      19164,
+      21917,
+      25062,
+      28007
+     ],
+     "prove_seconds": 5.35,
+     "proof_cached": true,
+     "reveal_gas": 774163,
+     "forecast_source": "ezkl",
+     "score_e18": "-158782488308075336",
+     "pinball_loss_e18": "158782488308075336",
+     "pinball_loss": 0.15878248830807534,
+     "excess_e18": "240406773491150674",
+     "excess": 0.24040677349115067,
+     "beat_baseline": true,
+     "covered50": true,
+     "covered80": true,
+     "fee_weight_e18": "822874657767993525",
+     "cumulative_excess_e18": "822874657767993525",
+     "predictor_reward_wei": "2700256556284449"
+    },
+    "agent-mlp32_abs": {
+     "entered": true,
+     "quantiles": [
+      3.780517578125,
+      4.733154296875,
+      5.461669921875,
+      6.242431640625,
+      7.055419921875
+     ],
+     "quantiles_e18": [
+      "3780517578125000000",
+      "4733154296875000000",
+      "5461669921875000000",
+      "6242431640625000000",
+      "7055419921875000000"
+     ],
+     "outputs": [
+      15485,
+      19387,
+      22371,
+      25569,
+      28899
+     ],
+     "prove_seconds": 5.43,
+     "proof_cached": true,
+     "reveal_gas": 774091,
+     "forecast_source": "ezkl",
+     "score_e18": "-182786394558075336",
+     "pinball_loss_e18": "182786394558075336",
+     "pinball_loss": 0.18278639455807533,
+     "excess_e18": "216402867241150674",
+     "excess": 0.21640286724115068,
+     "beat_baseline": true,
+     "covered50": true,
+     "covered80": true,
+     "fee_weight_e18": "802547622360347721",
+     "cumulative_excess_e18": "802547622360347721",
+     "predictor_reward_wei": "2633553553450210"
+    },
+    "agent-timesfm-3.0": {
+     "entered": true,
+     "quantiles": [
+      4.138916015625,
+      4.5283203125,
+      4.926025390625,
+      5.33544921875,
+      5.6923828125
+     ],
+     "quantiles_e18": [
+      "4138916015625000000",
+      "4528320312500000000",
+      "4926025390625000000",
+      "5335449218750000000",
+      "5692382812500000000"
+     ],
+     "outputs": [
+      16953,
+      18548,
+      20177,
+      21854,
+      23316
+     ],
+     "prove_seconds": null,
+     "proof_cached": false,
+     "reveal_gas": 205690,
+     "forecast_source": "self-hosted inference: timesfm-3.0",
+     "context_source": "onchain",
+     "context_points": 16,
+     "context_reason": "model reads the onchain features only",
+     "score_e18": "-83165753879424662",
+     "pinball_loss_e18": "83165753879424662",
+     "pinball_loss": 0.08316575387942467,
+     "excess_e18": "316023507919801348",
+     "excess": 0.3160235079198013,
+     "beat_baseline": true,
+     "covered50": true,
+     "covered80": true,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-140572608822591159",
+     "predictor_reward_wei": "0",
+     "reproduced": true,
+     "recompute_verdict": "exact",
+     "recompute_max_abs_diff": 0,
+     "recompute_context": "onchain"
+    },
+    "agent-timestral-209m": {
+     "entered": true,
+     "quantiles": [
+      4.76171875,
+      5.24853515625,
+      5.777099609375,
+      6.239013671875,
+      6.614990234375
+     ],
+     "quantiles_e18": [
+      "4761718750000000000",
+      "5248535156250000000",
+      "5777099609375000000",
+      "6239013671875000000",
+      "6614990234375000000"
+     ],
+     "outputs": [
+      19504,
+      21498,
+      23663,
+      25555,
+      27095
+     ],
+     "prove_seconds": null,
+     "proof_cached": false,
+     "reveal_gas": 205690,
+     "forecast_source": "self-hosted inference: timestral-209m",
+     "context_source": "swaps",
+     "context_points": 512,
+     "context_reason": null,
+     "score_e18": "-200978812580476010",
+     "pinball_loss_e18": "200978812580476010",
+     "pinball_loss": 0.200978812580476,
+     "excess_e18": "198210449218750000",
+     "excess": 0.19821044921875,
+     "beat_baseline": true,
+     "covered50": false,
+     "covered80": true,
+     "fee_weight_e18": "806795791503438234",
+     "cumulative_excess_e18": "806795791503438234",
+     "predictor_reward_wei": "2647493886248832",
+     "reproduced": true,
+     "recompute_verdict": "exact",
+     "recompute_max_abs_diff": 0,
+     "recompute_context": "swaps"
+    },
+    "agent-chronos-2": {
+     "entered": true,
+     "quantiles": [
+      4.819580078125,
+      5.296142578125,
+      5.7880859375,
+      6.211669921875,
+      6.572021484375
+     ],
+     "quantiles_e18": [
+      "4819580078125000000",
+      "5296142578125000000",
+      "5788085937500000000",
+      "6211669921875000000",
+      "6572021484375000000"
+     ],
+     "outputs": [
+      19741,
+      21693,
+      23708,
+      25443,
+      26919
+     ],
+     "prove_seconds": null,
+     "proof_cached": false,
+     "reveal_gas": 205690,
+     "forecast_source": "self-hosted inference: chronos-2",
+     "context_source": "swaps",
+     "context_points": 512,
+     "context_reason": null,
+     "score_e18": "-205834769611726010",
+     "pinball_loss_e18": "205834769611726010",
+     "pinball_loss": 0.205834769611726,
+     "excess_e18": "193354492187500000",
+     "excess": 0.1933544921875,
+     "beat_baseline": true,
+     "covered50": false,
+     "covered80": true,
+     "fee_weight_e18": "0",
+     "cumulative_excess_e18": "-425244945087309108",
+     "predictor_reward_wei": "0",
+     "reproduced": true,
+     "recompute_verdict": "exact",
+     "recompute_max_abs_diff": 0,
+     "recompute_context": "swaps"
+    }
+   },
+   "fee": {
+    "onchain": {
+     "fee_pips": 105,
+     "mix_quantiles_e18": [
+      "4259122635512005956",
+      "4901010964750667998",
+      "5517433003530243057",
+      "6159906017707400580",
+      "6768435302161287219"
+     ],
+     "expected_var_e18": "334886431663329482954",
+     "tx": "0x188931e347bc4d552212b03ed955ad89b6f5ef1566bd04a5826e8ae321d322ee",
+     "block": 26254184,
+     "timestamp": 1792821570
+    },
+    "mirror": {
+     "fee_pips": 105,
+     "mix_quantiles_e18": [
+      "4259122635512005956",
+      "4901010964750667998",
+      "5517433003530243057",
+      "6159906017707400580",
+      "6768435302161287219"
+     ],
+     "expected_var_e18": "334886431663329482954",
+     "weights": [
+      "85917175605762729",
+      "94198897853442763",
+      "94722251712754318",
+      "43227926748875247",
+      "96098377535491935",
+      "39802114473128420"
+     ],
+     "equal_weight_fallback": false
+    },
+    "mirror_matches": true,
+    "fixed_bps": 5.0,
+    "forecast_bps": 1.05,
+    "prev_hour": {
+     "window": [
+      1792817700,
+      1792821300
+     ],
+     "segment_ticks": [
+      198570,
+      198572,
+      198576,
+      198577,
+      198578,
+      198588,
+      198596,
+      198594,
+      198590,
+      198588,
+      198589,
+      198589
+     ],
+     "realized_vol": 211
+    },
+    "prev_hour_bps": 1.0,
+    "fair_bps": 1.1991135954544907,
+    "fair_inputs": {
+     "realized_vol": 155,
+     "state_block": 26260569,
+     "liquidity": "2147730545392679792",
+     "sqrt_price_x96": "1625555794725368538825466349890925",
+     "volume_token1": "232996749758930776129",
+     "volume_token": "WETH wei"
+    }
+   },
+   "hook": {
+    "hook_fee_pips": 105,
+    "recorded": true,
+    "round_id": 23,
+    "effective_fee_pips": 105.0,
+    "lp_fee_usdc": 1.049999,
+    "swap_usdc": 10000.0,
+    "swap_gas": 208448,
+    "tx": "0x92ba82c2172ec239994f5d0d88f01618140b104a3fde2cac3dc4010f8c6cab43",
+    "timestamp": 1792821617
+   },
+   "end": 1792825200,
+   "window_utc": [
+    "2026-10-24 06:00:00Z",
+    "2026-10-24 07:00:00Z"
+   ],
+   "mainnet": {
+    "block_from": 26260569,
+    "block_to": 26260867,
+    "swap_count": 91,
+    "swap_txs": [
+     "0x745dd9a669248513efc64f395923a9f6c98f00f8700fe5a682820f331ee60a89",
+     "0x4f505849d8489383d1cc45ffa43a7b4393358f9190f1c87b0bfeb55e558b6c17",
+     "0xc14bd75e46e3e283c170dd96cf96a90625ed84c4b39989e3e30dca7ef1320093"
+    ],
+    "last_swap_tx": "0x36bbfc7ace6e44c04fa84d8f6b7f7183ce995a85a1ee9e1cc3f31a65750c18ad"
+   },
+   "real_segment_ticks": [
+    198591,
+    198597,
+    198588,
+    198585,
+    198587,
+    198588,
+    198587,
+    198586,
+    198585,
+    198589,
+    198591,
+    198592
+   ],
+   "real_realized_vol": 155,
+   "real_bucket": 0,
+   "rv_matches_mainnet": true,
+   "ln_rv": 5.043425116919247,
+   "ln_rv_e18": "5043425116919246630",
+   "ln_rv_matches_mirror": false,
+   "baseline_quantiles": [
+    4.69140625,
+    5.587158203125,
+    6.44091796875,
+    7.276611328125,
+    8.00244140625
+   ],
+   "baseline_quantiles_e18": [
+    "4691406250000000000",
+    "5587158203125000000",
+    "6440917968750000000",
+    "7276611328125000000",
+    "8002441406250000000"
+   ],
+   "baseline_loss": 0.39918926179922604,
+   "baseline_loss_e18": "399189261799226010",
+   "outcome": {
+    "settle_block": 26254227,
+    "settle_tx": "0x4762868940ffc7d62e6ed5dc14da0544eab545e4a7b7b7d9c43de971ffffbf40",
+    "gas_used": 1326692,
+    "voided": false,
+    "void_reason": null,
+    "winning_bucket": 0,
+    "realized_vol": 155,
+    "total_stake_wei": "2000000000000000000",
+    "pools_wei": [
+     "1000000000000000000",
+     "1000000000000000000",
+     "0",
+     "0",
+     "0"
+    ],
+    "erc8004_feedback_logs": 6
+   },
+   "chainlink": {
+    "feed_price_usd": 2375.44055261,
+    "feed_updated_at": 1792823135,
+    "feed_age_s": 2075,
+    "pool_mean_tick": 198592,
+    "pool_price_usd": 2375.14557597,
+    "deviation_bps": 1.24
+   },
+   "fee_split": {
+    "fee_wei": "20000000000000000",
+    "owner_wei": "10000000000000000",
+    "predictors_wei": "10000000000000000"
+   }
   }
  ],
  "summary": {
@@ -11193,14 +11753,14 @@
   "voided": 0,
   "void_reasons": {},
   "bucket_counts": [
-   2,
+   3,
    8,
-   7,
+   6,
    4,
    3
   ],
-  "baseline_mean_pinball_loss": 0.288529,
-  "baseline_coverage50": 0.625,
+  "baseline_mean_pinball_loss": 0.298322,
+  "baseline_coverage50": 0.5833,
   "baseline_coverage80": 0.875,
   "features_match_mainnet": true,
   "rv_matches_mainnet": true,
@@ -11208,121 +11768,121 @@
   "agents": {
    "agent-linear_abs": {
     "rounds_scored": 24,
-    "mean_pinball_loss": 0.2702,
-    "mean_excess": 0.018329,
-    "baseline_mean_pinball_loss": 0.288529,
-    "total_excess": 0.439904,
+    "mean_pinball_loss": 0.27269,
+    "mean_excess": 0.025632,
+    "baseline_mean_pinball_loss": 0.298322,
+    "total_excess": 0.615176,
     "coverage50": 0.625,
     "coverage80": 0.8333,
     "beat_baseline_rounds": 19,
     "rounds_sat_out": 0,
     "reproduced_rounds": null,
-    "predictor_reward_wei": "14620814583787845",
+    "predictor_reward_wei": "9340615918109678",
     "erc8004": {
      "tag1": "pinball",
      "tag2": "vol-300s-12",
      "count": 24,
-     "summary_value": "-270199568394282175",
+     "summary_value": "-272689525207595666",
      "summary_decimals": 18
     }
    },
    "agent-mlp16": {
     "rounds_scored": 24,
-    "mean_pinball_loss": 0.264237,
-    "mean_excess": 0.024292,
-    "baseline_mean_pinball_loss": 0.288529,
-    "total_excess": 0.583002,
+    "mean_pinball_loss": 0.264035,
+    "mean_excess": 0.034286,
+    "baseline_mean_pinball_loss": 0.298322,
+    "total_excess": 0.822875,
     "coverage50": 0.7083,
     "coverage80": 0.875,
     "beat_baseline_rounds": 20,
     "rounds_sat_out": 0,
     "reproduced_rounds": null,
-    "predictor_reward_wei": "17760755660524651",
+    "predictor_reward_wei": "12001308909798754",
     "erc8004": {
      "tag1": "pinball",
      "tag2": "vol-300s-12",
      "count": 24,
-     "summary_value": "-264237119712815060",
+     "summary_value": "-264035426135503551",
      "summary_decimals": 18
     }
    },
    "agent-mlp32_abs": {
     "rounds_scored": 24,
-    "mean_pinball_loss": 0.262517,
-    "mean_excess": 0.026012,
-    "baseline_mean_pinball_loss": 0.288529,
-    "total_excess": 0.624277,
+    "mean_pinball_loss": 0.264882,
+    "mean_excess": 0.033439,
+    "baseline_mean_pinball_loss": 0.298322,
+    "total_excess": 0.802548,
     "coverage50": 0.5417,
     "coverage80": 0.7917,
     "beat_baseline_rounds": 19,
     "rounds_sat_out": 0,
     "reproduced_rounds": null,
-    "predictor_reward_wei": "20107582842485718",
+    "predictor_reward_wei": "24634468378395862",
     "erc8004": {
      "tag1": "pinball",
      "tag2": "vol-300s-12",
      "count": 24,
-     "summary_value": "-262517340476587673",
+     "summary_value": "-264882385944155460",
      "summary_decimals": 18
     }
    },
    "agent-timesfm-3.0": {
     "rounds_scored": 24,
-    "mean_pinball_loss": 0.303792,
-    "mean_excess": -0.015263,
-    "baseline_mean_pinball_loss": 0.288529,
-    "total_excess": -0.366308,
+    "mean_pinball_loss": 0.304179,
+    "mean_excess": -0.005857,
+    "baseline_mean_pinball_loss": 0.298322,
+    "total_excess": -0.140573,
     "coverage50": 0.4167,
     "coverage80": 0.5417,
     "beat_baseline_rounds": 15,
     "rounds_sat_out": 0,
     "reproduced_rounds": 24,
-    "predictor_reward_wei": "28079108383690465",
+    "predictor_reward_wei": "15754033040641920",
     "erc8004": {
      "tag1": "pinball",
      "tag2": "vol-300s-12-commit",
      "count": 24,
-     "summary_value": "-303791720065872654",
+     "summary_value": "-304179062243444580",
      "summary_decimals": 18
     }
    },
    "agent-timestral-209m": {
     "rounds_scored": 24,
-    "mean_pinball_loss": 0.260763,
-    "mean_excess": 0.027766,
-    "baseline_mean_pinball_loss": 0.288529,
-    "total_excess": 0.666388,
-    "coverage50": 0.4583,
+    "mean_pinball_loss": 0.264705,
+    "mean_excess": 0.033616,
+    "baseline_mean_pinball_loss": 0.298322,
+    "total_excess": 0.806796,
+    "coverage50": 0.4167,
     "coverage80": 0.7917,
     "beat_baseline_rounds": 18,
     "rounds_sat_out": 0,
     "reproduced_rounds": 24,
-    "predictor_reward_wei": "29932459292156022",
+    "predictor_reward_wei": "49825520472790904",
     "erc8004": {
      "tag1": "pinball",
      "tag2": "vol-300s-12-commit",
      "count": 24,
-     "summary_value": "-260762715588181790",
+     "summary_value": "-264705378896526688",
      "summary_decimals": 18
     }
    },
    "agent-chronos-2": {
     "rounds_scored": 24,
-    "mean_pinball_loss": 0.31071,
-    "mean_excess": -0.022181,
-    "baseline_mean_pinball_loss": 0.288529,
-    "total_excess": -0.53234,
-    "coverage50": 0.375,
+    "mean_pinball_loss": 0.31604,
+    "mean_excess": -0.017719,
+    "baseline_mean_pinball_loss": 0.298322,
+    "total_excess": -0.425245,
+    "coverage50": 0.3333,
     "coverage80": 0.625,
     "beat_baseline_rounds": 16,
     "rounds_sat_out": 0,
     "reproduced_rounds": 24,
-    "predictor_reward_wei": "39499279237355299",
+    "predictor_reward_wei": "38444053280262882",
     "erc8004": {
      "tag1": "pinball",
      "tag2": "vol-300s-12-commit",
      "count": 24,
-     "summary_value": "-310709705101077512",
+     "summary_value": "-316040409587807828",
      "summary_decimals": 18
     }
    }
@@ -11331,15 +11891,15 @@
    "rounds": 24,
    "fair": "LVR break-even fee: (sigma_hour^2 / 8) * 2*L*sqrt(P) / hour's swap volume in token1, sigma_hour^2 = real realized_vol * 18/11 * ln(1.0001)^2 (12/11 to a full hour, 3/2 for the 2/3 variance of window-mean differences)",
    "mae_bps": {
-    "fixed": 2.3566075263912096,
-    "prev_hour": 3.5231244976518172,
-    "forecast": 2.1607013117240017
+    "fixed": 2.4713330667726012,
+    "prev_hour": 3.479232290603759,
+    "forecast": 2.083892438009277
    },
    "mean_bps": {
-    "fair": 4.057204068813408,
+    "fair": 3.942478528432016,
     "fixed": 5.0,
-    "prev_hour": 4.004166666666667,
-    "forecast": 3.1325000000000003
+    "prev_hour": 4.0125,
+    "forecast": 3.122083333333333
    },
    "mirror_matches": true,
    "equal_weight_fallback_rounds": 2
