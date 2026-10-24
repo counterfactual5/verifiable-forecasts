@@ -439,3 +439,76 @@ def test_cli_reports_a_history_that_covers_no_window(tmp_path: Path, capsys) -> 
     path = write_csv(tmp_path, [(100, 100, START_TIME)])
     assert main(["--swaps", str(path), "--out", str(tmp_path / "vol_params.json")]) == 1
     assert "calibration failed" in capsys.readouterr().err
+
+
+def test_quantile_ln_e18_floors_and_applies_the_rv_floor() -> None:
+    from vol_calibrate import WAD, ln_e18
+
+    assert ln_e18(0) == 0
+    assert ln_e18(1) == 0
+    assert ln_e18(2) == 693147180559945309
+    assert ln_e18(10**6) == 13815510557964274104
+    assert ln_e18(3) // WAD == 1
+
+
+def test_quantile_grid_rounds_to_two_pow_minus_twelve() -> None:
+    from vol_calibrate import GRID_E18, to_grid_e18
+
+    assert GRID_E18 == 244_140_625_000_000
+    assert to_grid_e18(GRID_E18 // 2) == GRID_E18
+    assert to_grid_e18(GRID_E18 // 2 - 1) == 0
+    assert to_grid_e18(-GRID_E18 * 3 - 1) == -GRID_E18 * 3
+
+
+def test_quantile_baseline_is_ln_of_nearest_rank_on_the_grid_and_strict() -> None:
+    from vol_calibrate import GRID_E18, baseline_quantiles_e18, ln_e18, to_grid_e18
+
+    rvs = list(range(1, 101))
+    q = baseline_quantiles_e18(rvs)
+    expected_rv = [10, 25, 50, 75, 90]
+    assert list(q) == [to_grid_e18(ln_e18(rv)) for rv in expected_rv]
+    assert all(v % GRID_E18 == 0 for v in q)
+    tied = baseline_quantiles_e18([7] * 50)
+    assert all(b - a == GRID_E18 for a, b in zip(tied, tied[1:], strict=False))
+
+
+def test_quantile_pinball_matches_hand_computation() -> None:
+    from vol_calibrate import BASELINE_LEVELS_E18, WAD, pinball_e18
+
+    q = [0, WAD, 2 * WAD, 3 * WAD, 4 * WAD]
+    # y = 2: u = 2, 1, 0, -1, -2 -> 0.1*2 + 0.25*1 + 0 + 0.25*1 + 0.1*2 = 0.9; / 5 = 0.18
+    assert pinball_e18(2 * WAD, q, BASELINE_LEVELS_E18) == 18 * 10**16
+    assert pinball_e18(2 * WAD, [2 * WAD + i for i in range(5)], BASELINE_LEVELS_E18) >= 0
+
+
+def test_quantile_cli_exports_baseline_with_train_and_test_loss(tmp_path: Path) -> None:
+    from vol_calibrate import baseline_export, window_rvs
+
+    rows = irregular_rows()
+    path = write_csv(tmp_path, rows)
+    until = rows[300][2]
+    out = tmp_path / "vol_params.json"
+    agents_copy = tmp_path / "baseline_quantiles.json"
+    assert main(["--swaps", str(path), "--out", str(out), "--until", str(until),
+                 "--baseline-quantiles", "--baseline-out", str(agents_copy)]) == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    baseline = payload["baselineQuantiles"]
+    assert json.loads(agents_copy.read_text(encoding="utf-8")) == baseline
+    swaps = load_swaps(path)
+    train = calibrate([s for s in swaps if s.timestamp < until]).rvs
+    test, _ = window_rvs(collapse_swaps([s for s in swaps if s.timestamp >= until]), 300, 12)
+    assert baseline == json.loads(json.dumps(baseline_export(train, test, until)))
+    assert baseline["levels_e18"] == [str(10**17), str(25 * 10**16), str(5 * 10**17),
+                                      str(75 * 10**16), str(9 * 10**17)]
+    qs = [int(v) for v in baseline["quantiles_e18"]]
+    assert all(b > a for a, b in zip(qs, qs[1:], strict=False))
+    assert int(baseline["mean_loss_e18"]) > 0
+    assert baseline["test_mean_loss_e18"] is not None
+    assert baseline["until"] == until
+
+
+def test_quantile_baseline_out_requires_the_export_flag(tmp_path: Path) -> None:
+    path = write_csv(tmp_path, irregular_rows())
+    with pytest.raises(SystemExit):
+        main(["--swaps", str(path), "--out", str(tmp_path / "p.json"),
+              "--baseline-out", str(tmp_path / "b.json")])

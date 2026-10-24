@@ -51,6 +51,14 @@ The pool is dense (about 1 Swap per block), so a 10k-block segment can reach the
 cap and fail; pass `--segment-blocks 2000` (1..10000) to the fetcher for long ranges. Logs that carry
 `blockTimestamp` (the tenderly gateway does) need no per-block timestamp request.
 
+`--baseline-quantiles` also exports the climatological baseline of the quantile market: the
+nearest-rank quantiles of y = ln(max(RV, 1)) over the training windows at levels
+0.1/0.25/0.5/0.75/0.9, in 1e18 units rounded to the 2^-12 output grid and strictly increasing, plus
+their mean pinball loss on the training windows (`mean_loss_e18`) and on the windows from `--until`
+on (`test_mean_loss_e18`), under `baselineQuantiles` in the params JSON; `--baseline-out
+../agents/models/baseline_quantiles.json` writes the same object for the agents and the demo
+(`createRound`'s baseline, `VolFeeConsumer`'s `baselineScore = -mean_loss_e18`).
+
 `fetch_swaps.py --tail [--days 3] --out data/swaps_tail.csv` keeps a rolling cache instead of a fixed
 range: it resumes after the covered block (first run: `--days` of blocks back), stops at the first
 failed segment so the file never has a hole, prunes rows older than `--days`, and writes

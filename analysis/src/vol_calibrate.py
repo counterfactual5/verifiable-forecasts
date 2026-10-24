@@ -45,6 +45,7 @@ import json
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import ROUND_FLOOR, Decimal, localcontext
 from fractions import Fraction
 from pathlib import Path
 from typing import Final
@@ -59,6 +60,21 @@ METHOD: Final[str] = "swap-srvp-p20-p40-p60-p80"
 CSV_COLUMNS: Final[tuple[str, ...]] = ("block", "tick", "timestamp")
 DEFAULT_OUT: Final[Path] = Path("data/vol_params.json")
 REPORT_NAME: Final[str] = "calibration_report.md"
+
+# Climatological baseline of the quantile market: quantiles of y = ln(max(RV, RV_FLOOR)).
+WAD: Final[int] = 10**18  # 1e18 = 1.0 for quantile levels, ln values and pinball losses
+RV_FLOOR: Final[int] = 1  # tick^2; RV = 0 scores as y = 0
+OUTPUT_SCALE_BITS: Final[int] = 12  # VolMarket outputScaleBits: forecasts live on a 2^-12 ln grid
+# 1e18 = 2^18 * 5^18, so one grid step is exactly 244_140_625_000_000 in 1e18 units.
+GRID_E18: Final[int] = WAD >> OUTPUT_SCALE_BITS
+BASELINE_LEVELS_E18: Final[tuple[int, ...]] = (
+    10**17,
+    25 * 10**16,
+    5 * 10**17,
+    75 * 10**16,
+    9 * 10**17,
+)
+BASELINE_METHOD: Final[str] = "ln-rv-nearest-rank-grid12"
 
 
 class MissingInitialTick(ValueError):
@@ -608,13 +624,118 @@ def calibrate(
     )
 
 
-def write_params(result: CalibrationResult, path: str | Path = DEFAULT_OUT) -> Path:
+def ln_e18(rv: int) -> int:
+    """``floor(ln(max(rv, RV_FLOOR)) * 1e18)`` with 50-digit decimal precision."""
+
+    if rv < 0:
+        raise ValueError("realized variance cannot be negative")
+    with localcontext() as ctx:
+        ctx.prec = 50
+        return int((Decimal(max(rv, RV_FLOOR)).ln() * WAD).to_integral_value(ROUND_FLOOR))
+
+
+def to_grid_e18(value_e18: int) -> int:
+    """Nearest multiple of ``GRID_E18`` (half away from zero), still in 1e18 units."""
+
+    steps, rest = divmod(abs(value_e18), GRID_E18)
+    if 2 * rest >= GRID_E18:
+        steps += 1
+    return steps * GRID_E18 if value_e18 >= 0 else -steps * GRID_E18
+
+
+def baseline_quantiles_e18(
+    rvs: Sequence[int], levels_e18: Sequence[int] = BASELINE_LEVELS_E18
+) -> tuple[int, ...]:
+    """Climatological quantiles of y = ln(max(RV, 1)) on the 2^-12 grid, strictly increasing.
+
+    The nearest-rank quantile commutes with the monotone ln, so each value is ln of the
+    nearest-rank RV quantile; a tie after quantization is lifted by one grid step.
+    """
+
+    if not levels_e18 or any(not 0 < t < WAD for t in levels_e18):
+        raise ValueError("quantile levels must be in (0, 1e18)")
+    if any(b <= a for a, b in zip(levels_e18, levels_e18[1:], strict=False)):
+        raise ValueError("quantile levels must be strictly increasing")
+    out: list[int] = []
+    for level in levels_e18:
+        q = to_grid_e18(ln_e18(quantile_nearest_rank(rvs, Fraction(level, WAD))))
+        if out and q <= out[-1]:
+            q = out[-1] + GRID_E18
+        out.append(q)
+    return tuple(out)
+
+
+def pinball_e18(y_e18: int, quantiles_e18: Sequence[int], levels_e18: Sequence[int]) -> int:
+    """Mean pinball loss over the K levels, 1e18 units, floored like ``MarketMath.pinball``."""
+
+    total = 0
+    for q, tau in zip(quantiles_e18, levels_e18, strict=True):
+        u = y_e18 - q
+        total += tau * u // WAD if u >= 0 else (WAD - tau) * (-u) // WAD
+    return total // len(levels_e18)
+
+
+def mean_pinball_e18(
+    rvs: Sequence[int], quantiles_e18: Sequence[int], levels_e18: Sequence[int]
+) -> int:
+    """Floor of the average per-window pinball loss of fixed quantiles over a RV sample."""
+
+    if not rvs:
+        raise ValueError("no windows to score")
+    return sum(pinball_e18(ln_e18(rv), quantiles_e18, levels_e18) for rv in rvs) // len(rvs)
+
+
+def baseline_export(
+    train_rvs: Sequence[int],
+    test_rvs: Sequence[int],
+    until: int | None,
+    levels_e18: Sequence[int] = BASELINE_LEVELS_E18,
+) -> dict[str, object]:
+    """Baseline quantiles (training windows only) plus their mean pinball loss.
+
+    Integers are written as decimal strings so JSON readers never round them through float.
+    """
+
+    quantiles = baseline_quantiles_e18(train_rvs, levels_e18)
+    return {
+        "levels_e18": [str(t) for t in levels_e18],
+        "quantiles_e18": [str(q) for q in quantiles],
+        "outputs": [q // GRID_E18 for q in quantiles],
+        "output_scale_bits": OUTPUT_SCALE_BITS,
+        "mean_loss_e18": str(mean_pinball_e18(train_rvs, quantiles, levels_e18)),
+        "test_mean_loss_e18": (
+            str(mean_pinball_e18(test_rvs, quantiles, levels_e18)) if test_rvs else None
+        ),
+        "train_windows": len(train_rvs),
+        "test_windows": len(test_rvs),
+        "method": BASELINE_METHOD,
+        "until": until,
+    }
+
+
+def write_json(payload: dict[str, object], path: str | Path) -> Path:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    return destination
+
+
+def write_params(
+    result: CalibrationResult,
+    path: str | Path = DEFAULT_OUT,
+    baseline: dict[str, object] | None = None,
+) -> Path:
     """Write the calibrated parameters as JSON, creating parent directories as needed."""
 
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    params = result.as_params()
+    if baseline is not None:
+        params["baselineQuantiles"] = baseline
     with destination.open("w", encoding="utf-8") as handle:
-        json.dump(result.as_params(), handle, indent=2, sort_keys=True)
+        json.dump(params, handle, indent=2, sort_keys=True)
         handle.write("\n")
     return destination
 
@@ -759,7 +880,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=60,
         help="grid spacing in seconds for --export-grid (default: 60)",
     )
+    parser.add_argument(
+        "--baseline-quantiles",
+        action="store_true",
+        help="also export the climatological ln(RV) quantiles at levels 0.1/0.25/0.5/0.75/0.9 "
+        "(training windows; with --until, windows from --until on are scored as the test "
+        "period) into the params JSON under baselineQuantiles",
+    )
+    parser.add_argument(
+        "--baseline-out",
+        default=None,
+        help="with --baseline-quantiles, also write that object alone to this path "
+        "(e.g. ../agents/models/baseline_quantiles.json)",
+    )
     args = parser.parse_args(argv)
+    if args.baseline_out and not args.baseline_quantiles:
+        parser.error("--baseline-out requires --baseline-quantiles")
 
     try:
         levels = tuple(float(part.strip()) for part in args.quantiles.split(",") if part.strip())
@@ -773,11 +909,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             step=args.step,
         )
         result = dataclasses.replace(result, until=args.until)
+        baseline = None
+        if args.baseline_quantiles:
+            test_rvs: list[int] = []
+            if args.until is not None:
+                later = [s for s in swaps if s.timestamp >= args.until]
+                test_rvs, _ = window_rvs(
+                    collapse_swaps(later), args.delta, args.n_segments, args.step
+                )
+            baseline = baseline_export(result.rvs, test_rvs, args.until)
     except ValueError as exc:
         print(f"calibration failed: {exc}", file=sys.stderr)
         return 1
 
-    params_path = write_params(result, args.out)
+    params_path = write_params(result, args.out, baseline)
+    if baseline is not None:
+        print(
+            f"baseline quantiles_e18={baseline['quantiles_e18']} "
+            f"mean_loss_e18={baseline['mean_loss_e18']} "
+            f"test_mean_loss_e18={baseline['test_mean_loss_e18']}"
+        )
+        if args.baseline_out:
+            print(f"wrote {write_json(baseline, args.baseline_out)}")
     report_path = write_report(
         result, params_path.with_name(REPORT_NAME), history=args.swaps
     )
