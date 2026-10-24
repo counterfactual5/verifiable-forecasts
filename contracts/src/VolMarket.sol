@@ -14,11 +14,12 @@ import {TickPriceMath} from "./lib/TickPriceMath.sol";
 /// @notice Parimutuel market on the realized volatility of a Uniswap V3 pool's TWAP tick over
 ///         `nSegments` segments of `delta` seconds. Settlement reads `observe()` directly, with
 ///         permissionless `sample()` checkpoints as a fallback when the pool's history runs out.
-///         AI forecasts (5-bucket distributions) are committed as a hash first and revealed once
+///         AI forecasts (K quantiles of ln RV) are committed as a hash first and revealed once
 ///         commits close, before the window starts. A zk model's reveal is accepted only with an
 ///         EZKL proof whose public inputs are features the contract derived from `observe()` at
 ///         round creation; a commit-only model (no verifier) proves timing, not provenance.
-///         Forecasts that beat the uniform baseline share `predictorShareBps` of the round's fee.
+///         Forecasts are scored by the pinball loss; those with a lower loss than the round's
+///         baseline quantiles share `predictorShareBps` of the round's fee pro rata to the gap.
 /// @dev Round lifecycle: Commit (bets, commits until startTime - commitLead) -> Reveal (bets,
 ///      reveals until startTime - revealLead) -> bets until startTime -> Sampling (until
 ///      startTime + nSegments * delta) -> Settled (claims). Voided (full refund) when fewer than
@@ -57,18 +58,21 @@ contract VolMarket {
     // ---------------------------------------------------------------- events
     event ModelRegistered(uint256 indexed modelId, address verifier, address operator);
     event ModelHashSet(uint256 indexed modelId, bytes32 modelHash);
-    event RoundCreated(uint256 indexed roundId, uint64 startTime, uint256[] bounds, int256[16] features);
+    event RoundCreated(
+        uint256 indexed roundId, uint64 startTime, uint256[] bounds, int256[] baselineQuantiles, int256[16] features
+    );
     event BetPlaced(uint256 indexed roundId, address indexed bettor, uint256 bucket, uint256 amount);
     event PredictionCommitted(
         uint256 indexed roundId, address indexed predictor, uint256 indexed modelId, bytes32 commitment
     );
     event PredictionRevealed(
-        uint256 indexed roundId, address indexed predictor, uint256 indexed modelId, uint256[5] probs
+        uint256 indexed roundId, address indexed predictor, uint256 indexed modelId, int256[] quantiles
     );
     event CheckpointSampled(uint256 indexed roundId, uint256 indexed k, int56 tickCumulative);
     event RoundSettled(uint256 indexed roundId, uint256 winningBucket, uint256 realizedVol, uint256 availablePoints);
     event RoundVoided(uint256 indexed roundId);
-    event PredictionScored(uint256 indexed roundId, address indexed predictor, int256 logScore);
+    event RoundScored(uint256 indexed roundId, int256 lnRv, uint256 baselineLoss);
+    event PredictionScored(uint256 indexed roundId, address indexed predictor, int256 score, uint256 loss);
     event Claimed(uint256 indexed roundId, address indexed claimant, uint256 payout);
     event FeeCollected(uint256 indexed roundId, uint256 amount);
     event PredictorRewardClaimed(uint256 indexed roundId, address indexed predictor, uint256 amount);
@@ -95,7 +99,10 @@ contract VolMarket {
         uint256 claimedWinStake; // winning-bucket stake already paid out
         uint256 paidOut; // tokens paid to winners so far
         bool feeCollected;
-        uint256 totalExcess; // sum of revealed forecasts' log score above baseline (1e18 scale)
+        int256[] baselineQuantiles; // K quantiles of ln RV, 1e18 ln units, strictly increasing
+        int256 lnRv; // ln(max(realizedVol, 1)) * 1e18, set at settlement
+        uint256 baselineLoss; // pinball loss of baselineQuantiles at lnRv, 1e18
+        uint256 totalExcess; // sum of revealed forecasts' loss below baselineLoss (1e18 scale)
         uint256 claimedExcess; // excess of the forecasters that claimed their share so far
         uint256 predictorPaid; // tokens paid to forecasters so far
         mapping(uint256 => int56) checkpoints;
@@ -105,29 +112,29 @@ contract VolMarket {
     }
 
     struct Prediction {
-        bool recorded; // revealed: probs are public and the forecast is scored
+        bool recorded; // revealed: quantiles are public and the forecast is scored
+        bool rewardClaimed;
         uint256 modelId;
         bytes32 commitment; // nonzero once committed
-        bool rewardClaimed;
-        uint256[5] probs; // scaled by PROB_SCALE, sum exactly PROB_SCALE
-        int256 logScore; // set at settlement
+        int256[] quantiles; // K quantiles of ln RV, 1e18 ln units, strictly increasing
+        uint256 loss; // pinball loss at lnRv (1e18), set at settlement
     }
 
     // ---------------------------------------------------------------- storage
     uint256 public constant BUCKETS = 5;
     uint256 public constant FEATURES = 16;
     uint256 public constant MIN_COVERAGE_BPS = 9000;
-    int256 public constant MIN_LOG_SCORE = -18e18;
     int256 public constant FEATURE_CLAMP = 64; // ticks
     int256 public constant FEATURE_MULT = 128; // x = f / 32 at input scale 4096
     /// @dev BN254 scalar field modulus; negative inputs are encoded as R - |x|.
     uint256 public constant MAX_PREDICTORS = 32; // bounds the scoring loop in settle
     uint256 public constant FIELD_R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
-    /// @dev Probability scale: probs and log scores are fixed-point with 1e18 = 1.
-    uint256 private constant PROB_SCALE = 1e18;
-    /// @dev Largest accepted output: output * PROB_SCALE must not overflow, and the bound sits far
-    ///      below FIELD_R / 2, so field encodings of negative values stay rejected.
-    uint256 public constant MAX_OUTPUT = type(uint256).max / PROB_SCALE;
+    /// @dev Quantile range in 1e18 ln units (MarketMath.Q_MIN / Q_MAX); see there for the bounds.
+    int256 public constant Q_MIN = MarketMath.Q_MIN;
+    int256 public constant Q_MAX = MarketMath.Q_MAX;
+    uint256 public constant MAX_QUANTILES = 16; // bounds the per-forecast loops in reveal and settle
+    /// @dev 1e18 = 2^18 * 5^18, so 1e18 >> S is exact up to S = 18.
+    uint8 public constant MAX_OUTPUT_SCALE_BITS = 18;
 
     IERC20 public immutable token;
     uint256 public immutable feeBps; // protocol fee in basis points on the whole pool
@@ -185,12 +192,18 @@ contract VolMarket {
     ///      snapshot and the CALL stay under a further 1/64 of the cap (~7.8k gas).
     uint256 private constant MIN_GAS_FOR_CAPPED_CALL = EXTERNAL_CALL_GAS + EXTERNAL_CALL_GAS / 32;
 
+    /// @dev ERC-8004 tag1 of the scores written: value = -pinball loss, 18 decimals.
+    string public constant REPUTATION_TAG1 = "pinball";
+
     // ---------------------------------------------------------------- predictor share
     /// @dev Basis points of each round's fee set aside for forecasters; the owner keeps the rest.
     uint256 public immutable predictorShareBps;
-    /// @dev Log score (1e18 scale) of the uniform forecast, ln(1/BUCKETS), from the same log1e18
-    ///      that scores forecasts: a uniform forecast scores exactly this and earns nothing.
-    int256 public immutable baselineLogScore;
+    /// @dev Quantile levels tau_k, 1e18 = 1, strictly increasing in (0, 1e18); K = length.
+    uint256[] private levels;
+    /// @dev Revealed outputs are q * 2^outputScaleBits (EZKL model_output_scales); 1e18 value of
+    ///      one output unit: outputUnit = 1e18 >> outputScaleBits (exact, see MAX_OUTPUT_SCALE_BITS).
+    uint8 public immutable outputScaleBits;
+    int256 private immutable outputUnit;
 
     // ---------------------------------------------------------------- modifiers
     modifier roundExists(uint256 id) {
@@ -207,6 +220,8 @@ contract VolMarket {
     /// @param nSegments_ segments per round window, >= 2
     /// @param commitLead_ seconds before startTime at which commits close
     /// @param revealLead_ seconds before startTime at which reveals close, < commitLead_
+    /// @param quantileLevels_ K levels, 1 <= K <= MAX_QUANTILES, strictly increasing in (0, 1e18)
+    /// @param outputScaleBits_ S: revealed outputs are q * 2^S, S <= MAX_OUTPUT_SCALE_BITS
     constructor(
         IERC20 token_,
         uint256 feeBps_,
@@ -215,9 +230,13 @@ contract VolMarket {
         uint32 delta_,
         uint8 nSegments_,
         uint32 commitLead_,
-        uint32 revealLead_
+        uint32 revealLead_,
+        uint256[] memory quantileLevels_,
+        uint8 outputScaleBits_
     ) {
-        if (address(token_) == address(0) || address(pool_) == address(0)) revert ZeroAddress();
+        if (address(token_) == address(0) || address(pool_) == address(0)) {
+            revert ZeroAddress();
+        }
         if (feeBps_ >= 1000 || delta_ == 0 || nSegments_ < 2) revert InvalidParams();
         if (uint256(delta_) * (FEATURES + 1) > type(uint32).max) revert InvalidParams();
         if (predictorShareBps_ > BPS || revealLead_ >= commitLead_) revert InvalidParams();
@@ -229,9 +248,29 @@ contract VolMarket {
         nSegments = nSegments_;
         commitLead = commitLead_;
         revealLead = revealLead_;
-        baselineLogScore = MarketMath.log1e18(PROB_SCALE / BUCKETS);
+        if (outputScaleBits_ > MAX_OUTPUT_SCALE_BITS) revert InvalidParams();
+        outputScaleBits = outputScaleBits_;
+        outputUnit = int256(MarketMath.WAD >> outputScaleBits_);
+        _setLevels(quantileLevels_);
         owner = msg.sender;
         tickPriceMath = new TickPriceMath();
+    }
+
+    function _setLevels(uint256[] memory l) internal {
+        uint256 n = l.length;
+        if (n == 0 || n > MAX_QUANTILES) revert InvalidParams();
+        for (uint256 k = 0; k < n; ++k) {
+            if (l[k] == 0 || l[k] >= MarketMath.WAD || (k > 0 && l[k] <= l[k - 1])) revert InvalidParams();
+        }
+        levels = l;
+    }
+
+    function quantileLevels() external view returns (uint256[] memory) {
+        return levels;
+    }
+
+    function quantileCount() external view returns (uint256) {
+        return levels.length;
     }
 
     // ---------------------------------------------------------------- models
@@ -333,20 +372,37 @@ contract VolMarket {
     // ---------------------------------------------------------------- round mgmt
     /// @notice Create a round and snapshot its model features from the last 17 segments.
     /// @param startTime window start; after now + commitLead, so the commit phase is not empty
-    /// @param bounds 4 strictly ascending realized-vol bounds in tick^2 (5 buckets)
-    function createRound(uint64 startTime, uint256[] calldata bounds) external returns (uint256 id) {
+    /// @param bounds 4 strictly ascending realized-vol bounds in tick^2 (5 betting buckets)
+    /// @param baselineQuantiles K quantiles of ln RV (1e18 ln units), strictly increasing, in
+    ///        [Q_MIN, Q_MAX]: forecasts earn the predictor share only by beating their pinball loss
+    function createRound(uint64 startTime, uint256[] calldata bounds, int256[] calldata baselineQuantiles)
+        external
+        returns (uint256 id)
+    {
         if (startTime <= block.timestamp + commitLead) revert InvalidParams();
         if (bounds.length != BUCKETS - 1) revert InvalidParams();
         for (uint256 i = 1; i < bounds.length; ++i) {
             if (bounds[i] <= bounds[i - 1]) revert InvalidParams();
         }
+        if (!_validQuantiles(baselineQuantiles)) revert InvalidParams();
         int256[16] memory feats = _features();
         id = roundCount++;
         Round storage r = rounds[id];
         r.startTime = startTime;
         r.bounds = bounds;
+        r.baselineQuantiles = baselineQuantiles;
         r.features = feats;
-        emit RoundCreated(id, startTime, bounds, feats);
+        emit RoundCreated(id, startTime, bounds, baselineQuantiles, feats);
+    }
+
+    /// @dev Length K, strictly increasing, every value in [Q_MIN, Q_MAX] (1e18 ln units).
+    function _validQuantiles(int256[] memory q) internal view returns (bool) {
+        uint256 n = q.length;
+        if (n != levels.length) return false;
+        for (uint256 k = 0; k < n; ++k) {
+            if (q[k] < Q_MIN || q[k] > Q_MAX || (k > 0 && q[k] <= q[k - 1])) return false;
+        }
+        return true;
     }
 
     /// @dev Segment means b_j over [now - (17-j)delta, now - (16-j)delta], f_j = b_{j+1} - b_j.
@@ -405,9 +461,9 @@ contract VolMarket {
     ///         startTime - revealLead. A zk model's outputs must come with a valid proof on this
     ///         round's features; a commit-only model's proof is ignored. Unrevealed forecasts are
     ///         neither scored nor paid.
-    /// @param outputs 5 non-negative weights, each <= MAX_OUTPUT, sum > 0 (a zk model's circuit
-    ///        outputs); probs are their 1e18-scaled shares
-    function revealPrediction(uint256 id, bytes calldata proof, uint256[5] calldata outputs, bytes32 salt)
+    /// @param outputs K signed integers q_k * 2^outputScaleBits (a zk model's circuit outputs),
+    ///        strictly increasing, each q_k within [Q_MIN, Q_MAX]; stored as q_k in 1e18 ln units
+    function revealPrediction(uint256 id, bytes calldata proof, int256[] calldata outputs, bytes32 salt)
         external
         roundExists(id)
     {
@@ -418,12 +474,12 @@ contract VolMarket {
         if (p.commitment == bytes32(0)) revert NotCommitted();
         if (p.recorded) revert AlreadyRevealed();
 
-        uint256 sum;
-        for (uint256 i = 0; i < BUCKETS; ++i) {
-            if (outputs[i] > MAX_OUTPUT) revert BadOutputs();
-            sum += outputs[i];
+        int256[] memory q = new int256[](outputs.length);
+        for (uint256 k = 0; k < outputs.length; ++k) {
+            if (outputs[k] < Q_MIN / outputUnit || outputs[k] > Q_MAX / outputUnit) revert BadOutputs();
+            q[k] = outputs[k] * outputUnit;
         }
-        if (sum == 0) revert BadOutputs();
+        if (!_validQuantiles(q)) revert BadOutputs();
 
         uint256 modelId = p.modelId;
         if (keccak256(abi.encode(id, modelId, outputs, salt, msg.sender)) != p.commitment) {
@@ -432,32 +488,29 @@ contract VolMarket {
         address verifier = models[modelId];
         if (verifier != address(0)) _verify(verifier, proof, _instances(r.features, outputs));
 
-        uint256[5] memory probs;
-        uint256 assigned;
-        for (uint256 i = 0; i < BUCKETS - 1; ++i) {
-            probs[i] = (outputs[i] * PROB_SCALE) / sum;
-            assigned += probs[i];
-        }
-        probs[BUCKETS - 1] = PROB_SCALE - assigned;
-
         p.recorded = true;
-        p.probs = probs;
-        emit PredictionRevealed(id, msg.sender, modelId, probs);
+        p.quantiles = q;
+        emit PredictionRevealed(id, msg.sender, modelId, q);
     }
 
-    function _instances(int256[16] storage feats, uint256[5] calldata outputs)
+    /// @dev Public inputs [16 features, K outputs], negative values encoded as FIELD_R - |x|.
+    function _instances(int256[16] storage feats, int256[] calldata outputs)
         internal
         view
         returns (uint256[] memory inst)
     {
-        inst = new uint256[](FEATURES + BUCKETS);
+        inst = new uint256[](FEATURES + outputs.length);
         for (uint256 j = 0; j < FEATURES; ++j) {
-            int256 x = feats[j];
-            inst[j] = x >= 0 ? uint256(x) : FIELD_R - uint256(-x);
+            inst[j] = _field(feats[j]);
         }
-        for (uint256 i = 0; i < BUCKETS; ++i) {
-            inst[FEATURES + i] = outputs[i];
+        for (uint256 k = 0; k < outputs.length; ++k) {
+            inst[FEATURES + k] = _field(outputs[k]);
         }
+    }
+
+    /// @dev |x| is far below FIELD_R / 2 for features and range-checked outputs.
+    function _field(int256 x) internal pure returns (uint256) {
+        return x >= 0 ? uint256(x) : FIELD_R - uint256(-x);
     }
 
     /// @dev Low-level call: a failing generated verifier reverts with empty data, and a malformed
@@ -513,7 +566,7 @@ contract VolMarket {
         r.realizedVol = rv;
         r.winningBucket = uint8(win);
         emit RoundSettled(id, win, rv, count);
-        _score(r, id, win);
+        _score(r, id, rv);
         _writeReputation(r, id);
     }
 
@@ -586,33 +639,39 @@ contract VolMarket {
         if (gasleft() <= gasBefore / 64) revert InsufficientGas();
     }
 
-    /// @dev logScore = max(ln p_win, -18e18); p_win = 0 also scores -18e18. Unrevealed forecasts
-    ///      keep logScore 0 and recorded = false. Also sums the excess scores the predictor share
-    ///      is split by.
-    function _score(Round storage r, uint256 id, uint256 win) internal {
+    /// @dev y = ln(max(rv, 1)) (RV floor 1 tick^2, so RV 0 scores as y = 0); every revealed
+    ///      forecast gets its pinball loss at y and its excess over the baseline loss summed for
+    ///      the predictor share. Unrevealed forecasts keep loss 0 and recorded = false.
+    function _score(Round storage r, uint256 id, uint256 rv) internal {
+        uint256[] memory tau = levels;
+        int256 y = MarketMath.lnWad(rv == 0 ? 1 : rv);
+        uint256 baseLoss = MarketMath.pinball(y, r.baselineQuantiles, tau);
+        r.lnRv = y;
+        r.baselineLoss = baseLoss;
+        emit RoundScored(id, y, baseLoss);
         uint256 predictorsLen = r.predictors.length;
         uint256 totalExcess;
         for (uint256 i = 0; i < predictorsLen; ++i) {
             address who = r.predictors[i];
             Prediction storage p = r.predictions[who];
             if (!p.recorded) continue;
-            uint256 pw = p.probs[win];
-            int256 score = pw == 0 ? MIN_LOG_SCORE : MarketMath.log1e18(pw);
-            if (score < MIN_LOG_SCORE) score = MIN_LOG_SCORE;
-            p.logScore = score;
-            totalExcess += _excess(score);
-            emit PredictionScored(id, who, score);
+            uint256 loss = MarketMath.pinball(y, p.quantiles, tau);
+            p.loss = loss;
+            if (loss < baseLoss) totalExcess += baseLoss - loss;
+            emit PredictionScored(id, who, -int256(loss), loss);
         }
         r.totalExcess = totalExcess;
     }
 
-    /// @dev Log score above the uniform baseline, 0 at or below it; at most -baselineLogScore
-    ///      (about 1.61e18) since scores are <= 0.
-    function _excess(int256 score) internal view returns (uint256) {
-        return score > baselineLogScore ? uint256(score - baselineLogScore) : 0;
+    /// @dev Baseline loss minus the forecast's loss, 0 at or above it and for unscored forecasts.
+    ///      Bounded by the baseline loss: y <= 256 ln2 and q >= Q_MIN give < 2e20.
+    function _excess(Round storage r, Prediction storage p) internal view returns (uint256) {
+        if (!p.recorded || !r.settled || r.voided) return 0;
+        uint256 base = r.baselineLoss;
+        return p.loss < base ? base - p.loss : 0;
     }
 
-    /// @dev Writes the scored log score of every revealed predictor with a bound agent to the
+    /// @dev Writes the score (-pinball loss) of every revealed predictor with a bound agent to the
     ///      ERC-8004 reputation registry. The registry is untrusted here: a rejected write is
     ///      reported as an event and never blocks settlement or the claims that follow it.
     function _writeReputation(Round storage r, uint256 id) internal {
@@ -629,14 +688,14 @@ contract VolMarket {
             uint256 agentId = agentOfModel[modelId];
             if (agentId == 0) continue; // binding without an agent: nothing to attribute
             string memory tag2 = models[modelId] == address(0) ? commitTag : zkTag;
-            _giveFeedback(id, who, agentId, _toInt128(p.logScore), tag2);
+            _giveFeedback(id, who, agentId, _toInt128(-int256(p.loss)), tag2);
         }
     }
 
     function _giveFeedback(uint256 id, address who, uint256 agentId, int128 value, string memory tag2) internal {
         uint256 gasBefore = gasleft();
         try reputationRegistry.giveFeedback{gas: EXTERNAL_CALL_GAS}(
-            agentId, value, 18, "logScore", tag2, "", "", bytes32(0)
+            agentId, value, 18, REPUTATION_TAG1, tag2, "", "", bytes32(0)
         ) {}
         catch (bytes memory reason) {
             _revertIfCapStarved(gasBefore);
@@ -810,17 +869,17 @@ contract VolMarket {
         emit FeeCollected(id, amount);
     }
 
-    /// @notice A revealed forecaster whose log score beat the uniform baseline claims its share of
-    ///         the predictor pool, pro rata to its excess score.
+    /// @notice A revealed forecaster whose pinball loss beat the round's baseline loss claims its
+    ///         share of the predictor pool, pro rata to its excess (baseline loss - loss).
     /// @dev Each share rounds down; the last forecaster to claim receives the remainder, so the
     ///      forecasters split exactly the predictor pool. pool * excess cannot overflow for any
-    ///      pool below 2^256 / 1.61e18 tokens (excess <= -baselineLogScore).
+    ///      pool below 2^256 / 2e20 tokens (see _excess).
     function claimPredictorReward(uint256 id) external roundExists(id) {
         Round storage r = rounds[id];
         if (!r.settled) revert RoundNotSettled();
         Prediction storage p = r.predictions[msg.sender];
         uint256 pool_ = _predictorPool(r);
-        uint256 excess = p.recorded ? _excess(p.logScore) : 0;
+        uint256 excess = _excess(r, p);
         if (pool_ == 0 || excess == 0 || p.rewardClaimed) revert NothingToClaim();
         p.rewardClaimed = true;
         r.claimedExcess += excess;
@@ -881,13 +940,36 @@ contract VolMarket {
         return rounds[id].stakes[who][bucket];
     }
 
+    /// @return lnRv ln(max(realizedVol, 1)) * 1e18 (0 before settlement and on voided rounds)
+    /// @return baselineLoss pinball loss of the baseline quantiles at lnRv, 1e18
+    /// @return baselineQuantiles the round's K baseline quantiles, 1e18 ln units
+    function getRoundScoring(uint256 id)
+        external
+        view
+        roundExists(id)
+        returns (int256 lnRv, uint256 baselineLoss, int256[] memory baselineQuantiles)
+    {
+        Round storage r = rounds[id];
+        return (r.lnRv, r.baselineLoss, r.baselineQuantiles);
+    }
+
+    /// @dev quantiles: K revealed quantiles, 1e18 ln units (empty before reveal); score: -pinball
+    ///      loss, 1e18 (0 until the forecast is scored).
     function getPrediction(uint256 id, address who)
         external
         view
-        returns (bool recorded, uint256 modelId, uint256[5] memory probs, int256 logScore)
+        returns (bool recorded, uint256 modelId, int256[] memory quantiles, int256 score)
     {
         Prediction storage p = rounds[id].predictions[who];
-        return (p.recorded, p.modelId, p.probs, p.logScore);
+        return (p.recorded, p.modelId, p.quantiles, -int256(p.loss));
+    }
+
+    /// @return loss pinball loss at lnRv, 1e18 (0 until scored)
+    /// @return excess baseline loss - loss when positive, else 0: the predictor share weight
+    function getPredictionLoss(uint256 id, address who) external view returns (uint256 loss, uint256 excess) {
+        Round storage r = rounds[id];
+        Prediction storage p = r.predictions[who];
+        return (p.loss, _excess(r, p));
     }
 
     function getCommitment(uint256 id, address who) external view returns (bytes32) {

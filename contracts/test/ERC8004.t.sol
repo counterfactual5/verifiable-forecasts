@@ -9,7 +9,7 @@ import {ReputationRegistryLite} from "../src/erc8004/ReputationRegistryLite.sol"
 import {VolMarket} from "../src/VolMarket.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IUniswapV3PoolOracle} from "../src/interfaces/IUniswapV3PoolOracle.sol";
-import {SpikeModelVerifier} from "../src/verifier/SpikeModelVerifier.sol";
+import {InstanceVerifier} from "./mocks/InstanceVerifier.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockPool} from "./mocks/MockPool.sol";
 
@@ -164,7 +164,16 @@ contract ERC8004Test is Test {
             pool.setTickFrom(T0 - (17 - j) * uint256(DELTA), int24(segTicks[j]));
         }
         market = new VolMarket(
-            IERC20(address(token)), 0, 0, IUniswapV3PoolOracle(address(pool)), DELTA, N, COMMIT_LEAD, REVEAL_LEAD
+            IERC20(address(token)),
+            0,
+            0,
+            IUniswapV3PoolOracle(address(pool)),
+            DELTA,
+            N,
+            COMMIT_LEAD,
+            REVEAL_LEAD,
+            _levels(),
+            12
         );
         token.mint(alice, 1_000_000e18);
         token.mint(bob, 1_000_000e18);
@@ -182,21 +191,54 @@ contract ERC8004Test is Test {
         b[3] = 110;
     }
 
+    function _levels() internal pure returns (uint256[] memory t) {
+        t = new uint256[](5);
+        t[0] = 1e17;
+        t[1] = 25e16;
+        t[2] = 5e17;
+        t[3] = 75e16;
+        t[4] = 9e17;
+    }
+
+    /// @dev ln RV quantiles 2, 2.5, 3, 3.5, 4 (1e18).
+    function _baseline() internal pure returns (int256[] memory q) {
+        q = new int256[](5);
+        for (uint256 k = 0; k < 5; ++k) {
+            q[k] = 2e18 + int256(k) * 0.5e18;
+        }
+    }
+
     function _create() internal returns (uint256 id) {
         vm.warp(T0);
-        id = market.createRound(START, _bounds());
+        id = market.createRound(START, _bounds(), _baseline());
+    }
+
+    /// @dev Verifier accepting the fixture proof bytes on (fixture features, _outputs()).
+    function _verifier() internal returns (address) {
+        uint256[] memory fixtureInst = vm.parseJsonUintArray(proofJson, ".instances");
+        int256[] memory o = _outputs();
+        uint256[] memory inst = new uint256[](16 + o.length);
+        for (uint256 j = 0; j < 16; ++j) {
+            inst[j] = fixtureInst[j];
+        }
+        for (uint256 k = 0; k < o.length; ++k) {
+            inst[16 + k] = uint256(o[k]);
+        }
+        return address(new InstanceVerifier(_proof(), inst));
     }
 
     function _proof() internal view returns (bytes memory) {
         return vm.parseJsonBytes(proofJson, ".proof");
     }
 
-    function _outputs() internal view returns (uint256[5] memory out) {
-        uint256[] memory o = vm.parseJsonUintArray(proofJson, ".outputs");
-        assertEq(o.length, 5);
-        for (uint256 i = 0; i < 5; ++i) {
-            out[i] = o[i];
-        }
+    /// @dev K = 5 increasing outputs (2^-12 ln units).
+    function _outputs() internal pure returns (int256[] memory out) {
+        out = new int256[](5);
+        out[0] = 496;
+        out[1] = 584;
+        out[2] = 794;
+        out[3] = 1035;
+        out[4] = 1188;
     }
 
     function _segTicks() internal view returns (int256[] memory) {
@@ -354,8 +396,8 @@ contract ERC8004Test is Test {
 
     function test_LinkAgentRequiresOperatorAndAgentOwner() public {
         _deployMarket();
-        uint256 modelId = market.registerModel(address(new SpikeModelVerifier()), alice);
-        uint256 ownedModelId = market.registerModel(address(new SpikeModelVerifier()), agentOwner);
+        uint256 modelId = market.registerModel(_verifier(), alice);
+        uint256 ownedModelId = market.registerModel(_verifier(), agentOwner);
 
         // Without a configured identity registry there is nothing to bind to.
         vm.prank(alice);
@@ -390,7 +432,7 @@ contract ERC8004Test is Test {
     function test_LinkAgentZeroAgentIdBindsButSkipsFeedback() public {
         _deployMarket();
         market.setReputation(address(identity), address(reputation));
-        uint256 modelId = market.registerModel(address(new SpikeModelVerifier()), alice);
+        uint256 modelId = market.registerModel(_verifier(), alice);
 
         vm.prank(alice);
         market.linkAgent(modelId, 0);
@@ -416,7 +458,7 @@ contract ERC8004Test is Test {
         market.setReputation(address(identity), address(reputation));
 
         uint256 agentId = _registerAgent(); // agentOwner owns the agent
-        uint256 modelId = market.registerModel(address(new SpikeModelVerifier()), agentOwner);
+        uint256 modelId = market.registerModel(_verifier(), agentOwner);
         vm.prank(agentOwner);
         market.linkAgent(modelId, agentId);
 
@@ -428,7 +470,7 @@ contract ERC8004Test is Test {
 
         (,,, int256 score) = market.getPrediction(id, agentOwner);
         assertLt(score, 0);
-        assertEq(reputation.getSummary(agentId, _clients(address(market)), "logScore", ""), score);
+        assertEq(reputation.getSummary(agentId, _clients(address(market)), "pinball", ""), score);
 
         // The market is the client of the record it wrote.
         (int128[] memory values, uint8[] memory decimals, string[] memory tag1s, string[] memory tag2s) =
@@ -436,7 +478,7 @@ contract ERC8004Test is Test {
         assertEq(values.length, 1);
         assertEq(int256(values[0]), score);
         assertEq(uint256(decimals[0]), 18);
-        assertEq(tag1s[0], "logScore");
+        assertEq(tag1s[0], "pinball");
         assertEq(tag2s[0], "vol-300s-12");
     }
 
@@ -447,7 +489,7 @@ contract ERC8004Test is Test {
         market.setReputation(address(identity), address(reputation));
 
         uint256 zkAgent = _registerAgent();
-        uint256 zkModel = market.registerModel(address(new SpikeModelVerifier()), agentOwner);
+        uint256 zkModel = market.registerModel(_verifier(), agentOwner);
         vm.prank(agentOwner);
         market.linkAgent(zkModel, zkAgent);
 
@@ -481,7 +523,7 @@ contract ERC8004Test is Test {
         assertEq(apiTags[0], "vol-300s-12-commit");
         (,,, int256 score) = market.getPrediction(id, alice);
         assertEq(int256(values[0]), score);
-        assertEq(reputation.getSummary(zkAgent, _clients(address(market)), "logScore", "vol-300s-12-commit"), 0);
+        assertEq(reputation.getSummary(zkAgent, _clients(address(market)), "pinball", "vol-300s-12-commit"), 0);
         (int128[] memory silent,,,) = reputation.readFeedback(silentAgent, address(market));
         assertEq(silent.length, 0, "unrevealed forecast leaves no record");
     }
@@ -492,7 +534,7 @@ contract ERC8004Test is Test {
         market.setReputation(address(identity), address(failing));
 
         uint256 agentId = _registerAgent();
-        uint256 modelId = market.registerModel(address(new SpikeModelVerifier()), agentOwner);
+        uint256 modelId = market.registerModel(_verifier(), agentOwner);
         vm.prank(agentOwner);
         market.linkAgent(modelId, agentId);
 
@@ -534,7 +576,7 @@ contract ERC8004Test is Test {
         _deployMarket();
         market.setReputation(address(identity), registry);
         uint256 agentId = _registerAgent();
-        uint256 modelId = market.registerModel(address(new SpikeModelVerifier()), agentOwner);
+        uint256 modelId = market.registerModel(_verifier(), agentOwner);
         vm.prank(agentOwner);
         market.linkAgent(modelId, agentId);
         id = _create();
@@ -587,7 +629,7 @@ contract ERC8004Test is Test {
     function test_NoReputationConfiguredKeepsBehavior() public {
         _deployMarket();
         uint256 agentId = _registerAgent();
-        uint256 modelId = market.registerModel(address(new SpikeModelVerifier()), agentOwner);
+        uint256 modelId = market.registerModel(_verifier(), agentOwner);
 
         // Without a configured identity registry no binding can be made.
         vm.prank(agentOwner);
@@ -607,7 +649,7 @@ contract ERC8004Test is Test {
         assertEq(_countWriteFailures(logs), 0);
         (,,, int256 score) = market.getPrediction(id, agentOwner);
         assertLt(score, 0);
-        assertEq(reputation.getSummary(agentId, _clients(address(market)), "logScore", ""), 0);
+        assertEq(reputation.getSummary(agentId, _clients(address(market)), "pinball", ""), 0);
 
         (, uint256 bucket, uint256 rv) = _round(id);
         assertEq(bucket, 0);
@@ -623,7 +665,7 @@ contract ERC8004Test is Test {
         market.setReputation(address(identity), address(reputation));
 
         uint256 agentId = _registerAgent();
-        uint256 modelId = market.registerModel(address(new SpikeModelVerifier()), agentOwner);
+        uint256 modelId = market.registerModel(_verifier(), agentOwner);
         vm.prank(agentOwner);
         market.linkAgent(modelId, agentId);
 
@@ -636,20 +678,33 @@ contract ERC8004Test is Test {
 
         // A third party writes a record for the same agent.
         vm.prank(alice);
-        reputation.giveFeedback(agentId, 5e18, 18, "logScore", "vol-300s-12", "", "", bytes32(0));
+        reputation.giveFeedback(agentId, 5e18, 18, "pinball", "vol-300s-12", "", "", bytes32(0));
 
         // The client filter keeps it out of the market's summary.
-        assertEq(reputation.getSummary(agentId, _clients(address(market)), "logScore", ""), score);
-        assertEq(reputation.getSummary(agentId, _clients(alice), "logScore", ""), 5e18);
+        assertEq(reputation.getSummary(agentId, _clients(address(market)), "pinball", ""), score);
+        assertEq(reputation.getSummary(agentId, _clients(alice), "pinball", ""), 5e18);
     }
 
     function test_SettleGasWith32BoundPredictors() public {
         _deployMarket();
-        market.setReputation(address(identity), address(reputation));
+        assertEq(market.MAX_PREDICTORS(), 32);
+        uint256 gasUsed = _settleGasWithBoundPredictors(32);
+        emit log_named_uint("settle gas with 32 bound predictors", gasUsed);
+        assertLt(gasUsed, 8_000_000, "settle gas with 32 bound predictors");
+    }
 
-        uint256 count = market.MAX_PREDICTORS();
-        assertEq(count, 32);
-        address verifier = address(new SpikeModelVerifier());
+    function test_SettleGasWith6BoundPredictors() public {
+        _deployMarket();
+        uint256 gasUsed = _settleGasWithBoundPredictors(6);
+        emit log_named_uint("settle gas with 6 bound predictors", gasUsed);
+        assertLt(gasUsed, 2_000_000, "settle gas with 6 bound predictors");
+    }
+
+    /// @dev `count` zk predictors with bound agents commit, reveal and are settled; every score
+    ///      must land under its own agent. Returns the settle gas.
+    function _settleGasWithBoundPredictors(uint256 count) internal returns (uint256 gasUsed) {
+        market.setReputation(address(identity), address(reputation));
+        address verifier = _verifier();
         uint256[] memory agentIds = new uint256[](count);
         for (uint256 i = 0; i < count; ++i) {
             address operator = address(uint160(0x1000 + i));
@@ -673,14 +728,12 @@ contract ERC8004Test is Test {
         vm.warp(END + 10);
         uint256 gasBefore = gasleft();
         market.settle(id);
-        uint256 gasUsed = gasBefore - gasleft();
-        emit log_named_uint("settle gas with 32 bound predictors", gasUsed);
-        assertLt(gasUsed, 8_000_000, "settle gas with 32 bound predictors");
+        gasUsed = gasBefore - gasleft();
 
-        // Every bound predictor got its score written under its own agent.
         for (uint256 i = 0; i < count; ++i) {
             (,,, int256 score) = market.getPrediction(id, address(uint160(0x1000 + i)));
-            assertEq(reputation.getSummary(agentIds[i], _clients(address(market)), "logScore", ""), score);
+            assertLt(score, 0);
+            assertEq(reputation.getSummary(agentIds[i], _clients(address(market)), "pinball", ""), score);
         }
     }
 
