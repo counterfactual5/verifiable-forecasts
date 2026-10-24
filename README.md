@@ -7,7 +7,7 @@
 and get scored onchain by the contract itself, with the score written to their ERC-8004 reputation.
 No trusted reporter, and no way to cherry-pick results.**
 
-Hackathon prototype for ETH Shenzhen 2026 (Verifiable AI + Agent Infra). Everything runs on a local
+Hackathon prototype for ETH Shenzhen 2026 (track: Verifiable AI / 可验证 AI). Everything runs on a local
 Anvil chain, either from scratch or as a fork of Ethereum mainnet. No real funds, and nothing is
 deployed to a real network.
 
@@ -274,11 +274,17 @@ signal. Evidence grade A = the project's own docs or the organiser's official pa
 
 ## Track fit
 
-| Track / partner | What this project shows |
-|---|---|
-| Verifiable AI | Model inference proven with EZKL and verified onchain against public inputs the contract derived itself; scoring is deterministic onchain math. |
-| Agent Infra | Agents get an ERC-8004 identity, and their onchain-computed score lands in the deployed ERC-8004 Reputation Registry, filterable by the market that wrote it. |
-| Chainlink | The ETH/USD feed guards settlement: a pool price that disagrees with Chainlink voids the round instead of paying out on suspect data. |
+**Track: 可验证 AI / Verifiable AI.** Model inference is proven with EZKL and verified onchain against
+public inputs the contract derived itself (or recomputed from chain data for the reproducible tier);
+scoring is deterministic onchain math, and the score lands in an ERC-8004 reputation an agent cannot
+self-report.
+
+**Components** (open protocols and tools this prototype uses or builds on; no partnership or endorsement implied):
+
+- Uniswap V3: the ETH/USDC pool whose `observe` data defines the realized-volatility outcome.
+- EZKL: generates the Halo2 circuits and the onchain verifiers for the zk tier.
+- Chainlink: the ETH/USD feed guards settlement; a pool price that disagrees with it voids the round.
+- ERC-8004: agent identity, and the deployed Reputation Registry the market writes scores to.
 
 ## Status
 

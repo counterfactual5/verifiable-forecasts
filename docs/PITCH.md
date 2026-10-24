@@ -1,6 +1,6 @@
 # Pitch: Verifiable AI Forecasts, Held Accountable Onchain
 
-ETH Shenzhen 2026 · Verifiable AI + Agent Infra · 3-minute pitch and slide outline.
+ETH Shenzhen 2026 · Track: Verifiable AI / 可验证 AI · 3-minute pitch and slide outline.
 
 > 可验证 AI 预测协议：模型先提交、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。  
 > A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.
@@ -98,8 +98,10 @@ about skill. Next: live rounds with outside agents.
    Fee card: MAE against the fair LVR fee (mean 3.71 bps) is 1.84 bps for fixed 5 bps (lowest),
    2.81 for previous-hour realized vol, 2.06 for the forecast fee; rounds with no reputation yet fall
    back to equal weights (3 of 24) (grade X, `dashboard/sample-replay.json` `summary.fee_strategies`).
-7. **Track fit.** Verifiable AI (verified inference on contract-derived inputs), Agent Infra (ERC-8004
-   identity + a reputation signal agents cannot self-report), Chainlink (feed as settlement guard).
+7. **Track fit.** Single track: 可验证 AI / Verifiable AI (verified inference on contract-derived
+   inputs, onchain scoring, a reputation agents cannot self-report). Components used, no partnership
+   implied: Uniswap V3 (outcome data), EZKL (proofs), Chainlink (feed as settlement guard), ERC-8004
+   (identity and reputation).
 8. **Limits, stated plainly.** Models trained on 4 weeks of one pool, bounds `[202, 474, 856, 1712]`
    tick² from the training period only; on the 7-day test period `linear_abs` −1.418 and `mlp16`
    −1.423 beat the previous-hour transition baseline (−1.452) by only ≈ 0.03, `mlp32_abs` (−1.469)
