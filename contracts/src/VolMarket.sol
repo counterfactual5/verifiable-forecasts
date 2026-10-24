@@ -168,8 +168,10 @@ contract VolMarket {
 
     // 1e18 fixed-point price math scale; feed prices are normalized to 8 decimals for comparison.
     uint256 private constant PRICE_SCALE = 1e18;
-    uint256 public constant MAX_DEVIATION_BPS = 200;
-    uint256 public constant MAX_FEED_AGE = 3900;
+    /// @dev Largest accepted |poolPrice - feedPrice|, in basis points of the feed price.
+    uint256 public immutable maxDeviationBps;
+    /// @dev Oldest accepted feed answer, in seconds before the settle block.
+    uint256 public immutable maxFeedAge;
     uint8 private constant PRICE_DECIMALS = 8;
     uint256 private constant BPS = 10_000;
     TickPriceMath public immutable tickPriceMath;
@@ -207,6 +209,8 @@ contract VolMarket {
     /// @param nSegments_ segments per round window, >= 2
     /// @param commitLead_ seconds before startTime at which commits close
     /// @param revealLead_ seconds before startTime at which reveals close, < commitLead_
+    /// @param maxDeviationBps_ price-feed cross-check tolerance in bps of the feed price, in (0, 10000)
+    /// @param maxFeedAge_ oldest accepted price-feed answer in seconds, > 0
     constructor(
         IERC20 token_,
         uint256 feeBps_,
@@ -215,12 +219,17 @@ contract VolMarket {
         uint32 delta_,
         uint8 nSegments_,
         uint32 commitLead_,
-        uint32 revealLead_
+        uint32 revealLead_,
+        uint256 maxDeviationBps_,
+        uint256 maxFeedAge_
     ) {
-        if (address(token_) == address(0) || address(pool_) == address(0)) revert ZeroAddress();
+        if (address(token_) == address(0) || address(pool_) == address(0)) {
+            revert ZeroAddress();
+        }
         if (feeBps_ >= 1000 || delta_ == 0 || nSegments_ < 2) revert InvalidParams();
         if (uint256(delta_) * (FEATURES + 1) > type(uint32).max) revert InvalidParams();
         if (predictorShareBps_ > BPS || revealLead_ >= commitLead_) revert InvalidParams();
+        if (maxDeviationBps_ == 0 || maxDeviationBps_ >= BPS || maxFeedAge_ == 0) revert InvalidParams();
         token = token_;
         feeBps = feeBps_;
         predictorShareBps = predictorShareBps_;
@@ -229,6 +238,8 @@ contract VolMarket {
         nSegments = nSegments_;
         commitLead = commitLead_;
         revealLead = revealLead_;
+        maxDeviationBps = maxDeviationBps_;
+        maxFeedAge = maxFeedAge_;
         baselineLogScore = MarketMath.log1e18(PROB_SCALE / BUCKETS);
         owner = msg.sender;
         tickPriceMath = new TickPriceMath();
@@ -537,7 +548,7 @@ contract VolMarket {
         try priceFeed.latestRoundData{gas: EXTERNAL_CALL_GAS}() returns (
             uint80, int256 answer, uint256, uint256 updatedAt, uint80
         ) {
-            if (answer <= 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > MAX_FEED_AGE) {
+            if (answer <= 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > maxFeedAge) {
                 emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), answer, 2);
                 return false;
             }
@@ -558,7 +569,7 @@ contract VolMarket {
             if (feedDecimals < PRICE_DECIMALS) feedPrice *= 10 ** uint256(PRICE_DECIMALS - feedDecimals);
             else if (feedDecimals > PRICE_DECIMALS) feedPrice /= 10 ** uint256(feedDecimals - PRICE_DECIMALS);
             uint256 deltaPrice = poolPrice > feedPrice ? poolPrice - feedPrice : feedPrice - poolPrice;
-            if (deltaPrice * BPS > feedPrice * MAX_DEVIATION_BPS) {
+            if (deltaPrice * BPS > feedPrice * maxDeviationBps) {
                 emit PriceCheckFailed(id, int24(meanTick), int256(poolPrice), int256(feedPrice), 4);
                 return false;
             }

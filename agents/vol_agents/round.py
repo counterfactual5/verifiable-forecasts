@@ -34,6 +34,8 @@ COMPARE = OUT / "compare_round.json"
 # the commit phase must outlast the agents' proving, which advances anvil's wall-clock time.
 COMMIT_LEAD = 300
 REVEAL_LEAD = 60
+# Chainlink cross-check: pool-feed deviation in bps of the feed price, feed answer age in seconds.
+MAX_DEVIATION_BPS, MAX_FEED_AGE = 200, 3900
 # ERC-8004 agent metadata URI: deterministic and never resolved, so a round stays reproducible.
 AGENT_URI = "https://example.invalid/agents/{name}"
 # keccak256("Registered(uint256,string,address)")
@@ -102,7 +104,7 @@ def deploy(chain: Anvil, models=None) -> Deployment:
     pool = chain.deploy(owner, "test/mocks/MockPool.sol:MockPool")
     market = chain.deploy(
         owner, "src/VolMarket.sol:VolMarket", token, 0, 0, pool, cm.DELTA, cm.N_SEGMENTS,
-        COMMIT_LEAD, REVEAL_LEAD,
+        COMMIT_LEAD, REVEAL_LEAD, MAX_DEVIATION_BPS, MAX_FEED_AGE,
     )
     identity = chain.deploy(owner, "src/erc8004/IdentityRegistryLite.sol:IdentityRegistryLite")
     reputation = chain.deploy(

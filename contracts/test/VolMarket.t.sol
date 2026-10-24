@@ -107,6 +107,12 @@ contract VolMarketTest is Test {
     uint32 constant REVEAL_LEAD = 120;
     uint256 constant COMMIT_END = START - COMMIT_LEAD;
     uint256 constant REVEAL_END = START - REVEAL_LEAD;
+    uint256 constant MAX_DEVIATION_BPS = 200;
+    uint256 constant MAX_FEED_AGE = 3900;
+
+    /// @dev Price-check parameters the next _deploy uses.
+    uint256 maxDeviationBps = MAX_DEVIATION_BPS;
+    uint256 maxFeedAge = MAX_FEED_AGE;
 
     MockERC20 token;
     MockPool pool;
@@ -161,7 +167,16 @@ contract VolMarketTest is Test {
 
     function _market(uint256 feeBps, uint256 shareBps, address pool_) internal returns (VolMarket) {
         return new VolMarket(
-            IERC20(address(token)), feeBps, shareBps, IUniswapV3PoolOracle(pool_), DELTA, N, COMMIT_LEAD, REVEAL_LEAD
+            IERC20(address(token)),
+            feeBps,
+            shareBps,
+            IUniswapV3PoolOracle(pool_),
+            DELTA,
+            N,
+            COMMIT_LEAD,
+            REVEAL_LEAD,
+            maxDeviationBps,
+            maxFeedAge
         );
     }
 
@@ -540,7 +555,7 @@ contract VolMarketTest is Test {
     function test_PriceFeedAgeBoundary() public {
         uint256 maxAge = 3900;
         _deploy(0);
-        assertEq(market.MAX_FEED_AGE(), maxAge);
+        assertEq(market.maxFeedAge(), maxAge);
         int256 matching = int256(market.priceForTick(196001));
         _segments(_mixed());
         uint256 id = _create();
@@ -567,7 +582,7 @@ contract VolMarketTest is Test {
     ///      last segment's tick is searched for a pool price divisible by 51.
     function test_PriceFeedDeviationBoundary() public {
         _deploy(0);
-        assertEq(market.MAX_DEVIATION_BPS(), 200);
+        assertEq(market.maxDeviationBps(), 200);
         int24 tick = 196001;
         while (market.priceForTick(tick) % 51 != 0) {
             ++tick;
@@ -616,6 +631,43 @@ contract VolMarketTest is Test {
         market.settle(id);
         (voided,,) = _rv(id);
         assertTrue(voided, "one unit beyond below the feed voids");
+    }
+
+    /// @dev A pool 1.5% above the feed passes the default 200 bps check but not a 100 bps market.
+    function test_CustomDeviationVoidsWhatDefaultSettles() public {
+        uint256 id = _roundEndingAtTick(196001);
+        int256 answer = int256(market.priceForTick(196001) * 10_000 / 10_150);
+        feed.setAnswer(answer, block.timestamp);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertFalse(voided, "200 bps market settles a 1.5% deviation");
+
+        maxDeviationBps = 100;
+        id = _roundEndingAtTick(196001);
+        assertEq(market.maxDeviationBps(), 100);
+        feed.setAnswer(answer, block.timestamp);
+        _expectPriceCheckFailed(id, 196001, answer, 4);
+        market.settle(id);
+        (voided,,) = _rv(id);
+        assertTrue(voided, "100 bps market voids a 1.5% deviation");
+    }
+
+    function test_CustomFeedAgeBoundary() public {
+        maxFeedAge = 600;
+        uint256 id = _roundEndingAtTick(196001);
+        assertEq(market.maxFeedAge(), 600);
+        int256 matching = int256(market.priceForTick(196001));
+        feed.setAnswer(matching, block.timestamp - 600);
+        market.settle(id);
+        (bool voided,,) = _rv(id);
+        assertFalse(voided, "age exactly maxFeedAge settles");
+
+        id = _roundEndingAtTick(196001);
+        feed.setAnswer(matching, block.timestamp - 601);
+        _expectPriceCheckFailed(id, 196001, matching, 2);
+        market.settle(id);
+        (voided,,) = _rv(id);
+        assertTrue(voided, "one second past a 600 s maxFeedAge voids, under the 3900 s default it would settle");
     }
 
     function test_PriceFeedDecimalsScaled() public {
@@ -1430,15 +1482,30 @@ contract VolMarketTest is Test {
         IUniswapV3PoolOracle p = IUniswapV3PoolOracle(address(pool));
         IERC20 t = IERC20(address(token));
         vm.expectRevert(VolMarket.InvalidParams.selector);
-        new VolMarket(t, 100, 10_001, p, DELTA, N, COMMIT_LEAD, REVEAL_LEAD);
+        new VolMarket(t, 100, 10_001, p, DELTA, N, COMMIT_LEAD, REVEAL_LEAD, MAX_DEVIATION_BPS, MAX_FEED_AGE);
         vm.expectRevert(VolMarket.InvalidParams.selector);
-        new VolMarket(t, 100, 5000, p, DELTA, N, REVEAL_LEAD, REVEAL_LEAD);
+        new VolMarket(t, 100, 5000, p, DELTA, N, REVEAL_LEAD, REVEAL_LEAD, MAX_DEVIATION_BPS, MAX_FEED_AGE);
         vm.expectRevert(VolMarket.InvalidParams.selector);
-        new VolMarket(t, 100, 5000, p, DELTA, N, REVEAL_LEAD, COMMIT_LEAD);
-        VolMarket m = new VolMarket(t, 100, 10_000, p, DELTA, N, COMMIT_LEAD, 0);
+        new VolMarket(t, 100, 5000, p, DELTA, N, REVEAL_LEAD, COMMIT_LEAD, MAX_DEVIATION_BPS, MAX_FEED_AGE);
+        VolMarket m = new VolMarket(t, 100, 10_000, p, DELTA, N, COMMIT_LEAD, 0, MAX_DEVIATION_BPS, MAX_FEED_AGE);
         assertEq(m.predictorShareBps(), 10_000);
         assertEq(m.commitLead(), COMMIT_LEAD);
         assertEq(m.revealLead(), 0);
+    }
+
+    function test_ConstructorValidatesPriceCheck() public {
+        pool = new MockPool();
+        IUniswapV3PoolOracle p = IUniswapV3PoolOracle(address(pool));
+        IERC20 t = IERC20(address(token));
+        vm.expectRevert(VolMarket.InvalidParams.selector);
+        new VolMarket(t, 100, 5000, p, DELTA, N, COMMIT_LEAD, REVEAL_LEAD, 0, MAX_FEED_AGE);
+        vm.expectRevert(VolMarket.InvalidParams.selector);
+        new VolMarket(t, 100, 5000, p, DELTA, N, COMMIT_LEAD, REVEAL_LEAD, 10_000, MAX_FEED_AGE);
+        vm.expectRevert(VolMarket.InvalidParams.selector);
+        new VolMarket(t, 100, 5000, p, DELTA, N, COMMIT_LEAD, REVEAL_LEAD, MAX_DEVIATION_BPS, 0);
+        VolMarket m = new VolMarket(t, 100, 5000, p, DELTA, N, COMMIT_LEAD, REVEAL_LEAD, 9999, 1);
+        assertEq(m.maxDeviationBps(), 9999);
+        assertEq(m.maxFeedAge(), 1);
     }
 
     // -------- parimutuel ------------------------------------------------

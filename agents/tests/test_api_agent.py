@@ -429,6 +429,7 @@ def test_api_error_does_not_leak_key(server):
 
 COMMIT_LEAD, REVEAL_LEAD = 300, 60
 FEE_BPS, SHARE_BPS = 100, 5000
+MAX_DEV_BPS, MAX_FEED_AGE = 200, 3900
 ROUND_SIG = "getRound(uint256)(uint64,bool,bool,uint256,uint256,uint256,uint256[5],uint256[])"
 PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)"
 
@@ -439,7 +440,8 @@ def test_commit_only_agent_round_and_predictor_share(server):
         token = c.deploy(owner, "test/mocks/MockERC20.sol:MockERC20")
         pool = c.deploy(owner, "test/mocks/MockPool.sol:MockPool")
         market = c.deploy(owner, "src/VolMarket.sol:VolMarket", token, FEE_BPS, SHARE_BPS, pool,
-                          cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
+                          cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD,
+                          MAX_DEV_BPS, MAX_FEED_AGE)
         key = DEV_KEYS[1]
         agent = api.ApiAgent(name="agent-tsfm", key=key, address=address_of(key),
                              config=api.ApiConfig(url=_url(server, "/v1"), key=SECRET))
@@ -522,7 +524,8 @@ def test_reproducible_agent_round_registers_hash_and_recomputes(server, tmp_path
         token = c.deploy(owner, "test/mocks/MockERC20.sol:MockERC20")
         pool = c.deploy(owner, "test/mocks/MockPool.sol:MockPool")
         market = c.deploy(owner, "src/VolMarket.sol:VolMarket", token, FEE_BPS, SHARE_BPS, pool,
-                          cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
+                          cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD,
+                          MAX_DEV_BPS, MAX_FEED_AGE)
         cfg = api.ApiConfig(url=_url(server, "/v1"), key=SECRET)
         honest, tampered, foreign = api.tsfm_agents(cfg, DEV_KEYS[1:4], [model] * 3)
         hashes = [honest.model_hash, tampered.model_hash, sf.model_hash("chronos-2")]

@@ -164,7 +164,16 @@ contract ERC8004Test is Test {
             pool.setTickFrom(T0 - (17 - j) * uint256(DELTA), int24(segTicks[j]));
         }
         market = new VolMarket(
-            IERC20(address(token)), 0, 0, IUniswapV3PoolOracle(address(pool)), DELTA, N, COMMIT_LEAD, REVEAL_LEAD
+            IERC20(address(token)),
+            0,
+            0,
+            IUniswapV3PoolOracle(address(pool)),
+            DELTA,
+            N,
+            COMMIT_LEAD,
+            REVEAL_LEAD,
+            200,
+            3900
         );
         token.mint(alice, 1_000_000e18);
         token.mint(bob, 1_000_000e18);
