@@ -11,6 +11,8 @@ WorkingDirectory=/opt/verifiable-forecasts
 Environment=PATH=/root/.foundry/bin:/usr/local/bin:/usr/bin:/bin
 # EZKL panics when HOME is unset, which it is under systemd.
 Environment=HOME=/root
+# Each round also swaps once on a fork-local Uniswap v4 pool behind VolFeeHook (demo/v4_hook.py).
+Environment=V4_HOOK=1
 ExecStart=/bin/bash /opt/verifiable-forecasts/demo/live.sh
 Nice=10
 IOSchedulingClass=idle

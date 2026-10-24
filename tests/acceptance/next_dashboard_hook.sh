@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # V4 hook acceptance: with a replay whose round carries the optional "hook" record (demo V4_HOOK=1), the round player's
 # stage 4 (被使用) shows what the VolFeeHook pool actually charged (V4 hook 实际收取 <effective bps>, the hook's quote and
-# whether it came from the round's recorded fee); a round without "hook" shows no such line. DASH_DIR overrides the
+# whether it came from the round's recorded fee); a round without "hook" shows no such line; #/live lists the hook's
+# charged fee per round (card #hook-card). DASH_DIR overrides the
 # dashboard directory so the checks can be run against an older index.html.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -64,6 +65,11 @@ const label = (r) => `#${r.h ?? r.id} `;
   check(/hook 报价 2\.98 bps/.test(hooked) && /取自本轮记录的推荐费率/.test(hooked), "stage 4 shows the hook quote and its recorded source");
   check(await goTo(1), "the player reaches round 1");
   check(!/V4 hook 实际收取/.test(await stage4()), "a round without hook data shows no hook line");
+  await page.goto(`${base}/${dash}/?data=${data}#/live`);
+  await page.waitForSelector("#app .card", { state: "attached", timeout: 15000 });
+  const live = ((await page.locator("#hook-card").textContent({ timeout: 2000 }).catch(() => "")) ?? "").replace(/\s+/g, " ");
+  check(/V4 hook/.test(live) && /2\.98 bps/.test(live) && /本轮记录/.test(live), "#/live lists the hook's charged fee per round (2.98 bps, 本轮记录)");
+  check(await page.locator("#hook-card").isVisible().catch(() => false), "#/live shows the hook card");
   check(errors.length === 0, `no page errors (${errors.join("; ")})`);
   await browser.close();
   console.log(fail ? "FAIL" : "PASS");
