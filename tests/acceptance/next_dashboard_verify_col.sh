@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# R1 acceptance: on #/agents at 1280 and 375, each reproducible row's Verification cell is a one-line summary
-# plus exactly one <details> that holds the recompute command (hidden until its summary is clicked), the row
+# R1 acceptance: on #/agents at 1280 and 375, each reproducible row shows a one-line verification summary
+# plus exactly one collapsed detail row that holds the recompute command (hidden until ▸ is clicked), the row
 # is at most 1.6x the tallest zk row, nothing in the cell is clipped by overflow / line-clamp / max-height,
 # the TimesFM row shows 非商用 without expanding, and the page throws no error.
 set -uo pipefail
@@ -24,26 +24,22 @@ const replay = require(require("path").join(process.cwd(), "dashboard/sample-rep
 const agents = replay.agents.map((a) => ({ agent: a.agent, tier: a.tier, cmd: a.recompute_command ?? null, license: a.license ?? "" }));
 
 const measure = (page, info) => page.evaluate((info) => {
-  const table = [...document.querySelectorAll("#app table")].find((t) => /Verification/i.test(t.querySelector("tr")?.textContent ?? "") && /Σ ln p/.test(t.textContent));
+  const table = [...document.querySelectorAll("#app table")].find((t) => t.querySelector("tr[data-agent]"));
   if (!table) return null;
-  const head = [...table.querySelector("tr").children].map((c) => c.textContent.trim());
-  const vi = head.findIndex((h) => /^Verification$/i.test(h));
   const clipped = (el) => [el, ...el.querySelectorAll("*")].some((n) => {
     const s = getComputedStyle(n);
     return s.overflow.includes("hidden") || s.overflowY === "hidden" || (s.webkitLineClamp && s.webkitLineClamp !== "none") || s.maxHeight !== "none";
   });
-  return [...table.querySelectorAll("tr")].slice(1).map((tr) => {
-    const name = tr.querySelector("td b")?.textContent.trim();
+  return [...table.querySelectorAll("tr[data-agent]")].map((tr) => {
+    const name = tr.dataset.agent;
     const a = info.find((x) => x.agent === name);
     if (!a) return null;
-    const cell = tr.children[vi];
-    const details = cell.querySelectorAll("details");
-    const d = details[0];
+    const det = document.querySelector(`tr[data-detail-for="${name}"]`);
     let cmdNode = null;
-    if (d && a.cmd) cmdNode = [...d.querySelectorAll("*")].reverse().find((n) => !n.closest("summary") && n.textContent.includes(a.cmd)) ?? null;
+    if (det && a.cmd) cmdNode = [...det.querySelectorAll("*")].reverse().find((n) => n.textContent.includes(a.cmd)) ?? null;
     return { name, tier: a.tier, timesfm: /^TimesFM/i.test(a.license), height: tr.getBoundingClientRect().height,
-      nDetails: details.length, cmdInDetails: !!(d && a.cmd && d.textContent.includes(a.cmd)),
-      cmdHidden: cmdNode ? cmdNode.getClientRects().length === 0 : null, clipped: clipped(cell), text: cell.innerText };
+      nDetails: det ? 1 : 0, cmdInDetails: !!(det && a.cmd && det.textContent.includes(a.cmd)),
+      cmdHidden: cmdNode ? cmdNode.getClientRects().length === 0 : null, clipped: clipped(det ?? tr), text: tr.innerText };
   }).filter(Boolean);
 }, info);
 
@@ -65,22 +61,21 @@ const measure = (page, info) => page.evaluate((info) => {
     check(repro.length === 3, `@${width}: three reproducible rows (${repro.map((r) => r.name).join(", ")})`);
     for (const r of repro) {
       check(r.height <= zkMax * 1.6, `@${width} ${r.name}: row ${r.height.toFixed(0)}px <= 1.6 x tallest zk row ${zkMax.toFixed(0)}px`);
-      check(r.nDetails === 1, `@${width} ${r.name}: Verification cell has exactly one <details> (${r.nDetails})`);
-      check(r.cmdInDetails, `@${width} ${r.name}: the recompute command is text inside the <details>`);
+      check(r.nDetails === 1, `@${width} ${r.name}: has exactly one collapsed detail row (${r.nDetails})`);
+      check(r.cmdInDetails, `@${width} ${r.name}: the recompute command is text inside the detail row`);
       check(r.cmdHidden === true, `@${width} ${r.name}: the recompute command is hidden before expanding`);
       check(!r.clipped, `@${width} ${r.name}: nothing in the cell is clipped by overflow, line-clamp or max-height`);
       if (r.timesfm) check(r.text.includes("非商用"), `@${width} ${r.name}: 非商用 visible without expanding`);
     }
     const first = repro[0];
     if (first && first.nDetails === 1) {
-      const row = page.locator("#app tr", { has: page.locator("td b", { hasText: first.name }) }).first();
-      await row.locator("details > summary").first().click();
+      await page.click(`#app tr[data-agent="${first.name}"] button.agent-toggle`);
       await page.waitForTimeout(200);
-      const shown = await row.locator("details").first().evaluate((d, cmd) => {
-        const n = [...d.querySelectorAll("*")].reverse().find((x) => !x.closest("summary") && x.textContent.includes(cmd));
+      const shown = await page.locator(`#app tr[data-detail-for="${first.name}"]`).evaluate((d, cmd) => {
+        const n = [...d.querySelectorAll("*")].reverse().find((x) => x.textContent.includes(cmd));
         return !!n && n.getClientRects().length > 0;
       }, agents.find((a) => a.agent === first.name).cmd);
-      check(shown, `@${width} ${first.name}: clicking the summary shows the recompute command`);
+      check(shown, `@${width} ${first.name}: clicking ▸ shows the recompute command`);
     }
     check(errors.length === 0, `@${width}: no page errors (${errors.join("; ")})`);
     await page.close();

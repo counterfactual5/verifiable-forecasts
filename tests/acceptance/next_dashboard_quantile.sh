@@ -128,8 +128,8 @@ const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps * Math.max(1, Math.abs
   check(ex && /pinball excess vs climatology \(ln RV\)/i.test(ex.title), "agents: cumulative excess chart titled 'pinball excess vs climatology (ln RV)'");
   check(ex && !/log score|nats/.test(ex.title), "agents: excess chart no longer in log-score / nats units");
   const ag = Object.keys(d.summary.agents);
-  const tbl = await page.evaluate(() => [...document.querySelectorAll("table")].map((t) => t.textContent).find((x) => /Mean pinball loss/.test(x)) ?? "");
-  check(/Mean pinball loss/.test(tbl) && /Mean excess/.test(tbl) && !/Σ ln p/.test(tbl), "agents table: mean pinball loss and mean excess columns, no Σ ln p");
+  const tbl = await page.evaluate(() => [...document.querySelectorAll("table")].map((t) => t.textContent).find((x) => /平均分位数损失/.test(x)) ?? "");
+  check(/平均分位数损失（越低越好）/.test(tbl) && /相对气候基线/.test(tbl) && !/Σ ln p/.test(tbl), "agents table: mean pinball loss and signed excess vs climatology columns, no Σ ln p");
   check(tbl.includes(d.summary.baseline_mean_pinball_loss.toFixed(3)) && /climatology baseline/.test(tbl), "agents table: climatology baseline row with its mean pinball loss");
   const a0 = d.summary.agents[ag[0]];
   check(tbl.includes(a0.mean_pinball_loss.toFixed(3)), `agents table: ${ag[0]} mean pinball loss ${a0.mean_pinball_loss.toFixed(3)} read from the summary`);

@@ -52,7 +52,7 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
   const rej = d.tamper_checks.filter((t) => t.tampered_output_verifies === false).length;
   const mae = s.fee_strategies.mae_bps;
   const low = Object.entries(mae).reduce((a, b) => (b[1] < a[1] ? b : a));
-  const FEE_NAME = { forecast: "forecast", fixed: "fixed 5 bps", prev_hour: "prev-hour RV" };
+  const FEE_NAME = { forecast: "forecast", fixed: "固定 5 bps", prev_hour: "上一小时" };
   const want = [`${s.settled}/${s.rounds}`, `${beat}/${ag.length}`, best[0].replace("agent-", ""), best[1].total_log_score.toFixed(1), u.toFixed(1),
     `${rej}/${d.tamper_checks.length}`, FEE_NAME[low[0]], low[1].toFixed(2), mae.forecast.toFixed(2)];
   for (const width of [1280, 375]) {

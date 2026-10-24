@@ -122,7 +122,7 @@ const fs = require("fs");
     check(/运行于服务器，每小时自动更新/.test(r.text) && /上次更新/.test(r.text), `@${width}: last update and "运行于服务器，每小时自动更新"`);
     check(/待结算 · 分叉模拟/.test(r.text) && /不证明现实中的事前性/.test(r.text) && !/已在链上提交/.test(r.text),
       `@${width}: pending hour marked 分叉模拟, says the fork commit does not prove real-world ex-ante`);
-    check(r.text.includes("演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（无许可）。"), `@${width}: shared-operator disclaimer`);
+    check(r.text.includes("演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（模型注册需 owner 批准）。"), `@${width}: shared-operator disclaimer`);
     check(r.label.length > 20, `@${width}: chart is a named image`);
     check(JSON.stringify(r.bands.map((x) => x.agent).sort()) === JSON.stringify(entered.slice().sort()), `@${width}: one interval per entered agent (${r.bands.length}/${entered.length})`);
     check(r.bands.every((x) => x.q.every((v, i) => Number.isFinite(v) && v > 0 && (i === 0 || v >= x.q[i - 1]))), `@${width}: quantiles finite and ordered`);
@@ -156,7 +156,8 @@ const fs = require("fs");
     await page.evaluate(() => { location.hash = "#/agents"; });
     await page.waitForTimeout(300);
     const rows = await page.evaluate(() => [...document.querySelectorAll("#app tr[data-provider]")].filter((tr) => tr.getClientRects().length)
-      .map((tr) => ({ agent: tr.dataset.agent, provider: tr.dataset.provider, text: tr.textContent.replace(/\s+/g, " ") })));
+      .map((tr) => ({ agent: tr.dataset.agent, provider: tr.dataset.provider,
+        text: (tr.textContent + " " + (document.querySelector(`tr[data-detail-for="${tr.dataset.agent}"]`)?.textContent ?? "")).replace(/\s+/g, " ") })));
     check(rows.length === d.agents.length, `@${width}: #/agents: one provider row per agent (${rows.length}/${d.agents.length})`);
     const ok = d.agents.every((a) => {
       const row = rows.find((x) => x.agent === a.agent);
@@ -165,7 +166,7 @@ const fs = require("fs");
       return row && (!prov || row.provider === prov) && row.text.includes(String(a.agent_id)) && row.text.includes(a.address.slice(0, 6))
         && (!a.model_hash || /^0x0*$/.test(a.model_hash) || row.text.includes(a.model_hash.slice(0, 6)));
     });
-    check(ok, `@${width}: #/agents provider rows carry provider, address, agentId, modelHash`);
+    check(ok, `@${width}: #/agents provider rows (with their detail row) carry provider, address, agentId, modelHash`);
     await page.evaluate(() => { location.hash = "#/overview"; });
     await page.waitForTimeout(300);
     const ov = await page.evaluate(() => {

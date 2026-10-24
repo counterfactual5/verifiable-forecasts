@@ -10,8 +10,8 @@
 #   no view still uses the bare "fair LVR fee" / 公允费率 naming.
 # - tab bar: the selected tab has no filled background, a 2px cobalt underline on the bar's bottom edge and cobalt
 #   text; a hovered tab gets no filled background; keyboard focus shows a cobalt ring; no overflow at 375 / 390 px.
-# - tiers card: five cells including opML marked 路线图 between 可复现 and TEE; every cell has a 押金 line marked
-#   未实现; the shared-rule line is present; commit-only is not described as unable to prove provenance; the
+# - tiers card: five cells including opML marked 路线图 between 可复现 and TEE; every cell has a 押金 line; 可复现/仅提交 tagged
+#   合约已实现，本演示未启用, opML/TEE 路线图, zk untagged; the shared-rule line is present; commit-only is not described as unable to prove provenance; the
 #   implemented tiers keep their "N 个 agent" chips even at zero agents; no cell overflows at 375 / 390 px.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -148,10 +148,14 @@ const ACCENT = "rgb(29, 63, 196)";
     check(!!op && /路线图/.test(op.chip), `${at}: opML cell present and marked 路线图 (${op?.chip})`);
     check(!!tee && /路线图/.test(tee.chip), `${at}: TEE cell marked 路线图 (${tee?.chip})`);
     check(idx(/可复现/) >= 0 && idx(/可复现/) < idx(/opML/) && idx(/opML/) < idx(/TEE/), `${at}: opML sits between 可复现 and TEE`);
-    check(t.cells.length > 0 && t.cells.every((c) => /押金/.test(c.text) && /未实现/.test(c.bond)), `${at}: every tier cell has a 押金 line marked 未实现 (${t.cells.map((c) => c.bond.trim())})`);
+    const bondTag = (re) => t.cells[idx(re)]?.bond ?? "";
+    check(t.cells.length > 0 && t.cells.every((c) => /押金/.test(c.text) && c.bond), `${at}: every tier cell has a 押金 line (${t.cells.map((c) => c.bond.trim())})`);
+    check([/可复现/, /仅提交/].every((re) => bondTag(re).includes("合约已实现，本演示未启用")) && [/opML/, /TEE/].every((re) => /路线图/.test(bondTag(re)))
+          && !/未实现|路线图|已实现/.test(bondTag(/zk/)), `${at}: bond tags: 可复现/仅提交 合约已实现，本演示未启用; opML/TEE 路线图; zk untagged (${t.cells.map((c) => c.bond.trim())})`);
+    check(bondTag(/可复现/).includes("乐观挑战已实现，裁决暂由仲裁方"), `${at}: reproducible bond names the implemented optimistic challenge`);
     const commit = t.cells[idx(/仅提交/)];
     check(!!commit && !/不证明是哪个模型|冒用|无法证明/.test(commit.text), `${at}: commit-only not described as unable to prove provenance (${commit?.text})`);
-    check(t.text.includes("所有档共用：不公开的轮次按最低分记入信誉；三档分成相同，档位只标注出处，权重由消费方决定。（设计，未实现；详见 docs/ARCHITECTURE.md 第 9 节）"),
+    check(t.text.includes("所有档共用（已实现）：提交后未揭示的轮次按本轮最差可揭示损失记入 ERC-8004 声誉和累计超额；三档分成规则相同，档位只标注出处，权重由消费方决定。ForecasterBond 合约已实现押金、未揭示罚没与挑战罚没（挑战由指定仲裁方裁决，需信任仲裁方）；本演示未启用押金门槛。详见 docs/ARCHITECTURE.md 第 9 节。"),
           `${at}: shared-rule line present`);
     const tierOf = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
     for (const [k, re] of [["zk", /zk/], ["reproducible", /可复现/], ["commit-only", /仅提交/]]) {

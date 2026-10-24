@@ -57,7 +57,7 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
         const table = [...document.querySelectorAll("#app table")].find((tb) => /Settle gas/.test(tb.textContent));
         if (!table) return null;
         const head = [...table.rows[0].cells].map((c) => c.textContent.trim());
-        const from = head.findIndex((h) => /Feed age/.test(h)) + 1, to = head.findIndex((h) => /Settle gas/.test(h));
+        const from = head.findIndex((h) => /Chainlink 报价时长/.test(h)) + 1, to = head.findIndex((h) => /Settle gas/.test(h));
         const cells = [];
         for (const row of [...table.rows].slice(1)) for (let i = from; i < to; i++) cells.push(row.cells[i].textContent.trim());
         
