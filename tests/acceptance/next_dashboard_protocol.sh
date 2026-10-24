@@ -2,7 +2,8 @@
 # Protocol-first acceptance: the header names the protocol, Uniswap appears on the overview only inside the
 # labelled case #1 card (target, settlement data source, Chainlink void rule, example agents), the overview
 # carries a compact case snapshot instead of the full nowcast chart, and no chart, KPI strip or agent table is
-# rendered on two views. The exam wording (出题 / 考题 / 考试) never appears. Six tabs keep keys 1-6.
+# rendered on two views. The exam wording (出题 / 考题 / 考试) never appears. Six tabs keep keys 1-6. The #/agents
+# cumulative-score chart draws every agent line alike and its caption gives per-tier counts without singling out an agent.
 # DASH_DIR overrides the dashboard directory (served next to dashboard/ data) so the checks can be run
 # against an older index.html to prove they fail.
 set -uo pipefail
@@ -101,6 +102,26 @@ const VIEWS = ["overview", "live", "rounds", "agents", "fee", "chain"];
       if (tag === "pending") check(/待结算/.test(o.snap) && /6\/6/.test(o.snap) && /中位数/.test(o.snap) && /\d+:\d\d/.test(o.cd) && o.snapLink === "#/live",
         `${tag}@${width}: snapshot shows the hour, countdown, 6/6 submitted, consensus median and links to #/live (${o.snap.slice(0, 120)})`);
       else check(/最近一轮/.test(o.snap) && o.snapLink === "#/rounds", `${tag}@${width}: without a pending round the snapshot shows the last round and links to #/rounds`);
+      await page.keyboard.press("4");
+      await page.waitForTimeout(150);
+      const x = await page.evaluate(async (url) => {
+        const d = await (await fetch(url)).json(), s = d.summary;
+        const tierOf = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
+        const want = [["zk", "zk 档"], ["reproducible", "可复现档"], ["commit-only", "仅提交档"]].map(([k, zh]) => {
+          const pool = d.agents.filter((a) => tierOf(a) === k);
+          return pool.length ? `${zh} ${pool.filter((a) => s.agents[a.agent].total_log_score > s.uniform_total_log_score).length}/${pool.length}` : null;
+        }).filter(Boolean);
+        const c = document.querySelector("#excess-card"), tk = c?.querySelector(".takeaway")?.cloneNode(true);
+        tk?.querySelectorAll(".badge").forEach((b) => b.remove());
+        const paths = [...(c?.querySelectorAll("svg .series path") ?? [])];
+        return { cap: tk ? tk.textContent.replace(/\s+/g, " ").trim() : "", want, names: d.agents.map((a) => a.agent),
+          n: paths.length, widths: [...new Set(paths.map((p) => p.getAttribute("stroke-width")))],
+          fills: paths.filter((p) => p.getAttribute("fill") !== "none").length, faded: paths.filter((p) => p.hasAttribute("opacity")).length };
+      }, data);
+      check(x.n > 0 && x.widths.length === 1 && x.fills === 0 && x.faded === 0,
+        `${tag}@${width}: cumulative-score chart draws every agent line alike (widths ${x.widths}, fills ${x.fills}, faded ${x.faded})`);
+      check(!/粗线|最佳|best/i.test(x.cap) && !x.names.some((nm) => x.cap.includes(nm)) && x.want.every((w) => x.cap.includes(w)),
+        `${tag}@${width}: cumulative-score caption gives per-tier counts ${x.want.join(" · ")} and singles out no agent (${x.cap})`);
       check(errors.length === 0, `${tag}@${width}: no console or page errors ${JSON.stringify(errors.slice(0, 3))}`);
       await page.close();
     }

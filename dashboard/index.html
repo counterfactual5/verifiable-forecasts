@@ -704,19 +704,14 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
     <text class="ax" x="${L - 10}" y="${y(v) + 4}" text-anchor="end">${axisFmt(v)}</text>`).join("");
   const step = Math.ceil(n / Math.max(2, Math.min(12, Math.floor((W - 86) / 48))));
   const xl = labels.map((t, i) => i % step ? "" : `<text class="ax" x="${x(i)}" y="${H - 6}" text-anchor="middle">${t}</text>`).join("");
-  const lines = series.map((s, k) => {
+  const lines = series.map((s) => {
     let d = "", pen = false;
     s.values.forEach((v, i) => {
       if (v == null) { pen = false; return; }
       d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; pen = true;
     });
-    const op = s.opacity != null ? ` opacity="${s.opacity}"` : "";
-    const base = y(zero ?? lo);
-    const area = s.area && s.values.every((v) => v != null)
-      ? `<defs><linearGradient id="ga${id}-${k}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity=".28"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient></defs>
-        <path d="${d}L${x(n - 1).toFixed(1)},${base.toFixed(1)}L${x(0).toFixed(1)},${base.toFixed(1)}Z" fill="url(#ga${id}-${k})" stroke="none"/>` : "";
-    const dots = s.values.map((v, i) => v == null ? "" : `<circle cx="${x(i)}" cy="${y(v)}" r="${s.area ? 3 : 2.5}" fill="${s.color}"${op}><title>${s.name} · ${labels[i]}: ${tipFmt(v)}</title></circle>`).join("");
-    return `${area}<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}" stroke-linejoin="round" stroke-linecap="round"${op} ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
+    const dots = s.values.map((v, i) => v == null ? "" : `<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${s.color}"><title>${s.name} · ${labels[i]}: ${tipFmt(v)}</title></circle>`).join("");
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width ?? 2}" stroke-linejoin="round" stroke-linecap="round" ${s.dash ? `stroke-dasharray="${s.dash}"` : ""}/>${dots}`;
   }).join("");
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-opacity=".7" stroke-dasharray="5 4"/>` : "";
   const last = (s) => s.values.reduce((x, v) => v ?? x, -Infinity);
@@ -774,16 +769,6 @@ function summaryLine(d) {
       low.key === "forecast" ? "ok" : "warn"));
   }
   return `<div id="summary">${tiles.join("")}</div>`;
-}
-
-// Best scorer among the proof-carrying agents, falling back to every agent when none carries a proof.
-function bestAgent(d, isZk) {
-  const s = d.summary, zk = d.agents.filter(isZk);
-  const pool = (zk.length ? zk : d.agents).map((a) => ({ name: a.agent, total: s.agents[a.agent].total_log_score }));
-  const best = pool.reduce((a, b) => (b.total > a.total ? b : a));
-  return { ...best, excess: best.total - s.uniform_total_log_score, zk: zk.length > 0,
-    beat: pool.filter((a) => a.total > s.uniform_total_log_score).length, of: pool.length,
-    losers: d.agents.filter((a) => s.agents[a.agent].total_log_score <= s.uniform_total_log_score).map((a) => a.agent) };
 }
 
 // Live files (demo/live.sh) are rewritten hourly; one older than this means the server timer stopped.
@@ -1029,16 +1014,16 @@ function renderReplay({ data: d, src }) {
 
   const cumulative = (vals) => { let acc = 0; return vals.map((v) => v == null ? null : (acc += v)); };
   const scoreOf = (r, a) => r.outcome.voided ? null : r.agents[a.agent]?.log_score_float ?? null;
-  const best = bestAgent(d, isZk);
   const excess = agents.map((a) => ({ name: a.agent, color: a.color, dash: dashOf(a),
-    width: a.agent === best.name ? 3 : 2, opacity: a.agent === best.name ? null : 0.45, area: a.agent === best.name,
     values: cumulative(rounds.map((r) => { const v = scoreOf(r, a); return v == null ? null : v - uniform; })) }));
   const chartLabel = (title, series) => `${title}: ${series.map((x) => x.name).join(", ")}, ${rounds.length} rounds`;
   const excessTitle = "谁比瞎猜更准？ Cumulative log score minus uniform (nats)";
+  const tierBeat = [["zk", "zk 档"], ["reproducible", "可复现档"], ["commit-only", "仅提交档"]].map(([k, zh]) => {
+    const pool = agents.filter((a) => tierOf(a) === k);
+    return pool.length ? `${zh} <b>${pool.filter((a) => a.sum.total_log_score > s.uniform_total_log_score).length}/${pool.length}</b> 累计跑赢瞎猜` : "";
+  }).filter(Boolean).join(" · ");
   const excessCard = card(excessTitle,
-    `<p class="takeaway" style="margin-top:0"><b>${best.beat}/${best.of}</b> 个${best.zk ? " zk" : ""} agent 累计跑赢瞎猜；
-    最佳 <b>${best.name}</b>（粗线）${best.excess >= 0 ? "+" : ""}${best.excess.toFixed(2)} nats${best.losers.length
-      ? `；${best.losers.join("、")} 未跑赢` : ""}。${agents.filter((a) => repro(a).failed).map((a) =>
+    `<p class="takeaway" style="margin-top:0">${tierBeat}（累计 &gt; 0 nats）。${agents.filter((a) => repro(a).failed).map((a) =>
       ` <span class="badge bad">${a.agent}: reproduce failed × ${repro(a).failed}</span>`).join("")}</p>` +
     lineChart(excess, labels, { zero: 0, rankLegend: true, label: chartLabel(excessTitle, excess) }) +
     `<div class="sub">nats：自然对数单位。每轮得分 = ln(agent 给真实结果所在档位的概率)，瞎猜每档 1/5 每轮得

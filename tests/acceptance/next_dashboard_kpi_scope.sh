@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The overview KPI "best" tile (best over all agents) and the #/agents cumulative-score takeaway ("最佳" among zk agents) name different agents,
-# so each states its scope (zk / 全部 / all) and the same unit (nats); the KPI's nats margin matches its own
+# The overview KPI "best" tile (best over all agents) states its all-agent scope (全部 / all); the #/agents cumulative-score
+# takeaway gives per-tier counts in nats and names no agent; the KPI's nats margin matches its own
 # best-minus-uniform numbers (also with a different uniform baseline, so it is computed, not typed in); the tile does
 # not overflow at 375/768/1280. Last line: failing checks (target 0).
 set -uo pipefail
@@ -45,9 +45,8 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
       const hero = document.querySelector("#excess-card .takeaway");
       return {
         kpi: kpi ? norm(kpi.textContent) : null,
-        kName: kpi?.querySelector("b")?.textContent ?? null,
         hero: hero ? norm(hero.textContent) : null,
-        hName: hero ? [...hero.querySelectorAll("b")].map((b) => b.textContent)[1] ?? null : null,
+        heroNamesAgent: hero ? /agent-/.test([...hero.childNodes].filter((n) => !n.classList?.contains("badge")).map((n) => n.textContent).join("")) : null,
         tileExcess: kpi ? kpi.scrollWidth - kpi.clientWidth : null,
         pageExcess: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
@@ -57,10 +56,8 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
     if (r.kpi === null || r.hero === null) { await page.close(); continue; }
     const unit = (t) => /\bnats\b/.test(t);
     check(unit(r.kpi), `${at}: KPI uses nats like the hero (${r.kpi})`);
-    if (r.kName !== r.hName) {
-      check(/全部|\ball\b/i.test(r.kpi), `${at}: KPI names its all-agent scope (${r.kpi})`);
-      check(/\bzk\b/.test(r.hero) && unit(r.hero), `${at}: hero keeps its zk scope and nats`);
-    }
+    check(/全部|\ball\b/i.test(r.kpi), `${at}: KPI names its all-agent scope (${r.kpi})`);
+    check(/\bzk\b/.test(r.hero) && unit(r.hero) && !r.heroNamesAgent, `${at}: hero keeps per-tier zk scope and nats, names no agent (${r.hero})`);
     const nums = (r.kpi.match(/(?<![\w-])[-−]\d+(\.\d+)?/g) || []).map((s) => Number(s.replace("−", "-")));
     const margin = r.kpi.match(/([+\-−])(\d+(\.\d+)?)\s*nats/);
     const m = margin ? (margin[1] === "+" ? 1 : -1) * Number(margin[2]) : NaN;
