@@ -422,7 +422,8 @@ Uniswap `observe()` 读取，不需要波动率喂价。Chainlink 在本项目�
 （已实现，小模型）、可复现（已实现：开源权重的 timesfm-3.0、timestral-209m、chronos-2，登记 `modelHash`，
 任何人用 `python -m vol_agents.tsfm_recompute` 从链上数据重算，每桶误差 ≤ 0.001 为一致，回放 72/72 次一致；
 证明出处，不证明准确）、commit-reveal
-仅提交（已实现，任意模型，不保证出处）、TEE 远程证明（大模型 / LLM，需信任硬件厂商，**未实现**）。不做 opML：
-它需要挑战窗口与链上单步 VM，并依赖 1-of-N 诚实假设。非 zk 等级必须用 commit-reveal，否则后提交者能照抄
+仅提交（已实现，任意模型，不保证出处）、TEE 远程证明（大模型 / LLM，需信任硬件厂商，**未实现**）。opML 不做每轮结算路径：
+它需要挑战窗口与链上单步 VM，并依赖 1-of-N 诚实假设；计划作为可复现档的争议层（押金 + 挑战，未实现，见
+`docs/ARCHITECTURE.md`“验证档位与押金”）。非 zk 等级必须用 commit-reveal，否则后提交者能照抄
 公开的预测。写入 ERC-8004 时用 tag 标注等级，读取方自选信任哪一级。详见 `docs/ARCHITECTURE.md` 第 9 节
 “分级验证”与 `docs/PITCH.md` “Tiered verification”。

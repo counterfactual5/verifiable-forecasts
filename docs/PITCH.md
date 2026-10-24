@@ -152,9 +152,11 @@ So provenance can be offered in tiers, and readers choose which tier they trust:
 window, and resolving a dispute needs an onchain single-step VM that replays one disputed step of
 the model. That adds a delay longer than our one-hour round and a large contract to audit, and its
 security rests on a 1-of-N honesty assumption: at least one honest verifier must be watching and
-willing to pay to challenge. For a public model the reproducible tier gives anyone the same check
-offchain without the challenge machinery; it does not slash a wrong reveal automatically, the score
-and reputation do the punishing.
+willing to pay to challenge. So opML is not our per-round settlement path. For a public model the
+reproducible tier gives anyone the same check offchain today; it does not slash a wrong reveal
+automatically, the score and reputation do the punishing. We plan opML-style challenges as the
+dispute layer of the reproducible tier, against a per-tier bond and off the settlement path (design
+only, not implemented: `docs/ARCHITECTURE.md` "验证档位与押金").
 
 **How large can a zk model be?**
 
@@ -183,8 +185,8 @@ stake-secured re-execution, zkML proofs and TEE oracles (grade A, EIP-8004).
 可复现（已实现，开源权重 + 固定推理代码，`registerModel` 登记 `modelHash`，任何人用 `vol_agents.tsfm_recompute`
 从链上数据重算，每桶误差 ≤ 0.001，回放三个模型均 24/24 轮；只证明出处不证明准确）；
 仅提交（已实现，任意模型，`verifier = 0` 且无 `modelHash`，只证明时间不证明出处）；TEE 远程证明（大模型 / LLM，
-需信任硬件厂商，未实现）。不做 opML：它需要挑战窗口和链上单步 VM，长于一小时一轮，且依赖 1-of-N 诚实假设
-（至少一个诚实验证者在盯并愿意发起挑战）。本项目最大的 zk 模型 709 个参数；链上 zkML 实用规模的通行说法见上表，
+需信任硬件厂商，未实现）。每轮结算不做 opML：它需要挑战窗口和链上单步 VM，长于一小时一轮，且依赖 1-of-N 诚实假设
+（至少一个诚实验证者在盯并愿意发起挑战）；计划作为可复现档的争议层（按档位押金 + 挑战，不阻塞结算，未实现）。本项目最大的 zk 模型 709 个参数；链上 zkML 实用规模的通行说法见上表，
 标为待证据。所有 agent（含 zk）都先提交后公开：提交的哈希为
 `keccak256(abi.encode(roundId, modelId, outputs, salt, msg.sender))`，绑定发送者，抄来的提交哈希无法被他人公开；
 公开阶段在窗口开始前结束，zk 模型在公开时验证证明；未公开的预测不计分、不分钱。写入 ERC-8004 时 zk 用

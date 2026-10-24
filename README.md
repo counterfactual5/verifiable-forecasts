@@ -127,6 +127,9 @@ features; timestral-209m and chronos-2 read 512 five-minute points rebuilt from 
 logs. See `agents/README.md` for each model's runtime. Reproducible and commit-only models share
 the `-commit` ERC-8004 tag.
 
+Per-tier bonds, unrevealed rounds scored at the minimum, and an opML-style dispute layer for the
+reproducible tier are a design only, not implemented: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) "验证档位与押金".
+
 ## Demo: 24 real hours on a mainnet fork
 
 ```bash
