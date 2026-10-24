@@ -407,9 +407,6 @@
   .pagehead .stats b { font: 600 20px/1 var(--mono); color: var(--text); margin-right: 6px; }
   .swap #hero > *, .swap #app > * { animation: fade .38s var(--ease) both; }
   .goto { display: inline-block; margin-top: 10px; font: 600 12px/1 var(--mono); }
-  .nc-more { display: block; margin: -10px 0 4px; text-align: right; }
-  /* The overview keeps the nowcast chart; the provider table and its notes live on the Live view. */
-  body[data-view="overview"] #nowcast > .table-scroll, body[data-view="overview"] #nowcast > .table-scroll ~ .sub { display: none; }
   /* ---------- how it works ---------- */
   .pipe { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 26px; counter-reset: p; }
   .pipe li { position: relative; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg); font-size: 13px; color: var(--muted); }
@@ -417,6 +414,34 @@
   .pipe li b::before { counter-increment: p; content: counter(p) " "; color: var(--vermil); font-family: var(--mono); }
   .pipe li:not(:last-child)::after { content: "→"; position: absolute; right: -21px; top: 50%; margin-top: -10px; color: var(--vermil); font: 700 16px/20px var(--mono); }
   .pipe .mono { font-size: 11.5px; }
+  .pipe .ico { --c: var(--accent); width: 32px; height: 32px; border-radius: 9px; margin-bottom: 8px; }
+  .pipe .ico svg { width: 18px; height: 18px; }
+  .pipe li:nth-child(even) .ico { --c: var(--vermil); }
+  .pipe li b .en { display: block; margin-top: 2px; font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+  .pipe .goto { margin-top: 8px; }
+  .scope-note { margin: 14px 0 0; padding-top: 10px; border-top: 1px dashed var(--line-2); }
+  /* ---------- protocol hero + case #1 ---------- */
+  .flowline { display: flex; flex-wrap: wrap; gap: 4px 0; max-width: 1180px; }
+  .flowline span { white-space: nowrap; }
+  .flowline span:not(:last-child)::after { content: "→"; margin: 0 10px; color: var(--vermil); font-family: var(--mono); }
+  .flowline em { font-style: normal; color: var(--accent); font-weight: 600; }
+  .flowline em.v { color: var(--vermil); }
+  .case { margin: 0 0 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 14px;
+          box-shadow: var(--lift); border-top: 3px solid var(--vermil); }
+  .case h3 { margin: 0; font: 700 18px/1.3 var(--display); }
+  .cs-spec { margin: 8px 0 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap: 8px 18px; }
+  .cs-spec dt { font: 600 10.5px/1.2 var(--mono); letter-spacing: .1em; color: var(--faint); }
+  .cs-spec dd { margin: 3px 0 0; font-size: 13px; }
+  .cs-snap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 10px 12px; margin-bottom: 14px;
+             border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); font-size: 13px; }
+  .cs-snap .cs-k { font: 600 10.5px/1 var(--mono); letter-spacing: .1em; color: var(--faint); }
+  .cs-snap .nc-cd { font: 600 13px/1 var(--mono); color: var(--muted); }
+  .cs-snap .nc-cd b { color: var(--vermil); }
+  .cs-snap .goto { margin: 0 0 0 auto; }
+  .cs-bar { display: block; max-width: 100%; height: auto; }
+  .case .kpis { margin: 0; }
+  .cs-kh { margin-bottom: 8px; }
+  @media (max-width: 600px) { .cs-snap .goto { margin-left: 0; } .flowline span { white-space: normal; } }
   .tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px; margin-top: 16px; }
   .tier { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); font-size: 13px; color: var(--muted); }
   .tier h3 { margin: 0 0 6px; font: 700 15px/1.3 var(--display); color: var(--text); display: flex; gap: 8px; align-items: center; }
@@ -799,10 +824,10 @@ function bucketQuantile(probs, b, q) {
 }
 
 function nowcastTick() {
-  const el = document.getElementById("nowcast-cd");
-  if (!el) return;
-  const s = Number(el.dataset.end) - Math.floor(Date.now() / 1000);
-  el.textContent = s > 0 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "已结束，待下一次运行结算";
+  document.querySelectorAll(".cd[data-end]").forEach((el) => {
+    const s = Number(el.dataset.end) - Math.floor(Date.now() / 1000);
+    el.textContent = s > 0 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "已结束，待下一次运行结算";
+  });
 }
 
 // The hour in progress (pending_round of a live run): past realized vol, then each entered agent's
@@ -860,127 +885,88 @@ function nowcastHtml(d, agents, tierOf) {
     <text class="ax" x="${(split + 8).toFixed(1)}" y="${T - 8}">${W < 600 ? "当前小时" : "当前小时 · 待结算"}</text>${bands}
     <text class="ax" x="${((split + W - R) / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${hour}</text></svg>`;
   const hm = (t) => new Date(t * 1000).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const zero = (h) => !h || /^0x0*$/.test(h);
   const rows = d.agents.map((a) => {
     const g = agents.find((x) => x.agent === a.agent), f = fc.find((x) => x.agent === a.agent), tier = tierOf(a);
-    const prov = a.provider ? PROVIDER_ZH[a.provider] ?? a.provider : tier === "zk" ? "自建 zk" : "自建";
     const pa = pr.agents[a.agent];
     const range = f ? `<b>${fmt(f.q[2])}</b><div class="sub">50% ${fmt(f.q[1])}–${fmt(f.q[3])} · 90% ${fmt(f.q[0])}–${fmt(f.q[4])}</div>`
       : `<span class="sub">本轮未参赛${pa?.skip_reason ? ` · ${attr(pa.skip_reason)}` : ""}</span>`;
-    return `<tr data-agent="${a.agent}" data-provider="${attr(prov)}"><td class="nowrap"><span style="color:${g?.color ?? "inherit"}">●</span> <b>${a.agent}</b>
-      <div class="sub mono">${attr(a.model ?? "")}</div></td><td>${prov}</td>
-      <td><span class="mono" title="fork 上的演示账户（anvil 测试私钥），不在主网上活动">${short(a.address)}</span></td>
-      <td class="num">${a.agent_id}</td><td>${TIER_ZH[tier] ?? tier}</td>
-      <td class="mono">${zero(a.model_hash) ? "—" : short(a.model_hash)}</td><td class="num">${range}</td></tr>`;
+    return `<tr data-agent="${a.agent}"><td class="nowrap"><span style="color:${g?.color ?? "inherit"}">●</span> <b>${a.agent}</b>
+      <div class="sub mono">${attr(a.model ?? "")}</div></td><td>${TIER_ZH[tier] ?? tier}</td><td class="num">${range}</td></tr>`;
   }).join("");
   return `<section class="nowcast" id="nowcast" aria-labelledby="nc-title"><div class="flow-head"><span class="eyebrow">live nowcast · 实时预测</span>
     <h3 id="nc-title">实时预测 · 当前小时 ${hour} <span class="badge warn">待结算</span>
-      <span class="nc-cd">距本小时结束 <b id="nowcast-cd" data-end="${pr.end}"></b></span></h3></div>
+      <span class="nc-cd">距本小时结束 <b class="cd" id="nowcast-cd" data-end="${pr.end}"></b></span></h3></div>
     <div class="sub">上次更新 ${hm(d.generated_at)} · 运行于服务器，每小时自动更新；这一小时结束后，下一次运行把它当作已结束小时重放并结算。</div>
     ${svg}
     <div class="sub nc-legend"><span class="nowrap">${swatch("#1b1a17")} 真实 RV · realized</span>
       ${agents.map((a) => `<span class="nowrap"><i style="background:${a.color}"></i>${a.agent.replace("agent-", "")}</span>`).join("")}</div>
-    <div class="sub">左侧彩色小点 = 各 agent 在该小时开窗前揭示的预测中位数${narrow ? "" : dense ? "，竖条 = 50% 区间" : "，竖条 = 50% 区间（淡线 90%）"}；黑线 = 链上结算的真实 RV，点越贴近黑线越准。
-      Coloured dots: each agent's revealed forecast median for that hour${narrow ? "" : dense ? " (bar = 50% interval)" : " (bar = 50% interval, faint line = 90%)"}; black line: realized RV settled on-chain.</div>
-    ${scrollTable(`<tr><th>Agent</th><th>提供方</th><th>地址</th><th class="num">ERC-8004 agentId</th><th>档位</th><th>modelHash</th><th class="num">中位数 · 区间 (tick²)</th></tr>${rows}`, 760)}
-    <div class="sub">左侧实线：过去各小时链上结算的真实 RV（tick²，对数轴，虚线为档位边界）。右侧：每个 agent 对当前小时已揭示的 5 档概率，
-    档内按 log(RV) 线性插值（两端开放档各外延一个边界倍数）得到中位数、50% 与 90% 区间。地址与 agentId 都在 fork 上，不在主网。</div>
+    <div class="sub">左侧：黑线 = 过去各小时链上结算的真实 RV（tick²，对数轴，虚线为档位边界）；彩色小点 = 各 agent 在该小时开窗前揭示的预测中位数${narrow ? "" : dense ? "，竖条 = 50% 区间" : "，竖条 = 50% 区间（淡线 90%）"}，点越贴近黑线越准。
+      右侧：每个 agent 对当前小时揭示的 5 档概率，档内按 log(RV) 线性插值（两端开放档各外延一个边界倍数）得到中位数、50% 与 90% 区间。
+      Coloured dots: each agent's revealed forecast median for that hour; black line: realized RV settled on-chain.</div>
+    ${scrollTable(`<tr><th>Agent</th><th>档位</th><th class="num">中位数 · 区间 (tick²)</th></tr>${rows}`, 420)}
     <div class="sub"><b>演示中所有 agent 由同一台服务器代为提交；真实网络中各提供方用自己的私钥独立提交（无许可）。</b></div></section>`;
 }
 
-function heroHtml(d, isZk, nowcast = "") {
-  const s = d.summary, rounds = d.rounds, rp = d.replay;
-  const zkN = d.agents.filter(isZk).length, repN = d.agents.filter((a) => a.tier === "reproducible").length;
-  const tc = d.tamper_checks ?? [], rej = tc.filter((t) => t.tampered_output_verifies === false).length;
-  const gas = tc.map((t) => t.verify_proof_gas).filter((g) => g != null);
-  const rvOk = rounds.filter((r) => r.rv_matches_mainnet === true).length;
-  const clOk = rp.chainlink_reports.filter((r) => r.ok).length;
-  const b = bestAgent(d, isZk), up = b.excess > 0;
-  const GOTO = { proof: ["agents", "看 agent 与验证"], settle: ["rounds", "看逐轮回放"], amm: ["fee", "看手续费"] };
-  const step = (n, color, icon, zh, en, body) =>
-    `<li class="step" style="--c:${color}"><div class="step-head"><div class="ico" aria-hidden="true">${ICONS[icon]}</div>
-      <h3>${n} ${zh}<span class="en">${en}</span></h3></div>${body}<a class="goto" href="#/${GOTO[icon][0]}">${GOTO[icon][1]} →</a><span class="flow" aria-hidden="true"></span></li>`;
-  const pill = (cls, text) => `<span class="badge ${cls}">${text}</span>`;
+function heroHtml(d, nowcast = "") {
+  return `${pageHeads(d)}
+    <div data-v="overview"><p class="claim">可验证 AI 预测协议</p>
+    <p class="claim-en flowline"><span>AI 预测者<em>先提交</em>哈希</span><span>再<em>证明</em>预测来自声明的模型</span><span>按<em class="v">真实结果</em>链上结算</span><span>得分写入 <em>ERC-8004 信誉</em></span><span>被<em>消费方</em>按信誉加权使用</span></p></div>
+    ${caseCard(d)}${nowcast.replace("<section ", `<section data-v="live" `)}${flowCard(d)}${playerCard(d)}`;
+}
 
-  const s1 = step("①", "#1d3fc4", "proof", "提交 + 证明", "commit + prove", `
-    <div class="stat">${d.agents.length} 个 AI agent</div>
-    <p>每小时先上链提交预测的哈希，截止后再公开；${zkN} 个附 EZKL zk 证明，由合约 verifyProof 当场验证${gas.length
-      ? `（约 ${Math.round(Math.max(...gas) / 1000)}k gas）` : ""}${repN ? `，${repN} 个公开权重、可链下重算` : ""}。</p>
-    <div class="badges">${tc.length ? pill(rej === tc.length ? "ok" : "bad", `篡改证明被拒 ${rej}/${tc.length}`) : ""}
-      ${pill("zk", `${zkN} 个 zk 证明`)}</div>`);
-
-  const s2 = step("②", "#1b1a17", "settle", "链上结算", "settle on-chain", `
-    <div class="stat">${s.settled}/${s.rounds} 轮已结算</div>
-    <p>VolMarket 用真实主网那一小时的波动率给每个预测打 log score，分数写进 ERC-8004 声誉，跑赢瞎猜的分手续费。</p>
-    <div class="badges">${pill(rvOk === rounds.length ? "ok" : "bad", `波动率 = 主网 ${rvOk}/${rounds.length}`)}
-      ${pill(clOk === rp.chainlink_reports.length ? "ok" : "bad", `Chainlink 回放 ${clOk}/${rp.chainlink_reports.length}`)}</div>`);
-
-  const fs = s.fee_strategies;
-  let s3body;
-  if (fs) {
-    const low = lowestFee(fs), f = fs.mae_bps.forecast, fixed = fs.mae_bps.fixed;
-    const wins = low.key === "forecast";
-    s3body = `<div class="stat">费率误差 ${f.toFixed(2)} bps</div>
-      <p>VolFeeConsumer 按 ERC-8004 声誉加权各 agent 的预测，每小时开始前在链上设定 swap 手续费；
-      对照固定 ${fs.mean_bps.fixed} bps 的误差是 ${fixed.toFixed(2)} bps（MAE，越小越好）。</p>
-      <div class="badges">${wins ? pill("ok", "优于固定费率")
-        : pill("warn", `⚠ 暂未赢过${low.key === "fixed" ? "固定费率" : low.key.replace("_", " ")} · 如实展示`)}</div>`;
+// Case #1 on the overview: what is forecast, where settlement data comes from, and one line on the hour in progress.
+// The full nowcast chart lives only on the Live view.
+function caseCard(d) {
+  const b = d.params.bounds, pr = d.pending_round, c = d.contracts, n = d.agents.length;
+  const tier = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
+  const cnt = (t) => d.agents.filter((a) => tier(a) === t).length;
+  const tiers = [["zk", "zk"], ["reproducible", "可复现"], ["commit-only", "仅提交"]].filter(([k]) => cnt(k)).map(([k, zh]) => `${cnt(k)} ${zh}`).join(" · ");
+  const fmt = (v) => v >= 100 ? v.toFixed(0) : v.toFixed(1);
+  let snap;
+  if (pr) {
+    const entered = Object.values(pr.agents).filter((a) => a.entered && a.probs);
+    const m = pr.fee?.mirror, mix = m?.mix_e18?.map((x) => Number(x) / 1e18)
+      ?? [0, 1, 2, 3, 4].map((k) => entered.reduce((s, a) => s + a.probs[k], 0) / Math.max(1, entered.length));
+    const q = QS.map((x) => bucketQuantile(mix, b, x));
+    const lo = b[0] * b[0] / b[1], hi = b[3] * b[3] / b[2], W = 240, H = 26;
+    const x = (v) => 4 + (Math.log(Math.min(hi, Math.max(lo, v))) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)) * (W - 8);
+    const bar = `<svg class="cs-bar" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${attr(`consensus median ${fmt(q[2])}, 50% ${fmt(q[1])}–${fmt(q[3])}, 90% ${fmt(q[0])}–${fmt(q[4])} tick²`)}">
+      ${b.map((v) => `<line x1="${x(v).toFixed(1)}" x2="${x(v).toFixed(1)}" y1="2" y2="${H - 2}" stroke="rgba(27,26,23,.18)" stroke-dasharray="2 3"/>`).join("")}
+      <rect x="${x(q[0]).toFixed(1)}" y="8" width="${(x(q[4]) - x(q[0])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".18"/>
+      <rect x="${x(q[1]).toFixed(1)}" y="8" width="${(x(q[3]) - x(q[1])).toFixed(1)}" height="10" rx="3" fill="var(--accent)" opacity=".45"/>
+      <line x1="${x(q[2]).toFixed(1)}" x2="${x(q[2]).toFixed(1)}" y1="4" y2="${H - 4}" stroke="var(--vermil)" stroke-width="3" stroke-linecap="round"/></svg>`;
+    const hour = `${pr.window_utc[0].slice(11, 16)}–${pr.window_utc[1].slice(11, 16)} UTC`;
+    snap = `<div class="cs-snap" id="case-snap"><span class="cs-k">当前小时</span><b>${hour}</b><span class="badge warn">待结算</span>
+      <span class="nc-cd">剩 <b class="cd" data-end="${pr.end}"></b></span>
+      <span><b>${entered.length}/${n}</b> 已提交</span>
+      <span class="cs-k">${m?.equal_weight_fallback ? "等权共识" : "声誉加权共识"}</span>
+      <span class="cs-q">中位数 <b>${fmt(q[2])}</b> tick² · 50% ${fmt(q[1])}–${fmt(q[3])}</span>${bar}
+      <a class="goto" href="#/live">看实时预测 →</a></div>`;
   } else {
-    s3body = `<div class="stat">—</div><p>这份回放没有记录消费方（动态手续费）数据。</p>`;
+    const r = d.rounds[d.rounds.length - 1], o = r.outcome;
+    snap = `<div class="cs-snap" id="case-snap"><span class="cs-k">最近一轮</span><b>#${r.id} ${r.window_utc[0].slice(11, 16)}–${r.window_utc[1].slice(11, 16)} UTC</b>
+      <span>${o.voided ? `<span class="badge bad">作废</span>` : `RV <b>${o.realized_vol ?? r.real_realized_vol}</b> tick² → 档位 #${o.winning_bucket}`}</span>
+      <a class="goto" href="#/rounds">看单轮回放 →</a></div>`;
   }
-  const s3 = step("③", "#d8431b", "amm", "被使用", "used by an AMM fee", s3body);
-
-  const ratio = Math.exp(b.excess);
-  return `${pageHeads(d, b)}${nowcast.replace("<section ", `<section data-v="overview live" `)}${nowcast
-      ? `<a class="goto nc-more" href="#/live" data-v="overview">展开：每个 agent 的提供方、地址、agentId 与区间 →</a>` : ""}
-    <div class="kpis" data-v="overview">${summaryLine(d)}</div>
-    <div data-v="overview"><p class="claim">可验证 AI 预测协议：模型<em>先提交、再证明</em>，<br class="br">链上按<em class="v">真实结果</em>打分、按信誉加权；第一个消费者：AMM 动态手续费。</p>
-    <p class="claim-en">A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.</p></div>
-    <div class="headline" data-v="overview"><div class="bignum${up ? "" : " neg"}"><span class="n" data-to="${b.excess}">${up ? "+" : ""}${b.excess.toFixed(2)}</span><small>nats</small></div>
-      <div class="what"><b>${up ? "比瞎猜更准" : "没跑赢瞎猜"}：</b>最佳${b.zk ? " zk" : ""} agent <b>${b.name.replace("agent-", "")}</b>
-        ${rounds.length} 小时累计得分比“每档都猜 1/5”${up ? "高" : "低"} ${Math.abs(b.excess).toFixed(2)} nats，
-        即它给真实结果的联合概率是瞎猜的 <b>${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)} 倍</b>。
-        <div class="sub">${b.beat}/${b.of} 个${b.zk ? " zk" : ""} agent 跑赢瞎猜 · nats = 自然对数单位，得分 = ln(给真实结果的概率)</div></div>
-      <div class="spark-wrap">${sparkline(d, b.name)}</div></div>
-    <ol class="steps" data-v="overview">${s1}${s2}${s3}</ol>${flowCard(d)}${playerCard(d)}`;
+  const item = (k, v) => `<div><dt>${k}</dt><dd>${v}</dd></div>`;
+  return `<section class="card case" id="case1" data-v="overview" aria-labelledby="case-title"><div class="flow-head"><span class="eyebrow">case #1 · 示例应用</span>
+    <h3 id="case-title">案例 #1 · ETH/USDC 下一小时实际波动率</h3></div>
+    <dl class="cs-spec">${item("预测目标", `下一小时实际波动率落在哪一档（5 档概率，tick²）`)}
+      ${item("结算数据", `Uniswap V3 ETH/USDC 0.05% 池 <span class="mono">observe()</span> ${link(c.pool)}`)}
+      ${item("防操纵", `Chainlink ETH/USD 与池价偏差 &gt; 2% 或报价过期 → 本轮作废退款`)}
+      ${item("预测者", `<a href="#/agents">${n} 个示例 agent</a>（${tiers}）`)}
+      ${item("消费方", `<a href="#/fee">VolFeeConsumer 计算推荐 AMM 手续费</a>`)}</dl>
+    ${snap}
+    <div class="kpis"><div class="eyebrow cs-kh">案例 #1 · ${d.rounds.length} 小时主网回放成绩</div>${summaryLine(d)}</div></section>`;
 }
 
 const ICONS = {
+  commit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5v4h4"/><path d="M9 12.5h6M9 16h6M10.5 10l-1 8M14.5 10l-1 8"/></svg>`,
+  rep: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="5.5"/><path d="m12 6.2 1 2 2.2.3-1.6 1.5.4 2.2-2-1-2 1 .4-2.2-1.6-1.5 2.2-.3z"/><path d="m8.5 13.5-1.5 7 5-2.5 5 2.5-1.5-7"/></svg>`,
   proof: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="m9.5 15.6 1.8 1.8 3.3-3.4"/></svg>`,
   settle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="7" height="7" rx="1.6"/><rect x="14" y="3.5" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><path d="M10 7h4M6.5 10.5V14"/><path d="m14.2 17.6 2.1 2.1 3.9-4.2"/></svg>`,
   amm: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 3.5v17h17"/><path d="M6.5 5c.6 7.6 4.8 11.8 13 12.4"/><circle cx="10.6" cy="12.6" r="1.7" fill="currentColor"/><path d="M15 6.5h4.5M17.25 4.25v4.5"/></svg>`,
 };
-
-// Cumulative excess log score of one agent over the replay, drawn against the uniform zero line.
-function sparkline(d, name) {
-  const u = d.params.baseline_log_score_float;
-  let acc = 0;
-  const pts = [0].concat(d.rounds.map((r) => {
-    const v = r.outcome.voided ? null : r.agents[name]?.log_score_float;
-    return v == null ? acc : (acc += v - u);
-  }));
-  const W = 280, H = 84, P = 6, lo = Math.min(0, ...pts), hi = Math.max(0, ...pts), span = hi - lo || 1;
-  const x = (i) => P + i * (W - 2 * P) / (pts.length - 1), y = (v) => P + (hi - v) * (H - 2 * P) / span;
-  const line = pts.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
-  const last = pts.length - 1, c = acc >= 0 ? "#1d3fc4" : "#c4291c";
-  return `<svg class="spark" preserveAspectRatio="xMinYMid meet" viewBox="0 0 ${W} ${H}" role="img" aria-label="${attr(`${name} cumulative log score minus uniform over ${d.rounds.length} rounds`)}">
-    <defs><linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c}" stop-opacity=".35"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
-    <line x1="${P}" x2="${W - P}" y1="${y(0)}" y2="${y(0)}" stroke="#8b949e" stroke-opacity=".6" stroke-dasharray="3 4"/>
-    <path d="${line}L${x(last)},${y(0)}L${x(0)},${y(0)}Z" fill="url(#sparkfill)"/>
-    <path class="line" pathLength="1" d="${line}" fill="none" stroke="${c}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
-    <circle cx="${x(last)}" cy="${y(acc)}" r="7" fill="${c}" opacity=".2"/><circle cx="${x(last)}" cy="${y(acc)}" r="3.5" fill="${c}"/></svg>
-    <div class="spark-cap"><span>${d.rounds[0].window_utc[0].slice(11, 16)}</span><span>累计 vs 瞎猜 = 0</span><span>+${d.rounds.length} h</span></div>`;
-}
-
-function countUp(el) {
-  const to = Number(el.dataset.to), t0 = performance.now(), dur = 1300;
-  const tick = (now) => {
-    const k = Math.min(1, (now - t0) / dur), v = to * (1 - (1 - k) ** 3);
-    el.textContent = `${v > 0 ? "+" : ""}${v.toFixed(2)}`;
-    if (k < 1) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-}
 
 function renderReplay({ data: d, src }) {
   CHARTS.length = 0;
@@ -1015,9 +1001,9 @@ function renderReplay({ data: d, src }) {
     }
     return tierBadge("commit", "committed before the deadline; no proof of which model made it", "仅提交", `commit-only · ${a.forecast_source ?? "?"}`);
   };
-  document.querySelector("h1").textContent = `Verifiable AI Forecasts · ${rp.hours} h mainnet replay${d.live === true ? " · live" : ""}`;
+  document.querySelector("h1").textContent = "可验证 AI 预测协议 · Verifiable AI Forecasts";
   document.getElementById("subtitle").innerHTML = liveBadge(d) +
-    `${d.network} · fork block ${blockLink(d.fork_block)} · ${rp.start_utc} → ${rp.end_utc} · ` +
+    `案例 #1 · ${rp.hours} h 主网回放${d.live === true ? "（实时）" : ""} · ${d.network} · fork block ${blockLink(d.fork_block)} · ` +
     `${s.settled} settled, ${s.voided ? `<span class="badge bad">${s.voided} voided</span>` : "0 voided"}`;
 
   const voidList = Object.entries(s.void_reasons).map(([k, v]) => `${v} × ${k}`).join(", ") || "none";
@@ -1057,7 +1043,7 @@ function renderReplay({ data: d, src }) {
     lineChart(excess, labels, { zero: 0, rankLegend: true, label: chartLabel(excessTitle, excess) }) +
     `<div class="sub">nats：自然对数单位。每轮得分 = ln(agent 给真实结果所在档位的概率)，瞎猜每档 1/5 每轮得
     ${uniform.toFixed(3)}；曲线在虚线 0 之上 = 累计比瞎猜更准。Voided rounds are not scored.
-    Agent lines: solid = zk proof, dotted = reproducible, dashed = commit-only.</div>`, "wide");
+    Agent lines: solid = zk proof, dotted = reproducible, dashed = commit-only.</div>`, "wide", "excess-card");
   const heatCard = card("预测分布 vs 实际 · Forecast heat strip", heatmap(d), "wide");
 
   const W = Math.min(6, rounds.length);
@@ -1167,7 +1153,10 @@ function renderReplay({ data: d, src }) {
     const proves = rounds.map((r) => r.agents[a.agent]?.prove_seconds).filter((v) => v != null);
     const prove = proves.length ? (proves.reduce((x, y) => x + y, 0) / proves.length).toFixed(1) + " s" : "–";
     const repVal = Number(rep.summary_value) / 10 ** rep.summary_decimals;
-    return `<tr><td><span style="color:${a.color}">●</span> <b class="nowrap">${a.agent}</b> ${typeBadge(a)}<div class="sub mono nowrap">${short(a.address)}</div></td>
+    const prov = a.provider ? PROVIDER_ZH[a.provider] ?? a.provider : isZk(a) ? "自建 zk" : "自建";
+    const mh = !a.model_hash || /^0x0*$/.test(a.model_hash) ? "" : ` · modelHash <span class="mono">${short(a.model_hash)}</span>`;
+    return `<tr data-agent="${a.agent}" data-provider="${attr(prov)}"><td><span style="color:${a.color}">●</span> <b class="nowrap">${a.agent}</b> ${typeBadge(a)}
+      <div class="sub mono nowrap" title="fork 上的演示账户（anvil 测试私钥），不在主网上活动">${short(a.address)}</div><div class="sub nowrap">${attr(prov)}${mh}</div></td>
       <td class="num">${m.rounds_scored}</td><td class="num"><b>${m.total_log_score.toFixed(3)}</b></td>
       <td class="num">${m.mean_log_score != null ? m.mean_log_score.toFixed(3) : "–"}</td>
       <td class="num">${m.beat_baseline_rounds}</td><td class="num">${eth(m.predictor_reward_wei)}</td>
@@ -1233,19 +1222,19 @@ function renderReplay({ data: d, src }) {
   document.getElementById("asof").innerHTML = mb.length ? `Ethereum mainnet · blocks <b>${mb[0].block_from.toLocaleString()}–${mb[mb.length - 1].block_to.toLocaleString()}</b> · ${rp.start_utc.slice(0, 10)} → ${rp.end_utc.slice(5, 10)} · replayed on a fork` : "";
   STATE.data = d;
   if (!STATE.model) STATE.model = flowModel(d, (a) => agents.find((x) => x.agent === a.agent).color);
-  document.getElementById("hero").innerHTML = heroHtml(d, isZk, nowcastHtml(d, agents, tierOf));
+  document.getElementById("hero").innerHTML = heroHtml(d, nowcastHtml(d, agents, tierOf));
   nowcastTick();
   if (d.pending_round && !STATE.nowcastTimer) STATE.nowcastTimer = setInterval(nowcastTick, 1000);
   FLOW.canvas = null;
   flowKick();
   const app = document.getElementById("app");
   app.style.gridTemplateColumns = "repeat(auto-fit, minmax(min(400px, 100%), 1fr))";
-  // The excess chart must stay the first .card.wide: every chart takes its width from it.
+  // Every view needs a visible .card.wide: charts take their width from it.
   const v = (view, html) => html.replace(/^\s*<(section|div)/, `<$1 data-v="${view}"`);
-  app.innerHTML = v("overview", excessCard) + v("overview", howCard(d, agents, tierOf)) +
+  app.innerHTML = v("overview", howCard()) +
     v("live", pwinCard) +
     v("rounds", heatCard) + v("rounds", roundsCard) + v("rounds", `<div class="trio">${overview}${bucketCard}</div>`) +
-    v("agents", agentsCard) + v("agents", rollCard) +
+    v("agents", tiersCard(agents, tierOf)) + v("agents", agentsCard) + v("agents", excessCard) + v("agents", rollCard) +
     (feeCard ? v("fee", feeCard) : "") + v("fee", rewardCard) +
     v("chain", feedCard(d)) + v("chain", clCard) + v("chain", `<div class="trio">${contractsCard}</div>`);
   roundListeners.forEach((f) => f());
@@ -1674,8 +1663,8 @@ roundListeners.push((tick) => {
   if (calm) flowKick();
 });
 // ---------- views ----------
-const VIEWS = [["overview", "概览", "Overview"], ["live", "实时预测", "Live"], ["rounds", "轮次回放", "Rounds"],
-               ["agents", "Agents 与验证", "Agents"], ["fee", "手续费", "Fees"], ["chain", "链上记录", "On-chain"]];
+const VIEWS = [["overview", "概览", "Overview"], ["live", "实时预测", "Live"], ["rounds", "单轮回放", "Rounds"],
+               ["agents", "预测者与信誉", "Forecasters"], ["fee", "消费方示例", "Consumer"], ["chain", "链上记录", "On-chain"]];
 // "how" is a deep link into the overview, not a tab of its own.
 const ALIAS = { how: ["overview", "how"] };
 const routeCss = document.head.appendChild(document.createElement("style"));
@@ -1701,7 +1690,7 @@ function applyRoute(first = false) {
   const tabs = document.querySelector("#nav .tabs"), on = tabs?.querySelector("[aria-current]");
   if (on) tabs.scrollLeft = on.offsetLeft - (tabs.clientWidth - on.offsetWidth) / 2;
   const i = VIEWS.findIndex((x) => x[0] === view);
-  document.title = `${VIEWS[i][1]} · Verifiable AI Forecasts`;
+  document.title = `${VIEWS[i][1]} · 可验证 AI 预测协议`;
   if (changed && !first) {
     body.classList.remove("swap"); void body.offsetWidth; body.classList.add("swap");
     setTimeout(() => body.classList.remove("swap"), 450);
@@ -1721,10 +1710,8 @@ addEventListener("keydown", (e) => {
   if (go >= 0 && go < VIEWS.length) location.hash = `#/${VIEWS[go][0]}`;
 });
 
-function pageHeads(d, best) {
+function pageHeads(d) {
   const s = d.summary, rp = d.replay, rounds = d.rounds, fs = s.fee_strategies;
-  const tier = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
-  const n = (t) => d.agents.filter((a) => tier(a) === t).length;
   const stat = (v, l) => `<span><b>${v}</b>${l}</span>`;
   const head = (k, title, lead, stats) => {
     const i = VIEWS.findIndex((x) => x[0] === k);
@@ -1734,44 +1721,44 @@ function pageHeads(d, best) {
   const p = d.pending_round, entered = p ? Object.values(p.agents).filter((a) => a.entered).length : 0;
   const mainTx = rp.chainlink_reports.filter((c) => c.mainnet_tx).length + rounds.filter((r) => r.mainnet?.last_swap_tx).length;
   return head("live", "这一小时，各 agent 怎么看？", p
-      ? "当前小时的预测已在链上提交并公开，要等这一小时结束才结算；下面是每个 agent 的区间、提供方与链上身份。"
-      : "这份数据不是实时模式：线上 LIVE 模式每小时重新 fork 主网，并为进行中的这一小时开一轮。下面是已结算各小时的真实波动率。",
-      p ? [stat(`${entered}/${d.agents.length}`, "agent 已提交"), stat("待结算", "")] : [])
-    + head("rounds", "一轮从提交到被使用", `${rounds.length} 个真实主网小时在 fork 上逐轮回放：选一个小时，看提交、证明、结算和手续费依次发生。`,
-      [stat(`${s.settled}/${s.rounds}`, "轮已结算"), stat(`${rounds.filter((r) => r.rv_matches_mainnet).length}/${rounds.length}`, "波动率 = 主网"),
-       stat(`${rp.chainlink_reports.filter((c) => c.ok).length}/${rp.chainlink_reports.length}`, "Chainlink 报告回放")])
-    + head("agents", "谁在预测，凭什么信它？", "每个 agent 在 ERC-8004 注册身份；验证分三档：zk 证明、公开权重可复现、仅提交。得分写进链上声誉。",
-      [stat(n("zk"), "zk 证明"), stat(n("reproducible"), "可复现"), stat(n("commit-only"), "仅提交"),
-       stat(`${best.excess >= 0 ? "+" : ""}${best.excess.toFixed(2)}`, `nats 最佳 ${best.name.replace("agent-", "")}`)])
-    + head("fee", "预测被谁用、值多少钱？", fs
-      ? "VolFeeConsumer 按声誉加权预测，每小时设定 AMM 手续费；预测市场的手续费按超额得分分给 agent。"
-      : "这份回放没有记录消费方（动态手续费）数据。",
-      fs ? [stat(fs.mae_bps.forecast.toFixed(2), "bps 预测费率误差"), stat(fs.mae_bps.fixed.toFixed(2), `bps 固定 ${fs.mean_bps.fixed} bps 误差`),
-            stat(`${d.params.predictor_share_bps / 100}%`, "市场手续费分给 agent")] : [])
+      ? "案例 #1 的当前小时：预测已在链上提交并公开，要等这一小时结束才结算。每个 agent 的提供方、地址与验证细节见“预测者与信誉”。"
+      : "这份数据不是实时模式：线上 LIVE 模式每小时重新 fork 主网，并为进行中的这一小时开一轮。下面是已结算各小时的押中程度。",
+      p ? [stat(`${entered}/${d.agents.length}`, "agent 已提交")] : [])
+    + head("rounds", "一轮从提交到被使用", `案例 #1 的 ${rounds.length} 个真实主网小时在 fork 上逐轮回放：选一个小时，看提交、证明、结算和被使用依次发生。`,
+      [stat(`${s.settled}/${s.rounds}`, "轮已结算")])
+    + head("agents", "预测者与信誉", "任何预测者都可以无许可参与：在 ERC-8004 注册身份，按三档之一证明预测的来历，得分由合约写进链上声誉。案例 #1 里是 6 个示例 agent。", [])
+    + head("fee", "消费方示例 · AMM 动态手续费", fs
+      ? `协议的输出要有人用。案例 #1 的消费方 VolFeeConsumer 按 ERC-8004 声誉加权各 agent 的预测，每小时开始前在链上算出推荐手续费。
+        Uniswap V3 池的费率是固定的，这里只计算、记录并对照，不改池子；真正按它收费需要 Uniswap V4 动态手续费 hook（下一步）。`
+      : "这份回放没有记录消费方（动态手续费）数据。", [])
     + head("chain", "每一步都能在链上查", `mainnet 行链接 Etherscan；fork 行发生在本地分叉上（fork 自主网区块 ${d.fork_block.toLocaleString()}）。`,
       [stat(mainTx, "条主网交易链接"), stat(Object.keys(d.contracts).length, "个合约地址")]);
 }
 
-function howCard(d, agents, tierOf) {
-  const tc = d.tamper_checks ?? [], rej = tc.filter((t) => t.tampered_output_verifies === false).length;
-  const gas = tc.map((t) => t.verify_proof_gas).filter(Boolean);
+function howCard() {
+  const step = (icon, zh, en, body, href, go) => `<li><div class="ico" aria-hidden="true">${ICONS[icon]}</div><b>${zh}<span class="en">${en}</span></b>${body}
+    <a class="goto" href="#/${href}">${go} →</a></li>`;
+  return `<section class="card wide" id="how"><h2>协议流程 · How it works</h2>
+    <ol class="pipe">
+      ${step("commit", "提交", "commit", "预测者在截止前上链提交预测哈希（只交哈希，预测稍后公开），开窗前揭示；晚了不算。", "rounds", "单轮回放")}
+      ${step("proof", "证明", "prove", "zk 档附 EZKL 证明、合约当场 <span class=\"mono\">verifyProof</span>；可复现档公开权重可重算；仅提交档只证明事前提交、没改过。", "agents", "验证档位")}
+      ${step("settle", "结算", "settle", "窗口结束后合约读结算数据、按 ln p 打分（案例 #1：池子 <span class=\"mono\">observe()</span> 算实际波动率，Chainlink 交叉校验）。", "rounds", "单轮回放")}
+      ${step("rep", "信誉", "reputation", "分数由市场合约写入 ERC-8004 声誉；跑赢均匀基线的预测者按超出部分分手续费。", "agents", "预测者与信誉")}
+      ${step("amm", "使用", "consume", "消费方按信誉加权读取预测（案例 #1：VolFeeConsumer 计算推荐 AMM 手续费）。", "fee", "消费方示例")}
+    </ol>
+    <p class="sub scope-note">目前合约只实现了案例 #1 这一种结算数据源：Uniswap V3 池的 <span class="mono">observe()</span>（VolMarket 开轮与结算时读取）。
+    其他结算数据源（其他池、预言机报价）和其他消费方（借贷参数、期权定价、Uniswap V4 动态手续费 hook）是可能的后续案例，尚未实现。</p></section>`;
+}
+
+function tiersCard(agents, tierOf) {
   const n = (t) => agents.filter((a) => tierOf(a) === t).length;
   const tier = (cls, title, count, body) => `<div class="tier${count ? "" : " off"}"><h3>${title}<span class="badge ${cls}">${count ? `${count} 个 agent` : "路线图"}</span></h3>${body}</div>`;
-  return `<section class="card wide" id="how"><h2>怎么运作 · How it works</h2>
-    <ol class="pipe">
-      <li><b>出题</b>合约在开轮时读 Uniswap V3 池的 <span class="mono">observe()</span>，算出 16 个 5 分钟 tick 差分特征（zk 公共输入）。</li>
-      <li><b>提交</b>agent 在截止前上链提交预测哈希（commit，只交哈希、不交预测本身），开窗前揭示 5 档概率；晚了不算。</li>
-      <li><b>证明</b>zk 档的揭示附 EZKL 证明，合约当场 <span class="mono">verifyProof</span>${gas.length ? `（约 ${Math.round(Math.max(...gas) / 1000)}k gas）` : ""}${tc.length ? `；篡改证明被拒 ${rej}/${tc.length}` : ""}。</li>
-      <li><b>结算</b>一小时后用池子 TWAP 算真实波动率，Chainlink 交叉校验价格，按 ln p 给每个预测打分。</li>
-      <li><b>声誉与使用</b>分数写进 ERC-8004 声誉；VolFeeConsumer 按声誉加权预测，设定 AMM 手续费。</li>
-    </ol>
-    <div class="tiers">
+  return `<section class="card wide" id="tiers"><h2>验证档位 · Verification tiers</h2><div class="tiers" style="margin-top:0">
       ${tier("zk", "zk 证明", n("zk"), "证明“这个输出来自注册的这个模型 + 链上这组输入”。小模型，链上验证。")}
       ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每桶误差 ≤ 0.001（容差复核；提交先于结果）。")}
       ${tier("commit", "仅提交", n("commit-only"), "只证明“事前提交、没改过”，不证明是哪个模型。闭源模型也能参赛。")}
       ${tier("commit", "TEE", 0, "可信硬件远程证明，未实现。")}
-    </div>
-    <div class="sub" style="margin-top:10px">逐个 agent 的档位、证明耗时与声誉见 <a href="#/agents">Agents 与验证</a>；一轮的完整过程见 <a href="#/rounds">轮次回放</a>。</div></section>`;
+    </div></section>`;
 }
 
 load().then((x) => {
@@ -1786,8 +1773,6 @@ load().then((x) => {
   };
   fit();
   chartHover(document.getElementById("app"));
-  const n = document.querySelector("#hero .bignum .n");
-  if (n && !calm) countUp(n);
   setTimeout(() => document.body.classList.remove("intro"), 2600);
   // Redrawing rebuilds #app, so height-only changes (mobile URL bar) must not trigger it.
   let pending = 0;

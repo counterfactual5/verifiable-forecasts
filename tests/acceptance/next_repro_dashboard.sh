@@ -113,8 +113,8 @@ const check = (cond, msg) => { console.log(`${cond ? "ok" : "not ok"} - ${msg}`)
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     const pageErrors = [];
     page.on("pageerror", (e) => pageErrors.push(e.message));
-    await page.goto(`${base}/dashboard/?data=${data}`);
-    await page.waitForSelector("#app section.card", { timeout: 15000 });
+    await page.goto(`${base}/dashboard/?data=${data}#/agents`);
+    await page.waitForSelector("#app section.card >> visible=true", { timeout: 15000 });
     return { page, pageErrors };
   };
   const reps = d.agents.filter((a) => a.tier === "reproducible"), rep = reps[0];

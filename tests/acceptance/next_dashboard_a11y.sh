@@ -28,7 +28,7 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
     await page.goto(`${base}/dashboard/?data=${data}`);
     await page.waitForSelector("#app svg", { timeout: 15000 });
     const r = await page.evaluate(() => {
-      const svgs = [...document.querySelectorAll("#app svg:not(.swatch)")];
+      const svgs = [...document.querySelectorAll("#app svg:not(.swatch)")].filter((s) => !s.closest('[aria-hidden="true"]'));
       const swatches = [...document.querySelectorAll("#app svg.swatch")];
       const loudSwatches = swatches.filter((s) => s.getAttribute("aria-hidden") !== "true" || s.getAttribute("role")
         || s.children.length !== 1 || s.firstElementChild.tagName.toLowerCase() !== "line").length;

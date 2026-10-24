@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# On the overview, the KPI "best" tile (best over all agents) and the hero "最佳 zk agent" claim name different agents,
+# The overview KPI "best" tile (best over all agents) and the #/agents cumulative-score takeaway ("最佳" among zk agents) name different agents,
 # so each states its scope (zk / 全部 / all) and the same unit (nats); the KPI's nats margin matches its own
 # best-minus-uniform numbers (also with a different uniform baseline, so it is computed, not typed in); the tile does
 # not overflow at 375/768/1280. Last line: failing checks (target 0).
@@ -42,7 +42,7 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
     const r = await page.evaluate(() => {
       const norm = (s) => s.replace(/\s+/g, " ").trim();
       const kpi = [...document.querySelectorAll("#summary .kpi")].find((k) => /best/i.test(k.textContent));
-      const hero = document.querySelector(".headline .what");
+      const hero = document.querySelector("#excess-card .takeaway");
       return {
         kpi: kpi ? norm(kpi.textContent) : null,
         kName: kpi?.querySelector("b")?.textContent ?? null,
@@ -53,7 +53,7 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
       };
     });
     const at = `@${width}${uniform === null ? "" : ` uniform ${uniform}`}`;
-    check(r.kpi !== null && r.hero !== null, `${at}: KPI best tile and hero claim present`);
+    check(r.kpi !== null && r.hero !== null, `${at}: KPI best tile and #/agents takeaway present`);
     if (r.kpi === null || r.hero === null) { await page.close(); continue; }
     const unit = (t) => /\bnats\b/.test(t);
     check(unit(r.kpi), `${at}: KPI uses nats like the hero (${r.kpi})`);

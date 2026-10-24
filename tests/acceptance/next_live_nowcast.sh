@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Live nowcast acceptance: a live run also opens a round for the hour in progress (commit + reveal, no
-# settlement) and writes it as pending_round; the dashboard shows it on the first screen, inside #hero:
+# settlement) and writes it as pending_round; #/live shows it on the first screen, inside #hero:
 # past realized vol next to each entered agent's median and 50% / 90% intervals read off its bucket
-# probabilities, "待结算" with a ticking countdown to the hour's end, when it was updated, and per agent
-# its provider, address, ERC-8004 agentId, tier and modelHash, plus the shared-operator disclaimer.
+# probabilities, "待结算" with a ticking countdown to the hour's end, when it was updated, a compact row per
+# agent (tier, median / interval), plus the shared-operator disclaimer. Each agent's provider, address,
+# ERC-8004 agentId and modelHash live once, in the #/agents table.
 # A one-hot forecast fixes the interpolated quantiles, so the method is checked, not just drawn.
 # Past rounds carry each agent's forecast median / intervals next to the realized line, on an axis
-# labelled up to it, and the nowcast sits above the overview KPIs. With more than 8 past hours the
+# labelled up to it. The overview hides the nowcast and shows the compact case snapshot above its KPIs. With more than 8 past hours the
 # wide chart drops the 90% whiskers and the narrow one stacks each hour's medians on the hour.
 # Per-agent tooltips and the fee share legend rank high to low. Without pending_round the section is absent. No overflow at 390 px,
 # no page errors.
@@ -79,8 +80,8 @@ const fs = require("fs");
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.goto(`${base}/dashboard/?data=../docs/.local/tmp/live_nowcast/pending.json`);
-    await page.waitForSelector("#app svg", { timeout: 15000 });
+    await page.goto(`${base}/dashboard/?data=../docs/.local/tmp/live_nowcast/pending.json#/live`);
+    await page.waitForSelector("#nowcast svg", { timeout: 15000 });
     const read = () => page.evaluate(() => {
       const el = document.querySelector("#nowcast");
       if (!el) return null;
@@ -89,13 +90,12 @@ const fs = require("fs");
         text: el.textContent.replace(/\s+/g, " "), label: svg?.getAttribute("aria-label") ?? "",
         bands: [...el.querySelectorAll("svg g[data-agent]")].map((g) => ({ agent: g.dataset.agent, q: ["q05", "q25", "q50", "q75", "q95"].map((k) => Number(g.dataset[k])) })),
         cd: document.querySelector("#nowcast-cd")?.textContent ?? "",
-        rows: [...el.querySelectorAll("tr[data-provider]")].map((tr) => ({ agent: tr.dataset.agent, provider: tr.dataset.provider, text: tr.textContent.replace(/\s+/g, " ") })),
+        compact: [...el.querySelectorAll("tr[data-agent]")].map((tr) => ({ agent: tr.dataset.agent, cells: tr.cells.length, text: tr.textContent.replace(/\s+/g, " ") })),
         past: [...el.querySelectorAll("svg g.nc-past")].map((g) => ({ agent: g.dataset.forecaster, round: g.dataset.round, q50: Number(g.dataset.q50),
           fill: g.querySelector("circle")?.getAttribute("fill"), cx: g.querySelector("circle")?.getAttribute("cx"),
           bar: !!g.querySelector("rect"), whisker: !!g.querySelector("line") })),
         bandFill: Object.fromEntries([...el.querySelectorAll("svg g[data-agent]")].map((g) => [g.dataset.agent, g.querySelector("rect")?.getAttribute("fill")])),
         ticks: [...el.querySelectorAll("svg text.ax")].map((t) => Number(t.textContent)).filter((v) => Number.isFinite(v) && v > 0),
-        summaryTop: (() => { const s = document.querySelector("#summary"); return s && s.offsetParent ? s.getBoundingClientRect().top + scrollY : null; })(),
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
     const r = await read();
@@ -128,20 +128,33 @@ const fs = require("fs");
     check(/预测中位数/.test(r.text) && /median/i.test(r.text) && /真实 RV/.test(r.text), `@${width}: legend explains forecast markers vs realized line`);
     const maxRv = Math.max(...shown.map((x) => x.outcome?.realized_vol ?? x.real_realized_vol));
     check(Math.max(...r.ticks) * 2 >= maxRv, `@${width}: y axis is labelled up to the realized line (top tick ${Math.max(...r.ticks)}, max RV ${maxRv})`);
-    check(r.summaryTop != null && r.top < r.summaryTop, `@${width}: on the overview the nowcast sits above the KPI strip`);
     check(/\d+:\d\d/.test(r.cd), `@${width}: countdown shown (${r.cd})`);
     await page.waitForTimeout(1300);
     const cd2 = await page.evaluate(() => document.querySelector("#nowcast-cd")?.textContent ?? "");
     check(cd2 !== r.cd, `@${width}: countdown ticks (${r.cd} -> ${cd2})`);
-    check(r.rows.length === d.agents.length, `@${width}: one provider row per agent (${r.rows.length}/${d.agents.length})`);
+    check(r.compact.length === d.agents.length && r.compact.every((x) => x.cells === 3 && /zk 证明|可复现|仅提交/.test(x.text)
+      && (entered.includes(x.agent) ? /50% .*90% /.test(x.text) : /本轮未参赛/.test(x.text))),
+      `@${width}: compact live table: one row per agent with tier and median / interval only (${r.compact.map((x) => x.cells)})`);
+    await page.evaluate(() => { location.hash = "#/agents"; });
+    await page.waitForTimeout(300);
+    const rows = await page.evaluate(() => [...document.querySelectorAll("#app tr[data-provider]")].filter((tr) => tr.getClientRects().length)
+      .map((tr) => ({ agent: tr.dataset.agent, provider: tr.dataset.provider, text: tr.textContent.replace(/\s+/g, " ") })));
+    check(rows.length === d.agents.length, `@${width}: #/agents: one provider row per agent (${rows.length}/${d.agents.length})`);
     const ok = d.agents.every((a) => {
-      const row = r.rows.find((x) => x.agent === a.agent);
+      const row = rows.find((x) => x.agent === a.agent);
       const prov = a.provider === "self-hosted inference" ? "自部署推理服务"
         : a.provider === "self-built zk" || (!a.provider && (a.tier ?? "zk") === "zk") ? "自建 zk" : null;
       return row && (!prov || row.provider === prov) && row.text.includes(String(a.agent_id)) && row.text.includes(a.address.slice(0, 6))
         && (!a.model_hash || /^0x0*$/.test(a.model_hash) || row.text.includes(a.model_hash.slice(0, 6)));
     });
-    check(ok, `@${width}: provider rows carry provider, address, agentId, modelHash`);
+    check(ok, `@${width}: #/agents provider rows carry provider, address, agentId, modelHash`);
+    await page.evaluate(() => { location.hash = "#/overview"; });
+    await page.waitForTimeout(300);
+    const ov = await page.evaluate(() => {
+      const top = (sel) => { const e = document.querySelector(sel); return e && e.getClientRects().length ? e.getBoundingClientRect().top + scrollY : null; };
+      return { nc: !!document.querySelector("#nowcast")?.getClientRects().length, snap: top("#case-snap"), kpi: top("#summary") };
+    });
+    check(!ov.nc && ov.snap != null && ov.kpi != null && ov.snap < ov.kpi, `@${width}: overview hides the nowcast; the case snapshot sits above the KPI strip (${JSON.stringify(ov)})`);
     check(r.overflow <= 0, `@${width}: no horizontal overflow (${r.overflow}px)`);
     check(errors.length === 0, `@${width}: no page errors ${JSON.stringify(errors)}`);
     await page.close();
