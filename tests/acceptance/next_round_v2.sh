@@ -11,7 +11,7 @@ cd "$root"
 tmp="$root/docs/.local/tmp/round_v2"
 rm -rf "$tmp" && mkdir -p "$tmp/dashboard"
 cp "${DASHBOARD_HTML:-dashboard/index.html}" "$tmp/dashboard/index.html"
-cp dashboard/sample-replay.json "$tmp/dashboard/v1.json"
+cp tests/acceptance/fixtures/sample-replay-v1.json "$tmp/dashboard/v1.json"
 sed -n "/<<'PY'$/,/^PY$/p" tests/acceptance/next_dashboard_quantile.sh | sed '1d;$d' > "$tmp/to_v2.py"
 python3 "$tmp/to_v2.py" dashboard/sample-replay.json "$tmp/dashboard" || { echo "not ok - v2 fixture"; echo FAIL; exit 1; }
 
