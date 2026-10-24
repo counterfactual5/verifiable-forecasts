@@ -426,6 +426,8 @@
   .sel-k { color: var(--faint); font-size: 12px; letter-spacing: .06em; min-width: 2.5em; }
   .sel-opt { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; overflow-wrap: anywhere; max-width: 100%; }
   .sel-opt input { accent-color: #2f6fb0; margin: 0; flex: none; }
+  .sel-cap { margin-top: 12px; }
+  .sel-w input[type=range] { width: 140px; max-width: 40vw; }
   .sel-empty { padding: 24px 0; color: var(--faint); }
   .fee-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 4px 0 2px; font-size: 12.5px; color: var(--muted); }
   .fee-stats div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
@@ -1691,11 +1693,22 @@ function selRoundFee(d, r, keep, equal) {
     num += wk * Math.exp(Number(mix) / 1e18); den += wk;
   }
   const raw = Math.floor((num / den) * Number(fc.fee_per_var_e18) / 1e18);
-  return { pips: Math.min(fc.max_fee_pips, Math.max(fc.min_fee_pips, raw)), fallback: !!m.equal_weight_fallback };
+  return { pips: Math.min(fc.max_fee_pips, Math.max(fc.min_fee_pips, raw)), ev: num / den, fallback: !!m.equal_weight_fallback };
+}
+
+// Power-law mapping fee_bps = c·E[var]^α (E[var] in tick², c in bps per tick²^α), fitted exactly as
+// fee_analysis.py does: OLS of ln fair_bps on ln rv over the calibration hours, which all precede the first round.
+function selPowerFit(d) {
+  const hs = d.params.fee_consumer.calibration?.hours_data?.filter((h) => h.rv > 0 && h.fair_bps > 0 && h.start + 3600 <= d.rounds[0]?.start);
+  if (!hs || hs.length < 3) return null;
+  const tx = hs.map((h) => Math.log(h.rv)), ty = hs.map((h) => Math.log(h.fair_bps));
+  const mean = (v) => v.reduce((a, b) => a + b, 0) / v.length, mx = mean(tx), my = mean(ty);
+  const alpha = tx.reduce((s, x, i) => s + (x - mx) * (ty[i] - my), 0) / tx.reduce((s, x) => s + (x - mx) ** 2, 0);
+  return { alpha, c: Math.exp(my - alpha * mx), n: hs.length };
 }
 
 function selHtml() {
-  const src = STATE.selSrc, sel = STATE.sel ??= { mode: "all", weight: "rep", picks: null, src: "fixed" };
+  const src = STATE.selSrc, sel = STATE.sel ??= { mode: "all", weight: "rep", picks: null, src: "fixed", map: "linear", w: 0.5 };
   const d = sel.src === "live" && src.live ? src.live : src.fixed;
   sel.picks ??= new Set(d.agents.map((a) => a.agent));
   const tier = (a) => a.tier ?? a.model_type;
@@ -1710,35 +1723,61 @@ function selHtml() {
 
   const rs = d.rounds, labels = rs.map((r) => r.window_utc?.[0]?.slice(11, 16) ?? String(r.h));
   const res = rs.map((r) => (r.fee?.mirror ? selRoundFee(d, r, keep, sel.weight === "equal") : null));
-  const mine = res.map((x) => (x ? x.pips / 100 : null));
+  const fc = d.params.fee_consumer, lo = fc.min_fee_pips / 100, hi = fc.max_fee_pips / 100;
+  const fixedBps = fc.fixed_fee_pips / 100;
+  const fit = selPowerFit(d);
+  if (sel.map === "power" && !fit) sel.map = "linear";
+  const linear = res.map((x) => (x ? x.pips / 100 : null));
+  const maps = {
+    linear,
+    power: fit ? res.map((x) => (x ? Math.min(hi, Math.max(lo, Math.floor(fit.c * x.ev ** fit.alpha * 100) / 100)) : null)) : null,
+    shrink: linear.map((v) => (v == null ? null : sel.w * v + (1 - sel.w) * fixedBps)),
+  };
+  const mine = maps[sel.map];
   const onchain = rs.map((r) => (r.fee?.onchain?.fee_pips != null ? r.fee.onchain.fee_pips / 100 : null));
-  const fixedBps = d.params.fee_consumer.fixed_fee_pips / 100;
   const fixed = rs.map((r) => (r.fee ? fixedBps : null));
   const fair = rs.map((r) => r.fee?.fair_bps ?? null);
   const idx = rs.map((_, i) => i).filter((i) => mine[i] != null && fair[i] != null && onchain[i] != null);
   const mae = (v) => (idx.length ? (idx.reduce((s, i) => s + Math.abs(v[i] - fair[i]), 0) / idx.length).toFixed(2) : "—");
   const fb = res.filter((x) => x?.fallback).length;
   const name = { all: "全部", zk: "只用 zk 档", reproducible: "只用可复现档", custom: "自选" }[sel.mode] + " · " + (sel.weight === "equal" ? "等权" : "按信誉");
+  const wTxt = sel.w.toFixed(2);
+  const mapName = { linear: "线性", power: "幂律", shrink: `收缩 w=${wTxt}` };
   const series = [
     { name: `固定 ${fixedBps} bps`, color: "#a8a194", width: 1.4, dash: "2 3", values: fixed },
     { name: "hindsight fair fee", role: "reference", color: "#3a3630", width: 2, values: fair },
-    { name: `自选：${name}`, color: "#2f6fb0", width: 3, values: mine },
+    { name: `自选：${name} · ${mapName[sel.map]}`, color: "#2f6fb0", width: 3, values: mine },
     { name: "链上记录", color: "#d8431b", width: 2, dash: "7 4", values: onchain },
   ];
+  const mapOpts = [["linear", "线性（链上现用）"], ["power", "幂律"], ["shrink", "收缩"]].filter(([k]) => k !== "power" || fit)
+    .map(([k, l]) => opt("sel-map", k, l, sel.map === k)).join("");
+  const slider = sel.map !== "shrink" ? "" : `<label class="sel-opt sel-w">w <input type="range" name="sel-w" min="0" max="1" step="0.05" value="${sel.w}"> <span data-sel-wval>${wTxt}</span></label>`;
+  const mapCtl = `<div class="sel-row"><span class="sel-k">映射方式</span>${mapOpts}${slider}</div>`;
+  const powSrc = fit ? `α = ${fit.alpha.toFixed(2)}、c = ${fit.c.toPrecision(3)}（E[var] 单位 tick²，费率单位 bps）` : "";
+  const caption = `<p class="sel-note sel-cap">前端用回放数据重算，不是链上输出。幂律参数来自 fee_analysis.py（离线费率分析）的同一方法：在本回放 params.fee_consumer.calibration.hours_data
+    （首轮之前的 ${fit?.n ?? 0} 个校准小时，与 k 的标定数据相同，不含展示窗口）上对 ln fair 关于 ln RV 做最小二乘${fit ? `，得 ${powSrc}` : ""}；离线分析的训练期弹性为 0.40–0.53。
+    幂律：费率 = c·E[var]^α；收缩：费率 = w·线性费率 + (1−w)·${fixedBps} bps；均截断到 ${lo}–${hi} bps。24 轮小样本，未做显著性检验。</p>`;
   const title = "消费方自选模型重算的手续费 (bps)";
+  const tile = (k, l, v, attrs, on) => `<div class="fee-tile${on ? " main" : ""}"><div class="sub">${l}</div><div><span class="fee-mae" ${attrs}>${mae(v)}</span> <span class="sub">bps MAE vs fair</span></div></div>`;
+  const tiles = [
+    ...Object.keys(maps).filter((k) => maps[k]).map((k) => tile(k, `自选 · ${k === "linear" ? "线性（链上现用）" : mapName[k]}`, maps[k],
+      `data-sel-map-mae="${k}"${k === sel.map ? ' data-sel-mae="sel"' : ""}`, k === sel.map)),
+    tile("onchain", "链上记录（全部 + 按信誉）", onchain, 'data-sel-mae="onchain"'),
+    tile("fixed", `固定 ${fixedBps} bps`, fixed, 'data-sel-mae="fixed"'),
+  ].join("");
   const body = !idx.length ? `<p class="sel-empty" data-sel-empty>至少选一个模型才能算出费率。</p>`
     : lineChart(series, labels, { min: 0, tip: (v) => v.toFixed(2), unit: "bps", label: `${title}: ${series.map((s) => s.name).join(", ")}, ${rs.length} rounds` }) +
-      `<div class="fee-tiles">${[["sel", `自选：${name}`, mine], ["onchain", "链上记录（全部 + 按信誉）", onchain], ["fixed", `固定 ${fixedBps} bps`, fixed]].map(([k, l, v]) =>
-        `<div class="fee-tile"><div class="sub">${l}</div><div><span class="fee-mae" data-sel-mae="${k}">${mae(v)}</span> <span class="sub">bps MAE vs fair</span></div></div>`).join("")}</div>
-      <div class="sub">${idx.length} 轮，三者在同一组轮次上对照 hindsight fair fee 算平均绝对误差。${fb && sel.weight === "rep"
+      `<div class="fee-tiles">${tiles}</div>${caption}
+      <div class="sub">${idx.length} 轮，各项在同一组轮次上对照 hindsight fair fee 算平均绝对误差。${fb && sel.weight === "rep"
         ? ` 其中 ${fb} 轮链上走了等权回退，回放只记了等权、没记信誉值，子集在这些轮里一律等权（若回退原因是某个未评级模型而它不在子集内，则为近似）。` : ""}</div>`;
   return `<h2>消费方自选模型 · Consumer-side model selection</h2>
     <p class="sel-note"><b>前端用回放数据重算，不是链上输出；链上 VolFeeConsumer 目前只有“全部 + 按信誉”。</b>
     按 VolFeeConsumer 的同一套规则重算：各分位数按权重平均（Vincentization），权重 = 信誉均值 − 气候基线（低于基线或记录轮数不足为 0，选中的全为 0 则选中者等权），
     E[RV] 按中点法对 exp(分位数) 加权，费率 = E[RV] × k（k = 回放记录的 fee_per_var），截断到 ${d.params.fee_consumer.min_fee_pips / 100}–${d.params.fee_consumer.max_fee_pips / 100} bps。</p>
     <div class="sel-ctl">${srcRow}<div class="sel-row"><span class="sel-k">模型</span>${modes}</div>${boxes}
-    <div class="sel-row"><span class="sel-k">权重</span>${weights}</div></div>
-    <div id="sel-body" data-sel-fees="${attr(JSON.stringify(mine))}">${body}</div>`;
+    <div class="sel-row"><span class="sel-k">权重</span>${weights}</div>${mapCtl}</div>
+    <div id="sel-body" data-sel-fees="${attr(JSON.stringify(mine))}" data-sel-ev="${attr(JSON.stringify(res.map((x) => x?.ev ?? null)))}"${fit
+      ? ` data-pow-alpha="${fit.alpha}" data-pow-c="${fit.c}"` : ""}>${body}</div>`;
 }
 document.addEventListener("change", (e) => {
   const t = e.target, card = t.closest?.("#sel-card");
@@ -1747,8 +1786,15 @@ document.addEventListener("change", (e) => {
   else if (t.name === "sel-weight") STATE.sel.weight = t.value;
   else if (t.name === "sel-src") { STATE.sel.src = t.value; STATE.sel.picks = null; }
   else if (t.name === "sel-agent") STATE.sel.picks[t.checked ? "add" : "delete"](t.value);
+  else if (t.name === "sel-map") STATE.sel.map = t.value;
+  else if (t.name === "sel-w") STATE.sel.w = Number(t.value);
   else return;
   card.innerHTML = selHtml();
+});
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.name !== "sel-w" || !t.closest?.("#sel-card")) return;
+  t.closest("label").querySelector("[data-sel-wval]").textContent = Number(t.value).toFixed(2);
 });
 
 // Per-round inputs of the flow, all read from the replay JSON.
