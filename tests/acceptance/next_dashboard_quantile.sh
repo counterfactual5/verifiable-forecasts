@@ -9,7 +9,7 @@
 # - shows mean pinball loss / mean excess (not Σ ln p) in the agents table, per-round excess in the
 #   rounds table, the v2 case target, and keeps the fee card with its short English labels;
 # - has no page errors and no horizontal overflow at 390 px.
-# A v1 replay (dashboard/sample-replay.json while it is still v1) keeps rendering.
+# The committed sample keeps rendering (a v1 replay too, while dashboard/sample-replay.json is still v1).
 # DASHBOARD_HTML=<file> checks another index.html (fail-first against the previous version).
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -83,6 +83,15 @@ if d.get("schema") != "vol-replay/v2":
                   "mean_excess": mean([x["excess"] for x in rows]), "total_excess": sum(x["excess"] for x in rows),
                   "coverage50": round(0.31 + 0.07 * i, 4), "coverage80": round(0.61 + 0.05 * i, 4)})
         a.pop("total_log_score", None); a.pop("mean_log_score", None)
+if not d.get("pending_round"):
+    last = d["rounds"][-1]
+    now = int(time.time()); start = now // 3600 * 3600
+    ags = {n: {"entered": True, "quantiles": a["quantiles"]} for n, a in last["agents"].items() if a.get("quantiles")}
+    ags[list(last["agents"])[-1]] = {"entered": False, "skip_reason": "API failed", "quantiles": None}
+    d.update({"live": True, "generated_at": now - 60, "next_run_at": start + 3600 + 420, "pending_round": {
+        "id": last["id"] + 1, "start": start, "end": start + 3600, "features_match_mainnet": True, "agents": ags,
+        "window_utc": [time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start)),
+                       time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start + 3600))]}})
 json.dump(d, open(out + "/v2.json", "w"))
 PY
 
@@ -173,7 +182,7 @@ const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps * Math.max(1, Math.abs
   await page.setViewportSize({ width: 1280, height: 900 });
   await go("agents", "v1.json");
   const v1 = await page.evaluate(() => ({ err: document.getElementById("error")?.textContent ?? null, h2: document.querySelectorAll("h2").length }));
-  check(!v1.err && v1.h2 > 3, "v1 replay still renders");
+  check(!v1.err && v1.h2 > 3, `committed sample (${JSON.parse(require("fs").readFileSync(`${tmp}/dashboard/v1.json`, "utf8")).schema}) renders`);
   check(errs.length === 0, `no page errors${errs.length ? ": " + errs.join(" | ") : ""}`);
   await go("agents");
   await page.screenshot({ path: `${tmp}/agents-v2.png`, fullPage: true });

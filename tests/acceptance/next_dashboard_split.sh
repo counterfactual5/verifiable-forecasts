@@ -30,15 +30,17 @@ d = json.load(open(src))
 now = int(time.time()); start = now // 3600 * 3600
 d["rounds"] = d["rounds"][-20:]
 d["replay"]["hours"] = 20
+v2 = d.get("schema") == "vol-replay/v2"
 for s in d["summary"]["agents"].values():
-    s["total_log_score"] = -77.777
+    s["mean_pinball_loss" if v2 else "total_log_score"] = 7.777 if v2 else -77.777
 last = d["rounds"][-1]
 d.update({"live": True, "generated_at": now - 60, "next_run_at": start + 3600 + 420,
           "pending_round": {"id": last["id"] + 1, "start": start, "end": start + 3600,
                             "window_utc": [time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start)),
                                            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start + 3600))],
                             "features_match_mainnet": True,
-                            "agents": {a["agent"]: {"entered": True, "probs": last["agents"][a["agent"]]["probs"]} for a in d["agents"]}}})
+                            "agents": {a["agent"]: {"entered": True, **({"quantiles": last["agents"][a["agent"]]["quantiles"]} if v2
+                                                                       else {"probs": last["agents"][a["agent"]]["probs"]})} for a in d["agents"]}}})
 json.dump(d, open(out + "/live.json", "w"))
 PY
 
@@ -87,8 +89,9 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
       return { kpi: t(document.querySelector("#summary")), items, card: t(card), visible: !!card?.getClientRects().length,
         body: document.body.innerText.replace(/\s+/g, " "), snap: t(document.querySelector("#case-snap")) };
     });
-    const best = Math.max(...Object.values(fixed.summary.agents).map((a) => a.total_log_score));
-    check(ov.kpi.includes(best.toFixed(1)) && !/-77\.8|−77\.8/.test(ov.kpi), `@${width}: overview KPIs come from the fixed replay (best ${best.toFixed(1)})`);
+    const v2 = fixed.schema === "vol-replay/v2";
+    const best = v2 ? fixed.summary.baseline_mean_pinball_loss.toFixed(3) : Math.max(...Object.values(fixed.summary.agents).map((a) => a.total_log_score)).toFixed(1);
+    check(ov.kpi.includes(best) && !/-77\.8|−77\.8|7\.777/.test(ov.kpi), `@${width}: overview KPIs come from the fixed replay (${best})`);
     check(ov.visible && /同一协议还能用在哪/.test(ov.card), `@${width}: overview shows the 同一协议还能用在哪 card`);
     check(ov.items.length >= 3 && ov.items.length <= 4 && ov.items.every((x) => /尚未实现/.test(x)), `@${width}: 3-4 use cases, each marked 尚未实现 (${ov.items.length})`);
     check([/借贷/, /期权|波动率金库/, /保险|国库/, /V4/].every((re) => ov.items.some((x) => re.test(x))), `@${width}: lending, options / vaults, insurance / treasury, V4 hook listed`);
@@ -99,12 +102,13 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
     await page.waitForTimeout(200);
     const ag = await page.evaluate(() => [...document.querySelectorAll("#app tr[data-agent]")].filter((tr) => tr.getClientRects().length).map((tr) => tr.textContent));
     const first = fixed.agents[0].agent;
-    check(ag.some((x) => x.includes(fixed.summary.agents[first].total_log_score.toFixed(3))) && !ag.some((x) => x.includes("-77.777")),
+    const tot = v2 ? fixed.summary.agents[first].mean_pinball_loss.toFixed(3) : fixed.summary.agents[first].total_log_score.toFixed(3);
+    check(ag.some((x) => x.includes(tot)) && !ag.some((x) => x.includes("-77.777") || x.includes("7.777")),
       `@${width}: #/agents totals come from the fixed replay`);
     await page.evaluate(() => { location.hash = "#/live"; });
     await page.waitForTimeout(300);
     const lv = await page.evaluate(() => {
-      const card = [...document.querySelectorAll(".card")].find((c) => /押中程度/.test(c.querySelector("h2, h3")?.textContent ?? ""));
+      const card = document.getElementById("pwin-card");
       const path = card?.querySelector("svg g.series > path");
       return { nowcast: !!document.querySelector("#nowcast svg")?.getClientRects().length,
         points: path ? (path.getAttribute("d").match(/[ML]/g) ?? []).length : 0,
