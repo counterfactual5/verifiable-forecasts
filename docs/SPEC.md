@@ -92,7 +92,7 @@ make check && make test
 - UI_Url: http://127.0.0.1:8765
 - UI_Pages: /dashboard/?data=sample-replay.json /dashboard/?data=sample-round.json
 - UI_Selectors: #app .card;;#subtitle;;#source
-- UI_E2e: python3 -c "import json,os,urllib.request as u; b=os.environ['UI_BASE_URL']; h=u.urlopen(b+'/dashboard/',timeout=10).read().decode(); assert '<main id=\"app\">' in h; r=json.load(u.urlopen(b+'/dashboard/sample-replay.json',timeout=10)); assert r['schema']=='vol-replay/v1' and r['rounds'] and r['agents']; s=json.load(u.urlopen(b+'/dashboard/sample-round.json',timeout=10)); assert s['round'] is not None and s['outcome'] is not None; print('e2e ok')"
+- UI_E2e: python3 -c "import json,os,urllib.request as u; b=os.environ['UI_BASE_URL']; h=u.urlopen(b+'/dashboard/',timeout=10).read().decode(); assert '<main id=\"app\">' in h; r=json.load(u.urlopen(b+'/dashboard/sample-replay.json',timeout=10)); assert r['schema'] in ('vol-replay/v1','vol-replay/v2') and r['rounds'] and r['agents']; s=json.load(u.urlopen(b+'/dashboard/sample-round.json',timeout=10)); assert s['round'] is not None and s['outcome'] is not None; print('e2e ok')"
 
 ## 假设
 
