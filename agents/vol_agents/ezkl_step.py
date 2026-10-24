@@ -17,6 +17,8 @@ from pathlib import Path
 
 import ezkl
 
+from .contract_math import OUTPUT_SCALE_BITS
+
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "out"
 SRS = OUT / "kzg15.srs"
@@ -68,9 +70,13 @@ def step(model, name, work=None):
             ezkl.calibrate_settings, p["cal"], p["onnx"], p["settings"], "resources",
             scales=[INPUT_SCALE], max_logrows=MAX_LOGROWS,
         )
-        ra = json.loads(Path(p["settings"]).read_text())["run_args"]
+        s = json.loads(Path(p["settings"]).read_text())
+        ra = s["run_args"]
         if ra["input_scale"] != INPUT_SCALE or ra["logrows"] > MAX_LOGROWS:
             raise SystemExit(f"calibration moved input_scale/logrows: {ra}")
+        # VolMarket reads outputs at 2^outputScaleBits; another output scale would misprice them
+        if s["model_output_scales"] != [OUTPUT_SCALE_BITS]:
+            raise SystemExit(f"output scales {s['model_output_scales']} != [{OUTPUT_SCALE_BITS}]")
     elif name == "compile":
         assert run(ezkl.compile_circuit, p["onnx"], p["compiled"], p["settings"])
     elif name == "setup":
