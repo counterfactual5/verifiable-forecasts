@@ -22,9 +22,11 @@ d.update({"live": True, "generated_at": now - 60, "next_run_at": start + 3600 + 
                             "window_utc": [time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start)),
                                            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start + 3600))],
                             "features_match_mainnet": True,
-                            "agents": {a["agent"]: {"entered": True, "probs": last["agents"][a["agent"]]["probs"]} for a in d["agents"]}}})
+                            "agents": {a["agent"]: {"entered": True, "quantiles": last["agents"][a["agent"]]["quantiles"],
+                                                    "quantiles_e18": last["agents"][a["agent"]]["quantiles_e18"]} for a in d["agents"]}}})
 json.dump(d, open(out + "/pending.json", "w"))
 PY
+[[ $? -eq 0 ]] || { echo "not ok - pending.json fixture written"; echo FAIL; exit 1; }
 
 port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 &
@@ -109,7 +111,7 @@ const VIEWS = ["overview", "live", "rounds", "agents", "fee", "chain"];
         const tierOf = (a) => a.tier ?? (a.model_type === "zk" ? "zk" : "commit-only");
         const want = [["zk", "zk 档"], ["reproducible", "可复现档"], ["commit-only", "仅提交档"]].map(([k, zh]) => {
           const pool = d.agents.filter((a) => tierOf(a) === k);
-          return pool.length ? `${zh} ${pool.filter((a) => s.agents[a.agent].total_log_score > s.uniform_total_log_score).length}/${pool.length}` : null;
+          return pool.length ? `${zh} ${pool.filter((a) => s.agents[a.agent].total_excess > 0).length}/${pool.length} 累计跑赢气候基线` : null;
         }).filter(Boolean);
         const c = document.querySelector("#excess-card"), tk = c?.querySelector(".takeaway")?.cloneNode(true);
         tk?.querySelectorAll(".badge").forEach((b) => b.remove());

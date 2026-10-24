@@ -75,8 +75,9 @@ const ACCENT = "rgb(29, 63, 196)";
     check(fee.legend.length === 4 && NAMES.every((n) => fee.legend.some((x) => x.text === n)) && !fee.legend.some((x) => CJK.test(x.text)),
           `${at}: legend names are short English labels with role tags (${fee.legend.map((x) => x.text).join(" | ")})`);
     check(fee.heads.length === 4 && NAMES.every((n) => fee.heads.includes(n)), `${at}: fee tile headers are the same English labels (${fee.heads.join(" | ")})`);
-    await page.locator("#fee-card .chart svg").scrollIntoViewIfNeeded();
-    const box = await page.locator("#fee-card .chart svg").boundingBox();
+    const feeSvg = page.locator("#fee-card .chart:not(#fee-resid .chart) svg");
+    await feeSvg.scrollIntoViewIfNeeded();
+    const box = await feeSvg.boundingBox();
     await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
     await page.waitForTimeout(100);
     const tipNames = await page.$$eval("#fee-card .tip .r span", (els) => els.map((e) => e.textContent.trim()));

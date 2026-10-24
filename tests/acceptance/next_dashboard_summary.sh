@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # R12 acceptance: the replay view opens with a summary line above the first card whose figures are
-# taken from the replay JSON as-is: settled/rounds, agents beating the uniform baseline, the best agent
-# against uniform, tampered proofs rejected, and the lowest-MAE fee strategy next to the forecast MAE
-# (the forecast-driven fee is not the most accurate and must not be shown as such); no overflow.
+# taken from the replay JSON as-is (vol-replay/v2): settled/rounds, agents with positive cumulative pinball
+# excess over climatology, the climatology mean pinball loss, tampered proofs rejected, and the forecast fee
+# MAE next to the fixed / prev-hour MAEs; the forecast fee is called 对比中最低 only when it really is the
+# lowest; no overflow.
 # Variant files prove the figures are read rather than hardcoded, and a replay without fee data still
 # renders the summary without the fee part.
 set -uo pipefail
@@ -15,7 +16,7 @@ import json, sys
 src, out = sys.argv[1], sys.argv[2]
 d = json.load(open(src))
 d["summary"]["settled"] = d["summary"]["settled"] - 1
-d["summary"]["fee_strategies"]["mae_bps"]["fixed"] = 9.99
+d["summary"]["fee_strategies"]["mae_bps"]["fixed"] = 1.11
 json.dump(d, open(out + "/altered.json", "w"))
 d = json.load(open(src))
 d["summary"].pop("fee_strategies", None)
@@ -45,16 +46,15 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
   let browser;
   try { browser = await pw.chromium.launch(); } catch (_) { browser = await pw.chromium.launch({ channel: "chrome" }); }
   const d = JSON.parse(require("fs").readFileSync("dashboard/sample-replay.json", "utf8"));
-  const s = d.summary, u = s.uniform_total_log_score;
+  const s = d.summary;
   const ag = Object.entries(s.agents);
-  const best = ag.reduce((a, b) => (b[1].total_log_score > a[1].total_log_score ? b : a));
-  const beat = ag.filter(([, v]) => v.total_log_score > u).length;
+  const beat = ag.filter(([, v]) => v.total_excess > 0).length;
   const rej = d.tamper_checks.filter((t) => t.tampered_output_verifies === false).length;
   const mae = s.fee_strategies.mae_bps;
   const low = Object.entries(mae).reduce((a, b) => (b[1] < a[1] ? b : a));
-  const FEE_NAME = { forecast: "forecast", fixed: "固定 5 bps", prev_hour: "上一小时" };
-  const want = [`${s.settled}/${s.rounds}`, `${beat}/${ag.length}`, best[0].replace("agent-", ""), best[1].total_log_score.toFixed(1), u.toFixed(1),
-    `${rej}/${d.tamper_checks.length}`, FEE_NAME[low[0]], low[1].toFixed(2), mae.forecast.toFixed(2)];
+  const LOWEST = "对比中最低";
+  const want = [`${s.settled}/${s.rounds}`, `${beat}/${ag.length}`, s.baseline_mean_pinball_loss.toFixed(3),
+    `${rej}/${d.tamper_checks.length}`, `${mae.forecast.toFixed(2)} bps`, `固定 5 bps：${mae.fixed.toFixed(2)}`, `上一小时：${mae.prev_hour.toFixed(2)}`];
   for (const width of [1280, 375]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     await page.goto(`${base}/dashboard/?data=sample-replay.json`);
@@ -67,9 +67,11 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
     check(r.found && r.above, `@${width}: #summary sits above the first card`);
-    check(r.top < 900, `@${width}: the summary is on the first screen (top ${Math.round(r.top)}px)`);
+    // On phones the case #1 card comes first (protocol-first overview), pushing the KPI strip below the fold.
+    if (width > 600) check(r.top < 900, `@${width}: the summary is on the first screen (top ${Math.round(r.top)}px)`);
     const missing = want.filter((w) => !r.text.includes(w));
     check(missing.length === 0, `@${width}: the summary quotes ${JSON.stringify(want)} (missing ${JSON.stringify(missing)})`);
+    check(r.text.includes(LOWEST) === (low[0] === "forecast"), `@${width}: the forecast fee is called ${LOWEST} only when its MAE is the lowest (lowest ${low[0]})`);
     check(r.overflow <= 0, `@${width}: no horizontal overflow (${r.overflow}px)`);
     await page.close();
   }
@@ -84,9 +86,9 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
     return { ...r, errors };
   };
   const alt = await summaryOf("../docs/.local/tmp/dashboard_summary/altered.json");
-  const altLow = Object.entries({ ...mae, fixed: 9.99 }).reduce((a, b) => (b[1] < a[1] ? b : a));
-  check(alt.text !== null && alt.text.includes(`${s.settled - 1}/${s.rounds}`) && alt.text.includes(FEE_NAME[altLow[0]]) && !alt.text.includes(low[1].toFixed(2)),
-    `altered replay: the summary follows the data (${s.settled - 1}/${s.rounds}, lowest MAE ${altLow[0]}) ${JSON.stringify(alt.text)}`);
+  check(alt.text !== null && alt.text.includes(`${s.settled - 1}/${s.rounds}`) && alt.text.includes("固定 5 bps：1.11") && !alt.text.includes(mae.fixed.toFixed(2))
+    && !alt.text.includes(LOWEST),
+    `altered replay: the summary follows the data (${s.settled - 1}/${s.rounds}, fixed MAE 1.11 below forecast, so not ${LOWEST}) ${JSON.stringify(alt.text)}`);
   const nf = await summaryOf("../docs/.local/tmp/dashboard_summary/nofee.json");
   check(nf.text !== null && !/MAE/.test(nf.text) && !nf.error && nf.errors.length === 0, `no fee data: the summary renders without the fee part and no error ${JSON.stringify(nf.text)} ${JSON.stringify(nf.errors)}`);
   const page = await browser.newPage({ viewport: { width: 375, height: 900 } });

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# R8 acceptance: dashboard charts carry an accessible name, round scores say above/below the uniform
-# baseline without relying on red/green, and the single-round probability bars reach 3:1 contrast
+# R8 acceptance: dashboard charts carry an accessible name, round scores say whether they beat the
+# climatology baseline without relying on red/green, and the single-round probability bars reach 3:1 contrast
 # against their card; no horizontal overflow at 375 px.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -66,13 +66,14 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
       });
       check(t && t.cols >= 4, "rounds table has the agent score columns");
       if (t) {
-        const uniform = -Math.log(5);
+        // vol-replay/v2 cells are pinball excess over climatology (baseline loss − agent loss), so the baseline is 0.
+        const baseline = 0;
         const scored = t.cells.filter((c) => /-?\d+\.\d+/.test(c));
         const wrong = scored.filter((c) => {
           const v = parseFloat(c.match(/-?\d+\.\d+/)[0]);
-          return v > uniform ? !c.includes("▲") : !c.includes("▼");
+          return v > baseline ? !c.includes("▲") : !c.includes("▼");
         });
-        check(scored.length >= 24 && wrong.length === 0, `every score carries ▲ (above uniform) or ▼ (not above) (${wrong.length}/${scored.length} wrong)`);
+        check(scored.length >= 24 && wrong.length === 0, `every score carries ▲ (beats climatology) or ▼ (does not) (${wrong.length}/${scored.length} wrong)`);
         check(!t.greenOnly, "the rounds caption no longer explains scores by colour alone");
       }
     }
