@@ -3,47 +3,48 @@
 Forecasters that enter VolMarket. Every agent works in two phases:
 
 1. **commit** before `startTime − commitLead`: `commitPrediction(id, modelId, commitment)` with
-   `commitment = keccak256(abi.encode(id, modelId, outputs[5], salt, sender))`. The hash is computed
-   locally (`cast keccak`), so the forecast never leaves the machine before it is committed; the salt
-   is random per round.
+   `commitment = keccak256(abi.encode(id, modelId, int256[] outputs, salt, sender))`. The hash is
+   computed locally (`cast keccak`), so the forecast never leaves the machine before it is committed;
+   the salt is random per round.
 2. **reveal** between `startTime − commitLead` and `startTime − revealLead`:
-   `revealPrediction(id, proof, outputs[5], salt)`.
+   `revealPrediction(id, proof, int256[] outputs, salt)`.
 
-The zk agents (`agent.py`) run a small model on the round's onchain features (`getFeatures`) and
-prove the inference with EZKL; the contract verifies the proof at reveal against the features it
-derived itself. The commit-only agent (`api_agent.py`) asks a time-series model API and reveals with
-an empty proof; its model is registered with `verifier = address(0)`, so it proves timing, not
-provenance, and its ERC-8004 score carries tag2 `vol-<Δ>s-<N>-commit`. An unrevealed forecast is
-neither scored nor paid. Forecasts that score above the uniform baseline `ln 0.2` share
-`predictorShareBps` of the round's fee (`claimPredictorReward`).
+A forecast is K = 5 quantiles of y = ln(max(RV, 1)) at levels 0.1/0.25/0.5/0.75/0.9, revealed as
+signed integers `outputs[k] = q_k × 2^12` (strictly increasing; the contract stores
+`outputs[k] × 1e18 / 4096`). Settlement scores the mean pinball loss against the realized y; the score
+written to ERC-8004 is −loss (tag1 `pinball`). The zk agents (`agent.py`) run a small model on the
+round's onchain features (`getFeatures`) and prove the inference with EZKL; the contract verifies the
+proof at reveal against the features it derived itself (instances = 16 features + 5 outputs). The
+time-series model agents (`api_agent.py`) reveal with an empty proof; their models are registered with
+`verifier = address(0)`, and their ERC-8004 score carries tag2 `vol-<Δ>s-<N>-commit`. An unrevealed
+forecast is neither scored nor paid. Forecasts whose loss is below the round's climatological
+baseline (training-period quantiles of y, `models/baseline_quantiles.json`, passed to `createRound`)
+share `predictorShareBps` of the round's fee pro rata to the loss difference (`claimPredictorReward`).
 
 ## Models
 
 Three structurally different models, trained with numpy on real ETH/USDC 0.05% pool history
 (42 days of Swap logs, rebuilt into a 60 s tick-cumulative grid by `analysis/`). Every sample is a
-round in the contract's units: the 16 features `createRound` would compute at time T, and the
-realized-vol bucket of the hour that starts one segment later, under bounds `[202, 474, 856, 1712]`
-tick² (`contract_math.BOUNDS`, the p20/p40/p60/p80 of the training period's hourly RV). The split is
-chronological: train 2026-09-10 – 10-08, validation 10-08 – 10-15, test 10-15 – 10-22; the bounds
-and the weights see only the training period.
+round in the contract's units: the 16 features `createRound` would compute at time T, and y of the
+hour that starts one segment later. The split is chronological: train 2026-09-10 – 10-08, validation
+10-08 – 10-15, test 10-15 – 10-22; the baseline quantiles and the weights see only the training period.
 
 | model | structure | params |
 |---|---|---|
-| `linear_abs` | `softmax(clip(W·abs(x) + b))` | 85 |
-| `mlp16` | `16 → 16 ReLU → 5`, signed features | 357 |
-| `mlp32_abs` | `abs(x) → 32 ReLU → 5` | 709 |
+| `linear_abs` | `W·abs(x) + b` → monotone head | 85 |
+| `mlp16` | `16 → 16 ReLU →` monotone head, signed features | 357 |
+| `mlp32_abs` | `abs(x) → 32 ReLU →` monotone head | 709 |
 
-Every model ends in `Clip(±3) → Softmax`, so the circuit's exp lookup is bounded for any input and all
-three circuits stay at logrows 15. EZKL settings pin `input_scale = 12` (the contract's feature scale
-4096), public inputs/outputs and fixed params. `models/<name>/` holds `model.onnx`, `meta.json`,
+The monotone head is q_1 = a_1, q_k = q_{k−1} + ReLU(a_k) + 2/4096, so the quantiles stay strictly
+increasing after EZKL's fixed-point rounding; training minimizes the pinball loss. All three circuits
+stay at logrows 15. EZKL settings pin `input_scale = 12` (the contract's feature scale 4096), output
+scale 12, public inputs/outputs and fixed params. `models/<name>/` holds `model.onnx`, `meta.json`,
 `cal.json` and the pinned calibrated `settings.json`.
 
-Test-period mean log score (higher is better): `linear_abs` −1.418, `mlp16` −1.423, `mlp32_abs`
-−1.469, against uniform −1.609 and the training-period bucket frequencies −1.606
-(`models/eval.json`). Over four walk-forward test weeks (cuts 09-24 – 10-15, bounds recalibrated and
-models retrained per fold, offline only) the mean is −1.345 / −1.383 / −1.398 against uniform −1.609
-and the previous-hour transition matrix −1.395 (`models/walkforward.json`, `vol_agents.walkforward`).
-Training details, baselines, limits and a judges' Q&A: [`MODEL_CARD.md`](MODEL_CARD.md).
+Test-period mean pinball loss (lower is better, 10,437 samples): `linear_abs` 0.2874, `mlp16` 0.2912,
+`mlp32_abs` 0.2856, against the climatological baseline 0.3325 and previous-hour y plus training
+residual quantiles 0.3254 (`models/eval.json`; walk-forward in `models/walkforward.json`). Training
+details, baselines, limits and a judges' Q&A: [`MODEL_CARD.md`](MODEL_CARD.md).
 
 ## Usage
 
