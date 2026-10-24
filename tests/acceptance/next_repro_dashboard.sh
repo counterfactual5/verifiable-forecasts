@@ -18,6 +18,91 @@ base=41a9900
 export VOL_REPRO_PYTHON="${VOL_REPRO_PYTHON:-$HOME/Work/chronos-experiment/.venv/bin/python}"
 [[ -x "$VOL_REPRO_PYTHON" ]] && ok "VOL_REPRO_PYTHON executable" || bad "VOL_REPRO_PYTHON executable ($VOL_REPRO_PYTHON)"
 
+schema=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("schema", ""))' "$json")
+if [[ $schema = vol-replay/v2 ]]; then
+python3 - "$json" <<'EOF' && ok "replay JSON (v2): reproducible agent fields" || bad "replay JSON (v2): reproducible agent fields"
+import json, re, sys
+d = json.load(open(sys.argv[1]))
+errs = []
+WAD = 10**18
+rounds = d["rounds"]
+if len(rounds) != 24: errs.append(f"{len(rounds)} rounds")
+p = d["params"]
+levels = [int(v) for v in p["quantile_levels_e18"]]
+bits = int(p["output_scale_bits"])
+# outputs are ln quantiles * 2^bits; 1e18 / 2^12 is an exact integer
+unit = WAD >> bits
+if bits != 12 or unit << bits != WAD: errs.append(f"output_scale_bits {bits}")
+if levels != [round(t * 100) * 10**16 for t in p["quantile_levels"]]: errs.append(f"levels {levels}")
+ag = d["agents"]
+zk = [a for a in ag if a.get("tier") == "zk"]
+rep = [a for a in ag if a.get("tier") == "reproducible"]
+want = ["agent-chronos-2", "agent-timesfm-3.0", "agent-timestral-209m"]
+if len(zk) != 3 or sorted(a["agent"] for a in rep) != want: errs.append(f"tiers {[(a['agent'], a.get('tier')) for a in ag]}")
+if any(a.get("model_type") is None for a in ag): errs.append("model_type dropped")
+sa = d["summary"]["agents"]
+
+def pinball_e18(y, q):
+    # MarketMath.pinball: floor per level, floor of the mean over K
+    return sum(t * (y - v) // WAD if y >= v else (WAD - t) * (v - y) // WAD for v, t in zip(q, levels)) // len(levels)
+
+for a in rep:
+    name = a["agent"]
+    tol = int(a.get("recompute_tolerance") or 0)
+    if not 0 < tol <= 10**15: errs.append(f"{name} recompute_tolerance {a.get('recompute_tolerance')}")
+    if "vol_agents.tsfm_recompute" not in (a.get("recompute_command") or ""): errs.append(f"{name} recompute_command")
+    if not re.fullmatch(r"0x[0-9a-fA-F]{64}", a.get("model_hash") or "") or int(a["model_hash"], 16) == 0:
+        errs.append(f"model_hash {a.get('model_hash')}")
+    e = sa[name]["erc8004"]
+    if e["tag1"] != "pinball" or not e["tag2"].endswith("-commit") or e["count"] != 24: errs.append(f"erc8004 {e}")
+    reproduced, losses = 0, []
+    for r in rounds:
+        ra = r["agents"].get(name, {})
+        out = ra.get("outputs")
+        if not (isinstance(out, list) and len(out) == len(levels) and all(isinstance(v, int) for v in out)
+                and all(x < y for x, y in zip(out, out[1:]))):
+            errs.append(f"{name} round {r['h']} outputs {out}"); break
+        if [int(v) for v in ra.get("quantiles_e18") or []] != [o * unit for o in out] \
+                or ra.get("quantiles") != [o / (1 << bits) for o in out]:
+            errs.append(f"{name} round {r['h']} quantiles do not equal outputs / 2^{bits}"); break
+        if not r["outcome"]["voided"]:
+            y, base = int(r["ln_rv_e18"]), int(r["baseline_loss_e18"])
+            loss = pinball_e18(y, [o * unit for o in out])
+            if int(ra.get("pinball_loss_e18", -1)) != loss or int(ra.get("score_e18", 1)) != -loss:
+                errs.append(f"{name} round {r['h']} pinball {ra.get('pinball_loss_e18')} != recomputed {loss}"); break
+            # onchain excess (payout weight) is clamped at 0; the float excess is the signed display value
+            if int(ra.get("excess_e18", -1)) != max(base - loss, 0) or ra.get("beat_baseline") is not (loss < base) \
+                    or abs(float(ra.get("excess", "nan")) * WAD - (base - loss)) > 1e-9 * WAD:
+                errs.append(f"{name} round {r['h']} excess {ra.get('excess_e18')} / {ra.get('excess')} vs {base - loss}"); break
+            losses.append(loss)
+        if ra.get("reproduced") is not True:
+            errs.append(f"{name} round {r['h']} reproduced {ra.get('reproduced')}"); break
+        reproduced += 1
+        v, diff = ra.get("recompute_verdict"), int(ra.get("recompute_max_abs_diff", -1))
+        if not ((v == "exact" and diff == 0) or (v == "tolerant" and 0 < diff <= tol)):
+            errs.append(f"{name} round {r['h']} verdict {v} diff {ra.get('recompute_max_abs_diff')}"); break
+        if diff % unit:
+            errs.append(f"{name} round {r['h']} diff {diff} is not a whole 2^-{bits} step"); break
+        if ra.get("recompute_context") != ra.get("context_source"):
+            errs.append(f"{name} round {r['h']} recompute_context {ra.get('recompute_context')} != {ra.get('context_source')}"); break
+        if ra.get("forecast_source") == "placeholder":
+            errs.append(f"round {r['h']} placeholder source"); break
+    if sa[name].get("reproduced_rounds") != reproduced or reproduced != len(rounds):
+        errs.append(f"{name} reproduced_rounds {sa[name].get('reproduced_rounds')}, rows {reproduced}")
+    if sa[name].get("rounds_scored") != len(losses) or not losses \
+            or abs(sa[name].get("mean_pinball_loss", -1) - sum(losses) / len(losses) / WAD) > 1e-6:
+        errs.append(f"{name} summary rounds_scored {sa[name].get('rounds_scored')} mean_pinball_loss {sa[name].get('mean_pinball_loss')}")
+for a in zk:
+    if not a.get("model_hash") is None and not re.fullmatch(r"0x[0-9a-fA-F]{64}", a["model_hash"]):
+        errs.append(f"zk model_hash {a['model_hash']}")
+    if sa[a["agent"]].get("reproduced_rounds") is not None:
+        errs.append(f"zk {a['agent']} reproduced_rounds {sa[a['agent']].get('reproduced_rounds')}")
+s = d["summary"]
+if s["rv_matches_mainnet"] is not True or s["features_match_mainnet"] is not True: errs.append("mainnet match")
+if "fee_strategies" not in s or any("fee" not in r for r in rounds): errs.append("fee fields")
+print("\n".join(errs)); sys.exit(1 if errs else 0)
+EOF
+else
 python3 - "$json" <<'EOF' && ok "replay JSON: reproducible agent fields" || bad "replay JSON: reproducible agent fields"
 import json, re, sys
 d = json.load(open(sys.argv[1]))
@@ -58,6 +143,7 @@ if s["rv_matches_mainnet"] is not True or s["features_match_mainnet"] is not Tru
 if "fee_strategies" not in s or any("fee" not in r for r in rounds): errs.append("fee fields")
 print("\n".join(errs)); sys.exit(1 if errs else 0)
 EOF
+fi
 
 # independent offline recompute of three rounds from their recorded features: timesfm-3.0 reads
 # only the 16 features, so it is recomputable from the JSON alone, within the recorded tolerance
@@ -66,12 +152,22 @@ python3 - "$json" > "$root/docs/.local/tmp_repro_rounds.tsv" <<'EOF'
 import json, sys
 d = json.load(open(sys.argv[1]))
 a = next(a for a in d["agents"] if a["agent"] == "agent-timesfm-3.0")
-b = ",".join(map(str, d["params"]["bounds"]))
+v2 = d.get("schema") == "vol-replay/v2"
+b = "-" if v2 else ",".join(map(str, d["params"]["bounds"]))
 for h in (0, 11, 23):
     r = d["rounds"][h]
-    print(h, ",".join(map(str, r["features"])), b, json.dumps([int(v) for v in r["agents"][a["agent"]]["probs_e18"]]), int(a["recompute_tolerance"]), sep="\t")
+    ra = r["agents"][a["agent"]]
+    want = ra["outputs"] if v2 else [int(v) for v in ra["probs_e18"]]
+    print(h, ",".join(map(str, r["features"])), b, json.dumps(want), int(a["recompute_tolerance"]), sep="\t")
 EOF
-if [[ -s "$root/docs/.local/tmp_repro_rounds.tsv" ]]; then
+if [[ $schema = vol-replay/v2 && -s "$root/docs/.local/tmp_repro_rounds.tsv" ]]; then
+    # v2 offline recompute prints reveal outputs (ln quantile * 2^12); tolerance is in 1e18 ln units
+    while IFS=$'\t' read -r h f _ want tol; do
+        got=$(cd agents && uv run python -m vol_agents.tsfm_recompute --model timesfm-3.0 --features="$f" 2>/dev/null)
+        python3 -c "import json,sys; g=json.loads(sys.argv[1]); w=json.loads(sys.argv[2]); t=int(sys.argv[3]); u=10**18>>12; sys.exit(0 if len(g)==len(w)==5 and all(a<b for a,b in zip(g,g[1:])) and all(abs(x-y)*u<=t for x,y in zip(g,w)) else 1)" "$got" "$want" "$tol" 2>/dev/null \
+            && ok "round $h offline recompute equals outputs (v2)" || bad "round $h offline recompute equals outputs (v2, got ${got:-nothing}, want $want)"
+    done < "$root/docs/.local/tmp_repro_rounds.tsv"
+elif [[ -s "$root/docs/.local/tmp_repro_rounds.tsv" ]]; then
     while IFS=$'\t' read -r h f b want tol; do
         got=$(cd agents && uv run python -m vol_agents.tsfm_recompute --model timesfm-3.0 --features="$f" --bounds="$b" 2>/dev/null)
         python3 -c "import json,sys; g=json.loads(sys.argv[1]); w=json.loads(sys.argv[2]); t=int(sys.argv[3]); sys.exit(0 if len(g)==5 and all(abs(x-y)<=t for x,y in zip(g,w)) and sum(g)==10**18 else 1)" "$got" "$want" "$tol" 2>/dev/null \
