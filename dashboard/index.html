@@ -369,6 +369,7 @@
   .fee-tile.main { border-color: color-mix(in srgb, var(--vermil) 45%, var(--line)); background: color-mix(in srgb, var(--vermil) 6%, var(--panel)); }
   .fee-tile.ref { border-style: dashed; background: var(--panel); }
   .fee-mae { font: 600 22px/1.3 var(--mono); }
+  .role { display: inline-block; font: 10px/1.5 var(--mono); letter-spacing: .04em; color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 2px; white-space: nowrap; vertical-align: 1px; }
   @media (max-width: 600px) {
     header { padding: 18px 16px 4px; }
     #hero { padding: 12px 12px 0; }
@@ -735,8 +736,8 @@ function lineChart(series, labels, { zero = null, fmt = null, tip = null, H = 24
   }).join("");
   const zl = zero != null ? `<line x1="${L}" x2="${W - R}" y1="${y(zero)}" y2="${y(zero)}" stroke="#8b949e" stroke-opacity=".7" stroke-dasharray="5 4"/>` : "";
   const last = (s) => s.values.reduce((x, v) => v ?? x, -Infinity);
-  const legend = (rankLegend ? series.slice().sort((a, b) => last(b) - last(a)) : series).map((s) => `<span class="nowrap">${swatch(s.color, s.dash)} ${s.name}</span>`).join(" &nbsp; ");
-  CHARTS.push({ W, n, L, R, x, labels, series: series.map((s) => ({ name: s.tipName ?? s.name, color: s.color, values: s.values })), tipFmt });
+  const legend = (rankLegend ? series.slice().sort((a, b) => last(b) - last(a)) : series).map((s) => `<span class="nowrap">${swatch(s.color, s.dash)} ${s.name}${s.role ? ` ${roleTag(s.role)}` : ""}</span>`).join(" &nbsp; ");
+  CHARTS.push({ W, n, L, R, x, labels, series: series.map((s) => ({ name: s.name, color: s.color, values: s.values })), tipFmt });
   return `<div class="chart" data-chart="${id}"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${attr(label)}">${grid}${zl}<g class="series">${lines}</g>${xl}
     <line class="guide" x1="0" x2="0" y1="${T}" y2="${H - B}"/></svg><div class="tip" aria-hidden="true"></div></div><div class="sub">${legend}</div>`;
 }
@@ -766,9 +767,8 @@ function chartHover(app) {
   app.addEventListener("pointerleave", () => clear(null));
 }
 
-// Legend names may wrap only at spaces: word joiners stop the line breaks CJK brackets and commas otherwise allow.
-const glue = (s) => s.replace(/（/g, "\u2060（").replace(/，/g, "，\u2060");
-const REF_FEE = glue("事后最优费率（参照，事前无法得到） · hindsight fair LVR fee");
+const feeNames = (fixedBps) => ({ fair: "hindsight fair fee", forecast: "forecast", fixed: `fixed ${fixedBps} bps`, prev_hour: "prev-hour RV" });
+const roleTag = (role) => `<span class="role">${role}</span>`;
 const lowestFee = (fs) => Object.entries(fs.mae_bps).map(([key, mae]) => ({ key, mae })).reduce((a, b) => (b.mae < a.mae ? b : a));
 
 function summaryLine(d) {
@@ -788,7 +788,7 @@ function summaryLine(d) {
   const fs = s.fee_strategies;
   if (fs) {
     const low = lowestFee(fs);
-    tiles.push(kpi(fs.mae_bps.forecast.toFixed(2), `forecast-driven fee MAE bps · lowest MAE: <b>${low.key.replace("_", " ")} ${low.mae.toFixed(2)}</b>`,
+    tiles.push(kpi(fs.mae_bps.forecast.toFixed(2), `forecast fee MAE bps · lowest MAE: <b>${feeNames(fs.mean_bps.fixed)[low.key]} ${low.mae.toFixed(2)}</b>`,
       low.key === "forecast" ? "ok" : "warn"));
   }
   return `<div id="summary">${tiles.join("")}</div>`;
@@ -1101,33 +1101,32 @@ function renderReplay({ data: d, src, live = { data: d, src } }) {
   if (fs && rounds.some((r) => r.fee)) {
     const fee = (k) => rounds.map((r) => r.fee?.[k] ?? null);
     // Drawing order puts the forecast on top; the baselines stay thin and grey so they read as context, not rivals.
+    const nm = feeNames(fs.mean_bps.fixed);
     const feeSeries = [
-      { name: "对比基线：固定 5 bps · baseline fixed 5 bps", tipName: "固定 fixed", color: "#a8a194", width: 1.4, dash: "2 3", values: fee("fixed_bps") },
-      { name: "对比基线：上一小时 RV · baseline prev-hour RV", tipName: "上一小时 prev-hour", color: "#7d776c", width: 1.4, values: fee("prev_hour_bps") },
-      { name: REF_FEE, tipName: "事后参照 hindsight", color: "#3a3630", width: 2, values: fee("fair_bps") },
-      { name: glue("预测驱动费率（本协议输出） · forecast-driven fee"), tipName: "预测驱动 forecast", color: "#d8431b", width: 3, dash: "7 4", values: fee("forecast_bps") },
+      { key: "fixed", name: nm.fixed, role: "baseline", color: "#a8a194", width: 1.4, dash: "2 3", values: fee("fixed_bps") },
+      { key: "prev_hour", name: nm.prev_hour, role: "baseline", color: "#7d776c", width: 1.4, values: fee("prev_hour_bps") },
+      { key: "fair", name: nm.fair, role: "reference", color: "#3a3630", width: 2, values: fee("fair_bps") },
+      { key: "forecast", name: nm.forecast, role: "protocol output", color: "#d8431b", width: 3, dash: "7 4", values: fee("forecast_bps") },
     ];
-    const byName = (re) => feeSeries.find((s) => re.test(s.name));
-    const strategies = [["forecast", "预测驱动费率（本协议） · forecast", byName(/forecast/)],
-                        ["fixed", "对比基线：固定 5 bps", byName(/fixed/)], ["prev_hour", "对比基线：上一小时 RV", byName(/prev-hour/)]];
-    const tiles = strategies.map(([k, name, s]) => `<div class="fee-tile${k === "forecast" ? " main" : ""}"><div class="sub"><span class="nowrap">${swatch(s.color, s.dash)}
-        ${name}</span></div><div><span class="fee-mae" data-mae="${k}">${fs.mae_bps[k].toFixed(2)}</span> <span class="sub">bps 偏离参照 MAE</span></div>
+    const byKey = (k) => feeSeries.find((s) => s.key === k);
+    const tileHead = (s) => `<div class="sub"><span class="nowrap">${swatch(s.color, s.dash)} ${s.name} ${roleTag(s.role)}</span></div>`;
+    const tiles = ["forecast", "fixed", "prev_hour"].map((k) => `<div class="fee-tile${k === "forecast" ? " main" : ""}">${tileHead(byKey(k))}
+        <div><span class="fee-mae" data-mae="${k}">${fs.mae_bps[k].toFixed(2)}</span> <span class="sub">bps MAE vs reference</span></div>
         <div class="sub">mean ${fs.mean_bps[k].toFixed(2)} bps</div></div>`).join("");
-    const ref = byName(/fair/);
     const fallback = fs.equal_weight_fallback_rounds ? ` ${fs.equal_weight_fallback_rounds} of ${fs.rounds} rounds used the equal-weight fallback.` : "";
-    const feeTitle = "AMM 能用它定手续费吗？ Forecast-driven fee vs hindsight fair LVR fee (bps)";
+    const feeTitle = "AMM 能用它定手续费吗？ Forecast vs hindsight fair fee (bps)";
     const low = lowestFee(fs);
     feeCard = card(feeTitle,
-      `<p class="takeaway" style="margin-top:0">越贴近参照线越好；参照线要等这一小时结束才算得出，事前只能用下面三种可用策略。
-      预测驱动费率偏离参照 <b>${fs.mae_bps.forecast.toFixed(2)}</b> bps，固定 ${fs.mean_bps.fixed} bps 为
-      <b>${fs.mae_bps.fixed.toFixed(2)}</b> bps，上一小时 RV 为 <b>${fs.mae_bps.prev_hour.toFixed(2)}</b> bps：${low.key === "forecast" ? "预测驱动费率最贴近参照。"
-        : `暂未赢过${low.key === "fixed" ? "固定费率" : "上一小时 RV"}（如实展示）。`}</p>` +
+      `<p class="takeaway" style="margin-top:0">越贴近参照线越好；参照线要等这一小时结束才算得出，事前无法得到，实际只能在下面三种可用策略里选。
+      ${nm.forecast} 偏离参照 <b>${fs.mae_bps.forecast.toFixed(2)}</b> bps，${nm.fixed} 为
+      <b>${fs.mae_bps.fixed.toFixed(2)}</b> bps，${nm.prev_hour} 为 <b>${fs.mae_bps.prev_hour.toFixed(2)}</b> bps：${low.key === "forecast" ? `${nm.forecast} 最贴近参照。`
+        : `暂未赢过 ${nm[low.key]}（如实展示）。`}</p>` +
       lineChart(feeSeries, labels, { min: 0, tip: (v) => v.toFixed(2), label: chartLabel(feeTitle, feeSeries) }) +
-      `<div class="fee-tiles"><div class="fee-tile ref"><div class="sub"><span class="nowrap">${swatch(ref.color)} 参照线 · reference</span></div>
-        <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div>
-        <div class="sub">${REF_FEE}</div></div>${tiles}</div>
-      <div class="sub" style="margin-top:8px">LVR（loss-versus-rebalancing）是套利者从 LP 身上拿走的损失；参照线 = 事后看刚好补偿这一小时 LVR 的费率，
+      `<div class="fee-tiles"><div class="fee-tile ref">${tileHead(byKey("fair"))}
+        <div><span class="fee-mae">${fs.mean_bps.fair.toFixed(2)}</span> <span class="sub">bps mean</span></div></div>${tiles}</div>
+      <div class="sub" style="margin-top:8px">LVR（loss-versus-rebalancing）是套利者从 LP 身上拿走的损失；参照线（hindsight fair fee）= 事后看刚好补偿这一小时 LVR 的费率，
       不是一种策略。参照线假设成交量不受费率影响，只衡量 LP 能否抵消 LVR（盈亏平衡），不是让 LP 收益最大的费率。
+      forecast = 按 ERC-8004 信誉加权各 agent 预测后由 VolFeeConsumer 算出，每轮开窗前记录在链上。
       Hindsight fair fee = LVR break-even fee σ²/8 × 2L√P ÷ the hour's real mainnet volume; it assumes volume does not react to the fee.
       The forecast fee is computed and recorded on-chain by VolFeeConsumer each round before startTime from the revealed,
       ERC-8004 reputation-weighted forecasts.${fallback} MAE against the hindsight reference over ${fs.rounds} rounds. Simulated: no real pool fee changes.</div>`,
@@ -1383,9 +1382,9 @@ function playerBody(d) {
     const e = Math.abs(f.forecast_bps - f.fair_bps), ef = Math.abs(f.fixed_bps - f.fair_bps);
     const shares = f.mirror?.weights?.length !== d.agents.length ? "" : (STATE.model?.rounds[STATE.round]?.agents ?? [])
       .filter((a) => a.weight > 0).map((a) => `<span class="nowrap">${a.name} ${(a.share * 100).toFixed(1)}%</span>`).join(" · ");
-    return `<div class="pl-big">${f.forecast_bps.toFixed(2)} <span>bps 手续费</span></div>
-      <p>事后最优费率（参照，事前无法得到）${f.fair_bps.toFixed(2)} bps · 误差 <b>${e.toFixed(2)}</b> vs 固定 ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
-        ${e <= ef ? ok("本轮优于固定") : mute("本轮固定更近")}</p>
+    return `<div class="pl-big">${f.forecast_bps.toFixed(2)} <span>bps forecast</span></div>
+      <p>hindsight fair fee ${f.fair_bps.toFixed(2)} bps（参照，事前无法得到）· forecast 误差 <b>${e.toFixed(2)}</b> vs fixed ${f.fixed_bps} bps 误差 <b>${ef.toFixed(2)}</b>
+        ${e <= ef ? ok(`本轮优于 fixed ${f.fixed_bps} bps`) : mute(`本轮 fixed ${f.fixed_bps} bps 更近`)}</p>
       <p class="pl-src dim">${f.mirror?.equal_weight_fallback ? "声誉权重尚未形成 → 等权混合" : `声誉权重 ${shares || "—"}`}
         <br>setFee 区块 ${f.onchain?.block ?? "—"}（fork）</p>`;
   })();
@@ -1669,7 +1668,13 @@ function flowFrame(now) {
     ctx.fillText(`${r.fee.toFixed(2)} bps`, g.fx - (g.narrow ? 8 : 0), g.fy + g.fr + (g.narrow ? 14 : 18));
     ctx.font = `${g.narrow ? 9.5 : 11}px ${FONT_MONO}`;
     ctx.fillStyle = "#57524a";
-    ctx.fillText(`事后参照 ${r.fair.toFixed(2)}`, g.fx - (g.narrow ? 8 : 0), g.fy + g.fr + (g.narrow ? 30 : 37));
+    ctx.textAlign = "right";
+    const rx = g.fx + g.fr + (g.narrow ? 10 : 30), ry = g.fy + g.fr + (g.narrow ? 30 : 37);
+    if (g.narrow) {
+      ctx.fillText("hindsight fair fee", rx, ry);
+      ctx.fillText(r.fair.toFixed(2), rx, ry + 12);
+    } else ctx.fillText(`hindsight fair fee ${r.fair.toFixed(2)}`, rx, ry);
+    ctx.textAlign = "center";
   }
   ctx.fillStyle = "#57524a"; ctx.font = `${g.narrow ? 9.5 : 11}px ${FONT_MONO}`;
   ctx.fillText("fee", g.fx, g.fy - g.fr - 10);

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Dashboard acceptance (fee chart, tab bar, verification tiers):
-# - fee chart: the hindsight fair fee is a solid reference line named 事后/参照; the forecast-driven fee is a dashed,
-#   thicker cobalt or vermilion line; fixed 5 bps and prev-hour RV are thin muted grey baselines (对比基线) that differ
-#   from each other; the caption says closer to the reference is better and that the reference needs the hour to
-#   end, states the volume assumption, and each usable strategy shows its MAE against the reference;
+# - fee chart: the hindsight fair fee is a solid reference line; the forecast fee is a dashed, thicker cobalt or
+#   vermilion line; fixed 5 bps and prev-hour RV are thin muted grey baselines that differ from each other; legend,
+#   hover tooltip and tile headers name the metrics in short English (hindsight fair fee / forecast / fixed 5 bps /
+#   prev-hour RV, with reference / protocol output / baseline tags) while the Chinese 事后/参照/事前无法得到 and
+#   forecast explanations live in the lead and caption; the caption says closer to the reference is better and that
+#   the reference needs the hour to end, states the volume assumption, and each usable strategy shows its MAE
+#   against the reference;
 #   no view still uses the bare "fair LVR fee" / 公允费率 naming.
 # - tab bar: the selected tab has no filled background, a 2px cobalt underline on the bar's bottom edge and cobalt
 #   text; a hovered tab gets no filled background; keyboard focus shows a cobalt ring; no overflow at 375 / 390 px.
@@ -59,12 +62,26 @@ const ACCENT = "rgb(29, 63, 196)";
       });
       const tiles = [...card.querySelectorAll("[data-mae]")].map((el) => ({ key: el.dataset.mae, value: parseFloat(el.textContent),
         text: el.closest(".fee-tile").textContent.replace(/\s+/g, " ") }));
-      return { paths, legend, tiles, text: card.textContent.replace(/\s+/g, " "), all: document.getElementById("app").textContent.replace(/\s+/g, " ") };
+      const heads = [...card.querySelectorAll(".fee-tile > .sub:first-child")].map((el) => el.textContent.replace(/\s+/g, " ").trim());
+      const notes = [card.querySelector(".takeaway"), ...card.querySelectorAll(":scope > .sub:not(.chart + .sub)")].map((el) => el?.textContent ?? "").join(" ").replace(/\s+/g, " ");
+      return { paths, legend, tiles, heads, notes, text: card.textContent.replace(/\s+/g, " "), all: document.getElementById("app").textContent.replace(/\s+/g, " ") };
     });
     const pathOf = (re) => { const l = fee.legend.find((x) => re.test(x.text)); return l && fee.paths.find((p) => p.stroke === l.stroke); };
     const ref = pathOf(/fair/i), fc = pathOf(/forecast/i), fixed = pathOf(/fixed/i), prev = pathOf(/prev/i);
-    const refLegend = fee.legend.find((x) => /fair/i.test(x.text))?.text ?? "";
-    check(/事后/.test(refLegend) && /参照/.test(refLegend) && /事前无法得到/.test(refLegend), `${at}: reference legend renamed to 事后/参照 (${refLegend})`);
+    check(/事后/.test(fee.notes) && /参照/.test(fee.notes) && /事前无法得到/.test(fee.notes), `${at}: lead/caption explain the reference as 事后/参照/事前无法得到`);
+    check(/forecast\s*=\s*按 ERC-8004 信誉加权各 agent 预测后由 VolFeeConsumer 算出/.test(fee.notes), `${at}: caption explains forecast in Chinese`);
+    const NAMES = ["hindsight fair fee reference", "forecast protocol output", "fixed 5 bps baseline", "prev-hour RV baseline"];
+    const CJK = /[\u3000-\u9fff\uff00-\uffef]/;
+    check(fee.legend.length === 4 && NAMES.every((n) => fee.legend.some((x) => x.text === n)) && !fee.legend.some((x) => CJK.test(x.text)),
+          `${at}: legend names are short English labels with role tags (${fee.legend.map((x) => x.text).join(" | ")})`);
+    check(fee.heads.length === 4 && NAMES.every((n) => fee.heads.includes(n)), `${at}: fee tile headers are the same English labels (${fee.heads.join(" | ")})`);
+    await page.locator("#fee-card .chart svg").scrollIntoViewIfNeeded();
+    const box = await page.locator("#fee-card .chart svg").boundingBox();
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    await page.waitForTimeout(100);
+    const tipNames = await page.$$eval("#fee-card .tip .r span", (els) => els.map((e) => e.textContent.trim()));
+    check(tipNames.length === 4 && ["hindsight fair fee", "forecast", "fixed 5 bps", "prev-hour RV"].every((n) => tipNames.includes(n)),
+          `${at}: hover tooltip uses the English metric names (${tipNames.join(" | ")})`);
     check(!!ref && !ref.dash, `${at}: reference drawn solid (${JSON.stringify(ref)})`);
     check(!!fc && !!fc.dash, `${at}: forecast fee drawn dashed (${JSON.stringify(fc)})`);
     check(!!fc && ["#d8431b", "#1d3fc4"].includes(fc.stroke.toLowerCase()), `${at}: forecast fee in vermilion or cobalt (${fc?.stroke})`);
@@ -73,7 +90,7 @@ const ACCENT = "rgb(29, 63, 196)";
     for (const [k, p, re] of [["fixed", fixed, /fixed/i], ["prev-hour", prev, /prev/i]]) {
       const lt = fee.legend.find((x) => re.test(x.text))?.text ?? "";
       check(!!p && grey(p.stroke) && p.width <= 1.6, `${at}: ${k} baseline is a thin muted grey line (${JSON.stringify(p)})`);
-      check(/对比基线/.test(lt), `${at}: ${k} legend labelled 对比基线 (${lt})`);
+      check(/ baseline$/.test(lt), `${at}: ${k} legend tagged baseline (${lt})`);
     }
     check(!!fixed && !!prev && (fixed.dash !== prev.dash || fixed.stroke !== prev.stroke), `${at}: the two baselines differ by dash or shade`);
     check(fee.text.includes("越贴近参照线越好") && fee.text.includes("参照线要等这一小时结束才算得出"), `${at}: caption says closer to the reference is better and needs the hour to end`);
@@ -81,8 +98,8 @@ const ACCENT = "rgb(29, 63, 196)";
     for (const k of ["forecast", "fixed", "prev_hour"]) {
       const t = fee.tiles.find((x) => x.key === k);
       const v = t ? t.value : NaN;
-      check(!!t && /参照/.test(t.text) && Math.abs(v - d.summary.fee_strategies.mae_bps[k]) < 0.006,
-            `${at}: ${k} tile shows MAE vs 参照 = ${d.summary.fee_strategies.mae_bps[k].toFixed(2)} (${t?.text.trim()})`);
+      check(!!t && /MAE vs reference/.test(t.text) && Math.abs(v - d.summary.fee_strategies.mae_bps[k]) < 0.006,
+            `${at}: ${k} tile shows MAE vs reference = ${d.summary.fee_strategies.mae_bps[k].toFixed(2)} (${t?.text.trim()})`);
     }
     check(!/(?<!hindsight )fair LVR fee/i.test(fee.all) && !/公允费率|公平费率/.test(fee.all), `${at}: no view uses the bare fair LVR fee / 公允费率 naming`);
     check(!/出题|考题|考试/.test(fee.all), `${at}: no 出题/考题/考试 wording`);

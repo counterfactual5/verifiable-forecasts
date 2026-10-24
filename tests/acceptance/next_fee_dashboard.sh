@@ -64,6 +64,9 @@ const check = (cond, msg) => { console.log(`${cond ? "ok" : "not ok"} - ${msg}`)
   for (const k of ["fair", "fixed", "prev", "forecast"]) check(legend.includes(k), `legend names the ${k} series`);
   const titles = await card.locator("svg circle title").allTextContents();
   const series = { fair: "fair_bps", fixed: "fixed_bps", prev: "prev_hour_bps", forecast: "forecast_bps" };
+  const names = new Set(titles.map((s) => s.split(" · ")[0]));
+  check(names.size === 4 && ["hindsight fair fee", "forecast", "fixed 5 bps", "prev-hour RV"].every((n) => names.has(n)),
+        `point titles use the English metric names (${[...names].join(" | ")})`);
   for (const i of [0, 11, 23]) {
     const r = d.rounds[i], label = r.window_utc[0].slice(11, 16);
     for (const [k, field] of Object.entries(series)) {

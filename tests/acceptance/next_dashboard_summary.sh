@@ -52,8 +52,9 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
   const rej = d.tamper_checks.filter((t) => t.tampered_output_verifies === false).length;
   const mae = s.fee_strategies.mae_bps;
   const low = Object.entries(mae).reduce((a, b) => (b[1] < a[1] ? b : a));
+  const FEE_NAME = { forecast: "forecast", fixed: "fixed 5 bps", prev_hour: "prev-hour RV" };
   const want = [`${s.settled}/${s.rounds}`, `${beat}/${ag.length}`, best[0].replace("agent-", ""), best[1].total_log_score.toFixed(1), u.toFixed(1),
-    `${rej}/${d.tamper_checks.length}`, low[0].replace("_", " "), low[1].toFixed(2), mae.forecast.toFixed(2)];
+    `${rej}/${d.tamper_checks.length}`, FEE_NAME[low[0]], low[1].toFixed(2), mae.forecast.toFixed(2)];
   for (const width of [1280, 375]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     await page.goto(`${base}/dashboard/?data=sample-replay.json`);
@@ -84,7 +85,7 @@ const check = (cond, msg) => { console.log((cond ? "ok - " : "not ok - ") + msg)
   };
   const alt = await summaryOf("../docs/.local/tmp/dashboard_summary/altered.json");
   const altLow = Object.entries({ ...mae, fixed: 9.99 }).reduce((a, b) => (b[1] < a[1] ? b : a));
-  check(alt.text !== null && alt.text.includes(`${s.settled - 1}/${s.rounds}`) && alt.text.includes(altLow[0].replace("_", " ")) && !alt.text.includes(low[1].toFixed(2)),
+  check(alt.text !== null && alt.text.includes(`${s.settled - 1}/${s.rounds}`) && alt.text.includes(FEE_NAME[altLow[0]]) && !alt.text.includes(low[1].toFixed(2)),
     `altered replay: the summary follows the data (${s.settled - 1}/${s.rounds}, lowest MAE ${altLow[0]}) ${JSON.stringify(alt.text)}`);
   const nf = await summaryOf("../docs/.local/tmp/dashboard_summary/nofee.json");
   check(nf.text !== null && !/MAE/.test(nf.text) && !nf.error && nf.errors.length === 0, `no fee data: the summary renders without the fee part and no error ${JSON.stringify(nf.text)} ${JSON.stringify(nf.errors)}`);
