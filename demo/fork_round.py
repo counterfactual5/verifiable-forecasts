@@ -120,6 +120,8 @@ PREDICTOR_SHARE_BPS = 5000
 # Commits close COMMIT_LEAD s and reveals REVEAL_LEAD s before the round start.
 COMMIT_LEAD = 90
 REVEAL_LEAD = 30
+# Chainlink cross-check: pool vs feed deviation in bps of the feed price, feed answer age in seconds.
+MAX_DEVIATION_BPS, MAX_FEED_AGE = 200, 3900
 BET_WEI = 10**18
 BOUNDS = cm.BOUNDS
 # createRound one segment before startTime keeps the feature segments on the replay grid
@@ -469,7 +471,8 @@ def minted_agent_id(receipt):
 
 def deploy(c, owner, api_agents=(), proof_cache=None):
     market = c.deploy(owner, "src/VolMarket.sol:VolMarket", WETH, FEE_BPS, PREDICTOR_SHARE_BPS,
-                      POOL, cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD)
+                      POOL, cm.DELTA, cm.N_SEGMENTS, COMMIT_LEAD, REVEAL_LEAD,
+                      MAX_DEVIATION_BPS, MAX_FEED_AGE)
     c.send(owner, market, "setReputation(address,address)", IDENTITY, REPUTATION)
     c.send(owner, market, "setPriceFeed(address)", FEED)
     agents, agent_ids, verifiers = [], {}, {}

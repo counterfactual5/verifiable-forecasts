@@ -203,7 +203,7 @@ updated and when the next run starts, and warns when the file is older than 2 ho
 `dashboard/sample-replay.json` (labelled 固定回放), so its numbers stay those quoted above.
 
 - It is still a local fork: nothing is broadcast, bets come from two scripted accounts with fork
-  test funds, and reputation restarts with each fork (it accumulates over the 12 replayed hours).
+  test funds, and reputation restarts with each fork (it accumulates over the 24 replayed hours).
 - A zk proof is cached per (model, round features), so each hour proves only the new hour; the
   contract still runs `verifyProof` on every reveal. Rounds served from the cache say so.
 - Three time-series model agents, `agent-timesfm-3.0`, `agent-timestral-209m` and
