@@ -202,19 +202,19 @@ cd ../agents && uv run python -m vol_agents.walkforward   # 写 models/walkforwa
 tick 差分，下称 c16）；`swaps` 是链下 swap 缓存算出的 512 个 5 分钟段均值差分（约 42.7 小时，最后 16 点
 与链上特征一致，下称 c512）。timestral-209m 和 chronos-2 请求 c512，缓存缺失或与链上特征对不上时
 回退 c16；timesfm-3.0 固定用 c16（理由见下）。模型给出后 13 步每一步差分的分位数；agent 对窗口内
-11 步各自独立抽样 4000 次（固定种子），乘以按模型设定的 spread，平方求和得到实际方差，再落桶。
+11 步各自独立抽样 4000 次（固定种子），乘以按模型设定的 spread，平方求和得到每条路径的实际方差，
+再取 `y = ln(max(RV_path, 1))` 在 τ = [0.1, 0.25, 0.5, 0.75, 0.9] 上的经验分位数（numpy 线性插值）。
 **不做分位数相加**：相加会把水平低估约 42%，并得到 U 形分布。
 
-- **均匀混合** `UNIFORM_MIX = 0.3`（常量），每个桶至少 0.06，防止概率塌缩。验证期（10-08 至 10-15，165 个
-  整点轮次）上 0.05–0.1 的混合在 timesfm-3.0 和 timestral-209m 上都不如 uniform：从 16 个点抽出的路径
-  常常落空，所以这里没有用更小的比例。
-- **spread**（按模型，在验证期上选定，混合权重固定为 0.3）：timesfm-3.0 0.5、timestral-209m 0.5、
-  chronos-2 0.35。从 16 个点得到的逐步分位数太宽，不缩放的话所有模型都远差于 uniform（约 −2.6 到 −3.4）。
-- **校准跟着输入走**（`tsfm_forecast.calibration(model, source)`）：`onchain` 用上面的 spread 和
-  0.3；`swaps` 用 `history.LONG_CONTEXT_CALIBRATION`，同样只在验证期上选（spread ∈ {0.5..1.2}，
-  mix ∈ {0.2, 0.3, 0.4}，用本节的抽样后处理）：timesfm-3.0 (0.8, 0.3)、timestral-209m (0.8, 0.2)、
-  chronos-2 (0.8, 0.3)。mix 下限定为 0.2（每桶至少 0.04）。揭示记录里 `context_source` /
-  `context_points` / `context_reason` 写明这一轮实际用的是哪种输入。
+- **spread**（按模型，在验证期 10-08 至 10-15 的 165 个整点轮次上选定；当时的输出是分桶概率、按 log score
+  选，并固定混合 0.3）：timesfm-3.0 0.5、timestral-209m 0.5、chronos-2 0.35。改为分位数输出后沿用这些值，
+  没有按 pinball 损失在验证期上重选 `[待证据]`。原来与均匀分布混合的那一步只对分桶概率有意义，已去掉。
+- **校准跟着输入走**（`tsfm_forecast.calibration(model, source)`）：`onchain` 用上面的 spread；`swaps` 用
+  `history.LONG_CONTEXT_SPREAD`（同样在验证期上选）：timesfm-3.0 0.8、timestral-209m 0.8、chronos-2 0.8。
+  揭示记录里 `context_source` / `context_points` / `context_reason` 写明这一轮实际用的是哪种输入。
+
+以下测试期表格都是**改为分位数输出之前**的分桶 log score 结果，留作历史；分位数输出的测试期 pinball
+损失尚未测 `[待证据]`。
 
 测试期（10-15 至 10-22，174 个整点轮次，每轮单独请求一次推理服务，和实盘一致）平均对数得分；
 uniform = −1.6094，linear_abs = −1.3906（回放 24 轮：−1.4795），transition = −1.4350：
@@ -246,18 +246,19 @@ linear_abs（−35.51），但 24 轮的标准误约 0.12/轮，不能据此说�
 
 timesfm-3.0 用 c512 也能提升（−1.5250 → −1.4834），但仍保持 c16：它的本地 c512 重算还没有逐轮对过。
 
-**揭示量化与容差**：概率在提交前取整到 1e-3 的网格（`PROB_QUANTUM` = 1e15，1e18 尺度；和恰为 1e18，
-每桶至少一格）。提交先于结果，链上提交的哈希照旧绑定揭示的整数；只有“揭示 = 公开权重算出的值”这一步改为
-容差检查：每桶 |重算 − 揭示| ≤ `RECOMPUTE_TOLERANCE` = 1e15（1e-3），结论为 exact（整数相同）、
-tolerant 或 fail（`tsfm_forecast.compare_reveal`）。CPU 浮点噪声让一个蒙特卡洛样本换桶时，概率只变
-(1 − mix)/4000 < 2.5e-4，取整后多数轮次整数完全相同。
+**揭示量化与容差**：分位数在提交前取整到 2^-12 网格，`outputs[k] = round(q_k · 4096)`，再逐个抬到严格递增
+（至少比前一个大一格）；链上存 `outputs[k] · (1e18 >> 12)`（1e18 ln 单位）。提交先于结果，链上提交的哈希
+照旧绑定揭示的整数；只有“揭示 = 公开权重算出的值”这一步是容差检查：每个分位数
+|重算 − 揭示| ≤ `RECOMPUTE_TOLERANCE_E18` = 1e15（1e18 ln 单位，约 4 格），结论为 exact（整数相同）、
+tolerant 或 fail（`tsfm_forecast.compare_reveal`）。固定种子下经验分位数只在浮点噪声让少数路径换序时才变。
 
 **c512 从链上重建**：`swap_logs.py` 通过 JSON-RPC 拉池子的 Swap 日志（从第一个检查点前 1 小时到
 createRound 段末的第一个区块），写成与 swap 缓存相同的格式，再交给 `history.round_context`。主网日志
 重建的 512 点序列与评测所用序列在回放轮次上逐位一致（见下）。若重建序列对不上揭示，重算再试 agent 缓存
 过期时回退用的 16 点链上特征；两者都只依赖链上数据。
 
-**本地重算 vs 推理服务**（每轮单独请求一次，与实盘一致；本地 CPU float32，公开权重，同一后处理与取整）：
+**本地重算 vs 推理服务**（分桶输出时测得；每轮单独请求一次，与实盘一致；本地 CPU float32，公开权重，
+同一后处理与取整。分位数输出尚未重新逐轮比对 `[待证据]`）：
 
 | 模型 | 上下文 | 测试期 174 轮 | 回放 24 轮 | 最大桶差（1e18） | 取整前最大概率差 |
 |---|---|---|---|---|---|
@@ -271,7 +272,8 @@ timestral-209m 的本地推理要开 symmetric averaging（与镜像序列的预
 
 **档位判断**（要求：权重公开、推理服务在固定参数下重复调用逐位一致、本地用公开权重重算的揭示在全部
 检查轮次上落在容差内）：三个模型都是**可复现**。登记方式：`registerModel(address(0), operator, modelHash)`，
-`modelHash = keccak256(规范 JSON{公开权重 repo@revision, 上下文定义与长度, 推理参数, 后处理参数, 网格与容差,
+`modelHash = keccak256(规范 JSON{公开权重 repo@revision, 上下文定义与长度, 推理参数, 后处理参数,
+输出（分位数水平、scale bits、网格、容差）,
 sha256(tsfm_forecast.py), sha256(tsfm_local.py), c512 模型另加 sha256(history.py)})`
 （`tsfm_forecast.model_hash`）。任何人都可以用
 `python -m vol_agents.tsfm_recompute --model chronos-2 ...` 在本地重算并比对，过程完全不经过推理服务。
@@ -420,7 +422,7 @@ Uniswap `observe()` 读取，不需要波动率喂价。Chainlink 在本项目�
 问责的四层里，事前提交（链上时间戳）、客观结算（`observe()` + Chainlink 交叉校验）、成绩可携带
 （ERC-8004）都不依赖 zk，可以直接复用；只有“出处：确实是该模型算的”需要 zk 或可复现重算。分级验证：zk
 （已实现，小模型）、可复现（已实现：开源权重的 timesfm-3.0、timestral-209m、chronos-2，登记 `modelHash`，
-任何人用 `python -m vol_agents.tsfm_recompute` 从链上数据重算，每桶误差 ≤ 0.001 为一致，回放 72/72 次一致；
+任何人用 `python -m vol_agents.tsfm_recompute` 从链上数据重算，每个分位数误差 ≤ 0.001（ln 单位）为一致，分桶输出时回放 72/72 次一致；
 证明出处，不证明准确）、commit-reveal
 仅提交（已实现，任意模型，不保证出处）、TEE 远程证明（大模型 / LLM，需信任硬件厂商，**未实现**）。opML 不做每轮结算路径：
 它需要挑战窗口与链上单步 VM，并依赖 1-of-N 诚实假设；计划作为可复现档的争议层（押金 + 挑战，未实现，见

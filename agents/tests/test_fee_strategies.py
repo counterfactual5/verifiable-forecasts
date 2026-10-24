@@ -22,23 +22,54 @@ def test_fee_overflow_clamps_to_max_instead_of_reverting():
     assert fs.fee_pips(big, 0, 100, 10_000) == 100
 
 
+# MarketMath.expWad on anvil (MarketMathHarness), bit for bit
+EXP_WAD_ONCHAIN = {
+    0: E18,
+    E18: 2718281828459045222,
+    -E18: 367879441171442320,
+    6802394763324311192: 900000000000000400384,
+    60 * E18: 114200738981568432182289306956157274397081600,
+    -20 * E18: 2061153622,
+    -41999999999999999999: 0,
+    4691400000000000000: 109005680985062189824,
+    123456789012345678: 1131401114526201512,
+    -987654321098765432: 372449313672523958,
+    7276611328125000000: 1446079424318681864192,
+}
+
+
+def test_exp_wad_mirrors_the_contract_bit_for_bit():
+    for x, want in EXP_WAD_ONCHAIN.items():
+        assert fs.exp_wad(x) == want, x
+    assert fs.exp_wad(-42 * E18 - 1) == 0
+    with pytest.raises(ValueError):
+        fs.exp_wad(fs.EXP_MAX + 1)
+
+
+def test_midpoint_weights_cover_the_unit_interval():
+    w = fs.midpoint_weights([E18 // 10, E18 // 4, E18 // 2, 3 * E18 // 4, 9 * E18 // 10])
+    assert w == [E18 // 8, E18 // 5, E18 // 4, E18 // 5, E18 // 8]
+    assert sum(w) == 9 * E18 // 10
+
+
 def test_expected_var_and_fee_for_var_agree():
-    bucket_var = [100, 300, 600, 1200, 2500]
-    mix = [0, 0, E18, 0, 0]
-    assert fs.expected_var_e18(mix, bucket_var) == 600 * E18
-    assert fs.fee_pips(600 * E18, 5 * E18 // 3, 0, 10**6) == fs.fee_for_var(600, 5 * E18 // 3,
-                                                                           0, 10**6)
+    # every quantile at ln 900: E[RV] = 900 tick^2 up to expWad's rounding
+    q = 6802394763324311192
+    ev = fs.expected_var_e18([q] * 5)
+    assert ev == 900000000000000400384
+    assert fs.fee_pips(ev, 2 * E18, 0, 10**6) == fs.fee_for_var(900, 2 * E18, 0, 10**6) == 1800
+    # midpoint-weighted mean of exp(q_k)
+    mix = [0, E18, -E18, 60 * E18, 4691400000000000000]
+    w = [E18 // 8, E18 // 5, E18 // 4, E18 // 5, E18 // 8]
+    want = sum(o * EXP_WAD_ONCHAIN[m] for o, m in zip(w, mix, strict=True)) // sum(w)
+    assert fs.expected_var_e18(mix) == want
 
 
-def test_mix_rounds_down_and_last_bucket_takes_remainder():
-    probs = [[E18 // 3, E18 // 3, E18 // 3, 0, E18 - 3 * (E18 // 3)],
-             [0, E18 // 2, 0, E18 // 2, 0]]
-    mix = fs.mix_e18(probs, [2, 1])
-    assert mix[0] == 2 * (E18 // 3) // 3
-    assert mix[1] == (2 * (E18 // 3) + E18 // 2) // 3
-    assert mix[3] == (E18 // 2) // 3
-    assert sum(mix) == E18
-    assert mix[4] == E18 - sum(mix[:4])
+def test_mix_is_vincentization_truncated_toward_zero():
+    qs = [[-5, 10, 20, 30, 41], [-6, 12, 22, 31, 40]]
+    # (2 * -5 + -6) / 3 = -16 / 3 truncates to -5 (Solidity sdiv), not floor -6
+    assert fs.mix_e18(qs, [2, 1]) == [-5, 32 // 3, 62 // 3, 91 // 3, 122 // 3]
+    assert fs.mix_e18(qs, [1, 1]) == [-5, 11, 21, 30, 40]
 
 
 def test_weights_are_reputation_above_baseline():
@@ -59,13 +90,19 @@ def test_equal_weight_fallback(reps, has_registry):
 
 
 def test_mirror_quote_end_to_end():
-    forecasts = [{"probs": [E18, 0, 0, 0, 0], "reputation": (False, 0)},
-                 {"probs": [0, 0, 0, 0, E18], "reputation": (True, 0)}]
-    q = fs.mirror_quote(forecasts, -E18, True, [100, 200, 300, 400, 500], E18, 0, 10_000)
-    assert q["equal_weight_fallback"]
-    assert q["mix_e18"] == [E18 // 2, 0, 0, 0, E18 // 2]
-    assert q["expected_var_e18"] == 300 * E18
-    assert q["fee_pips"] == 300
+    ln900 = 6802394763324311192
+    forecasts = [{"quantiles": [ln900 - 2 * E18] * 5, "reputation": (False, 0)},
+                 {"quantiles": [ln900 + 2 * E18] * 5, "reputation": (True, 0)}]
+    levels = [E18 // 10, E18 // 4, E18 // 2, 3 * E18 // 4, 9 * E18 // 10]
+    q = fs.mirror_quote(forecasts, -E18, True, levels, E18, 0, 10_000)
+    assert q["equal_weight_fallback"] and q["weights"] == [1, 1]
+    assert q["mix_e18"] == [ln900] * 5
+    assert q["expected_var_e18"] == 900000000000000400384
+    assert q["fee_pips"] == 900
+    # reputation above the baseline weighs the second forecast only
+    forecasts[0]["reputation"] = (True, -2 * E18)
+    q = fs.mirror_quote(forecasts, -E18, True, levels, E18, 0, 10_000)
+    assert not q["equal_weight_fallback"] and q["mix_e18"] == [ln900 + 2 * E18] * 5
 
 
 def test_reputation_mean_decoding():

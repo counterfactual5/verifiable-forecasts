@@ -1,13 +1,14 @@
-"""Self-hosted inference /forecast request and the post-processing from per-step quantiles to bucket
-probabilities, shared by the API agents and the local recompute of the reproducible ones.
+"""Self-hosted inference /forecast request and the post-processing from per-step quantiles to the
+K quantiles of y = ln(max(RV, 1)) the market scores, shared by the API agents and the local
+recompute of the reproducible ones.
 
 The context (differences of Δ-second mean ticks: the 16 contract features / 128, or the long
 off-chain series of history.round_context) goes out as one series; the model returns quantiles of
 each next difference. Each window difference is drawn independently from its
 quantiles (summing per-step quantiles instead underestimates the level and makes the distribution
-U-shaped), scaled by the model's spread, squared and summed into realized vol, and the draws are
-histogrammed into the round's buckets and mixed with uniform. A fixed seed makes the probabilities
-a pure function of the API answer.
+U-shaped), scaled by the model's spread, squared and summed into realized vol per path; the
+empirical quantiles of ln(max(RV_path, 1)) at the market's levels are quantized to the 2^-12
+output grid. A fixed seed makes the reveal a pure function of the API answer.
 
 The bytes of this file and of tsfm_local.py (and history.py for a long-context model) are part of
 a reproducible model's hash (model_hash), so any change to the request, the local inference or the
@@ -32,23 +33,15 @@ from .chain import keccak
 LEVELS = (98, 90, 80, 70, 60, 50, 40, 30, 20, 10)
 MC_DRAWS = 4000
 MC_SEED = 0
-MC_PROB_FLOOR = 1e-4
-# Weight of the uniform distribution mixed into every forecast so no bucket collapses. Chosen on
-# the validation period 2026-10-08 .. 10-15 (165 hourly rounds): mixes of 0.05-0.1 scored below
-# uniform there for timesfm-3.0 and timestral-209m (draws from 16-point contexts miss often).
-UNIFORM_MIX = 0.3
 REPRODUCIBLE, COMMIT_ONLY = "reproducible", "commit-only"
 ONCHAIN, SWAPS = "onchain", "swaps"  # history.Context.source
-# Long-context (spread, mix) for models without an entry in history.LONG_CONTEXT_CALIBRATION
-DEFAULT_LONG_CALIBRATION = (0.8, 0.3)
-# Reveal grid on the 1e18 probability scale: 1e15 = 1e-3. CPU float noise that moves one of the
-# MC_DRAWS samples into another bucket shifts a probability by (1 - mix) / MC_DRAWS < 2.5e-4, so
-# most recomputes reveal the very same integers.
-PROB_QUANTUM = cm.PROB_SCALE // 1000
-# A recompute passes when every bucket is within this of the reveal (1e18 scale, 1e15 = 1e-3):
-# one grid step, as far as a near-tie in the rounding moves a bucket. The commitment still binds
-# the revealed integers; only "revealed = what the public weights compute" is checked to it.
-RECOMPUTE_TOLERANCE = PROB_QUANTUM
+# Long-context spread for models without an entry in history.LONG_CONTEXT_SPREAD
+DEFAULT_LONG_SPREAD = 0.8
+# A recompute passes when every quantile is within this of the reveal, in 1e18 ln units (1e15 =
+# 4.096 steps of the 2^-12 output grid): float drift on CPU that moves a few of the MC_DRAWS paths
+# shifts an empirical quantile by far less. The commitment still binds the revealed integers; only
+# "revealed = what the public weights compute" is checked to it.
+RECOMPUTE_TOLERANCE_E18 = 10**15
 EXACT, TOLERANT, FAIL = "exact", "tolerant", "fail"
 
 
@@ -58,10 +51,10 @@ class TsfmModel:
     weights: str  # public weights "hf_repo@revision"; "" when closed
     license: str
     # Scale on the sampled differences (realized vol scales by spread^2): per-step quantiles from
-    # 16 points are far too wide. Chosen on the validation period with UNIFORM_MIX fixed.
+    # 16 points are far too wide. Chosen on the validation period 2026-10-08 .. 10-15.
     spread: float
     # reproducible only where the public weights on CPU recompute the API's reveal within
-    # RECOMPUTE_TOLERANCE on every checked round (MODEL_CARD 6.2)
+    # RECOMPUTE_TOLERANCE_E18 on every checked round (MODEL_CARD 6.2)
     tier: str
     # Whether the agent sends history.round_context's long series. A reproducible one rebuilds it
     # from the pool's Swap logs alone (tsfm_recompute), so it is a function of chain data.
@@ -103,11 +96,11 @@ def context(features) -> list[int]:
     return [x // cm.MULT for x in features]
 
 
-def calibration(model: str, source: str = ONCHAIN) -> tuple[float, float]:
-    """(spread, uniform mix) for the context the forecast was made from."""
+def calibration(model: str, source: str = ONCHAIN) -> float:
+    """Spread for the context the forecast was made from."""
     if source == SWAPS:
-        return history.LONG_CONTEXT_CALIBRATION.get(model, DEFAULT_LONG_CALIBRATION)
-    return spec(model).spread, UNIFORM_MIX
+        return history.LONG_CONTEXT_SPREAD.get(model, DEFAULT_LONG_SPREAD)
+    return spec(model).spread
 
 
 def build_request(diffs, round_info, model: str) -> dict:
@@ -163,50 +156,46 @@ def sample_quantiles(levels, values, u):
     return x
 
 
-def probs_from_step_quantiles(levels, steps, bounds, n_diffs, spread=1.0, mix=0.0,
-                              draws=MC_DRAWS, seed=MC_SEED) -> list[float]:
-    """Bucket probabilities of RV = sum of the last n_diffs steps squared, each drawn independently
-    from its quantiles and scaled by spread, then mixed with uniform by weight mix."""
+def rv_paths(levels, steps, n_diffs, spread=1.0, draws=MC_DRAWS, seed=MC_SEED) -> np.ndarray:
+    """RV per path = sum of the last n_diffs steps squared, each drawn independently from its
+    quantiles and scaled by spread."""
     if len(steps) < n_diffs:
         raise ValueError(f"need {n_diffs} forecast steps, got {len(steps)}")
     u = np.random.default_rng(seed).random((n_diffs, draws))
     rv = np.zeros(draws)
     for k, s in enumerate(steps[-n_diffs:]):
         rv += (spread * sample_quantiles(levels, s, u[k])) ** 2
-    b = np.searchsorted(np.asarray(bounds, float), rv, side="right")
-    p = np.maximum(np.bincount(b, minlength=cm.BUCKETS) / draws, MC_PROB_FLOOR)
-    p = p / p.sum()
-    return [float((1 - mix) * v + mix / cm.BUCKETS) for v in p]
+    return rv
 
 
-def probs(levels, steps, bounds, n_segments: int, model: str, source: str = ONCHAIN):
-    scale, mix = calibration(model, source)
-    return probs_from_step_quantiles(levels, steps, bounds, n_segments - 1, scale, mix)
+def ln_quantiles_from_step_quantiles(levels, steps, n_diffs, spread=1.0, taus=cm.QUANTILE_LEVELS,
+                                     draws=MC_DRAWS, seed=MC_SEED) -> list[float]:
+    """Empirical quantiles (numpy linear) of y = ln(max(RV_path, RV_FLOOR)) at taus."""
+    y = np.log(np.maximum(rv_paths(levels, steps, n_diffs, spread, draws, seed), cm.RV_FLOOR))
+    return [float(v) for v in np.quantile(y, list(taus))]
 
 
-def quantize_reveal(probs) -> list[int]:
-    """1e18-scaled reveal on the PROB_QUANTUM grid that sums exactly to 1e18: largest remainder
-    (ties to the lower bucket), then any empty bucket lifted to one step taken from the largest."""
-    p = [float(v) for v in probs]
-    if len(p) != cm.BUCKETS or any(not math.isfinite(v) or v < 0 for v in p) or sum(p) <= 0:
-        raise ValueError(f"need {cm.BUCKETS} finite non-negative probabilities, got {probs}")
-    total = cm.PROB_SCALE // PROB_QUANTUM
-    scaled = [v / sum(p) * total for v in p]
-    steps = [math.floor(v) for v in scaled]
-    by_remainder = sorted(range(cm.BUCKETS), key=lambda i: (steps[i] - scaled[i], i))
-    for i in by_remainder[:total - sum(steps)]:
-        steps[i] += 1
-    for i in range(cm.BUCKETS):
-        if steps[i] == 0:
-            steps[max(range(cm.BUCKETS), key=lambda j: (steps[j], -j))] -= 1
-            steps[i] = 1
-    return [k * PROB_QUANTUM for k in steps]
+def ln_quantiles(levels, steps, n_segments: int, model: str, source: str = ONCHAIN):
+    return ln_quantiles_from_step_quantiles(levels, steps, n_segments - 1,
+                                            calibration(model, source))
 
 
-def compare_reveal(revealed, recomputed) -> tuple[int, str]:
-    """(largest per-bucket |revealed - recomputed| on the 1e18 scale, EXACT | TOLERANT | FAIL)."""
-    diff = max(abs(int(a) - int(b)) for a, b in zip(revealed, recomputed, strict=True))
-    return diff, EXACT if diff == 0 else TOLERANT if diff <= RECOMPUTE_TOLERANCE else FAIL
+def quantize_reveal(q) -> list[int]:
+    """outputs[k] = round(q_k * 2^OUTPUT_SCALE_BITS), lifted to strictly increasing by one grid
+    step; rejected unless VolMarket.revealPrediction would accept it."""
+    q = [float(v) for v in q]
+    if len(q) != cm.K or any(not math.isfinite(v) for v in q):
+        raise ValueError(f"need {cm.K} finite quantiles, got {q}")
+    out = cm.quantize_quantiles(q)
+    if not cm.valid_outputs(out):
+        raise ValueError(f"quantiles outside [Q_MIN, Q_MAX]: {q}")
+    return out
+
+
+def compare_reveal(revealed_e18, recomputed_e18) -> tuple[int, str]:
+    """(largest per-quantile |revealed - recomputed| in 1e18 ln units, EXACT | TOLERANT | FAIL)."""
+    diff = max(abs(int(a) - int(b)) for a, b in zip(revealed_e18, recomputed_e18, strict=True))
+    return diff, EXACT if diff == 0 else TOLERANT if diff <= RECOMPUTE_TOLERANCE_E18 else FAIL
 
 
 def _sha256(path: Path) -> str:
@@ -229,11 +218,15 @@ def model_hash_preimage(model: str) -> dict:
         "model": s.model,
         "inference": {"context": ctx, "step": "delta", "freq": "5min", "h": "nSegments + 1",
                       "level": list(LEVELS), "cleaning": "raw", "float": "float32"},
-        "postprocess": {"spread": s.spread, "uniform_mix": UNIFORM_MIX,
-                        "long_calibration": list(calibration(model, SWAPS)) if s.long_context
-                        else None,
-                        "draws": MC_DRAWS, "seed": MC_SEED, "prob_floor": MC_PROB_FLOOR,
-                        "reveal_quantum": PROB_QUANTUM, "tolerance": RECOMPUTE_TOLERANCE},
+        "postprocess": {"spread": s.spread,
+                        "long_spread": calibration(model, SWAPS) if s.long_context else None,
+                        "draws": MC_DRAWS, "seed": MC_SEED},
+        "output": {"target": "ln(max(RV, 1)) of the sampled paths, RV in tick^2",
+                   "quantile": "numpy linear empirical quantile",
+                   "levels_e18": [str(t) for t in cm.QUANTILE_LEVELS_E18],
+                   "scale_bits": cm.OUTPUT_SCALE_BITS,
+                   "grid": "round(q * 2^scale_bits), then strictly increasing by +1",
+                   "tolerance_e18": str(RECOMPUTE_TOLERANCE_E18)},
         "code_sha256": _sha256(Path(__file__)),
         "local_runner_sha256": _sha256(Path(__file__).with_name("tsfm_local.py")),
     }

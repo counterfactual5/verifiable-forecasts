@@ -1,13 +1,14 @@
 """One VolMarket round on a local anvil chain with the three agents competing.
 
-deploy(): MockERC20, MockPool, VolMarket(Δ=300, N=12), the ERC-8004 Lite identity and reputation
-registries and one EZKL verifier per model; each model is registered with its own agent as
-operator, and each agent registers an ERC-8004 identity that the market links to its model, so
-the settled log score reaches that agent's reputation. open_round(): set the pool's 17 history
-segments and 12 window segments, createRound at T0. commit_all(): every agent proves and commits
-a hash of its forecast; reveal_all(): once commits close, every agent reveals outputs and proof.
-settle_round(): sample every checkpoint, settle, read each agent's onchain log score and write
-out/compare_round.json.
+deploy(): MockERC20, MockPool, VolMarket(Δ=300, N=12, quantile levels, output scale 2^12), the
+ERC-8004 Lite identity and reputation registries and one EZKL verifier per model; each model is
+registered with its own agent as operator, and each agent registers an ERC-8004 identity that the
+market links to its model, so the settled pinball score reaches that agent's reputation.
+open_round(): set the pool's 17 history segments and 12 window segments, createRound at T0 with
+the training-period climatological baseline quantiles (models/baseline_quantiles.json).
+commit_all(): every agent proves and commits a hash of its forecast; reveal_all(): once commits
+close, every agent reveals outputs and proof. settle_round(): sample every checkpoint, settle,
+read each agent's onchain score (-pinball loss) and write out/compare_round.json.
 
 Usage: uv run python -m vol_agents.round   (starts and stops its own anvil)
 """
@@ -19,7 +20,7 @@ from . import contract_math as cm
 from .agent import Agent
 from .build import build, model_names, verifier_name
 from .chain import DEV_KEYS, Anvil, address_of, as_int
-from .ezkl_step import OUT
+from .ezkl_step import OUT, ROOT
 
 # Segment ticks: 17 history segments (tick increments of about +-12, a typical hour of the real
 # pool) and VolMarket.t.sol's _mixed() window path scaled by 5 (RV 49 * 25 = 1225, bucket 3 under
@@ -30,6 +31,9 @@ WINDOW_TICKS = [
     196000, 196010, 195995, 196015, 196015, 196010, 196000, 196005, 195995, 195995, 196010, 196005,
 ]
 COMPARE = OUT / "compare_round.json"
+BASELINE_QUANTILES = ROOT / "models" / "baseline_quantiles.json"
+PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,int256[],int256)"
+SCORING_SIG = "getRoundScoring(uint256)(int256,uint256,int256[])"
 # Commits close COMMIT_LEAD s and reveals REVEAL_LEAD s before the round start (T0 + 2 * DELTA);
 # the commit phase must outlast the agents' proving, which advances anvil's wall-clock time.
 COMMIT_LEAD = 300
@@ -47,6 +51,38 @@ def history_ticks():
     for d in HISTORY_DIFFS:
         t.append(t[-1] + d)
     return t
+
+
+def int_list(values) -> str:
+    """cast argument for uint256[] / int256[]."""
+    return "[" + ",".join(str(int(v)) for v in values) + "]"
+
+
+def baseline_quantiles(path=BASELINE_QUANTILES) -> list[int]:
+    """Training-period climatological quantiles of ln RV (1e18), checked against the market's
+    levels and output grid."""
+    b = json.loads(path.read_text())
+    if [int(t) for t in b["levels_e18"]] != list(cm.QUANTILE_LEVELS_E18):
+        raise ValueError(f"{path}: levels {b['levels_e18']} differ from QUANTILE_LEVELS_E18")
+    q = [int(v) for v in b["quantiles_e18"]]
+    if any(v % cm.OUTPUT_UNIT_E18 for v in q) or not cm.valid_outputs(
+            [v // cm.OUTPUT_UNIT_E18 for v in q]):
+        raise ValueError(f"{path}: baseline quantiles off the 2^-12 grid or not increasing")
+    return q
+
+
+def deploy_market(chain: Anvil, owner, token, pool, fee_bps=0, share_bps=0,
+                  commit_lead=COMMIT_LEAD, reveal_lead=REVEAL_LEAD) -> str:
+    return chain.deploy(
+        owner, "src/VolMarket.sol:VolMarket", token, fee_bps, share_bps, pool, cm.DELTA,
+        cm.N_SEGMENTS, commit_lead, reveal_lead, int_list(cm.QUANTILE_LEVELS_E18),
+        cm.OUTPUT_SCALE_BITS,
+    )
+
+
+def create_round(chain: Anvil, owner, market, start, bounds=cm.BOUNDS, baseline=None):
+    chain.send(owner, market, "createRound(uint64,uint256[],int256[])", start, int_list(bounds),
+               int_list(baseline if baseline is not None else baseline_quantiles()))
 
 
 @dataclass
@@ -100,10 +136,7 @@ def deploy(chain: Anvil, models=None) -> Deployment:
     owner = DEV_KEYS[0]
     token = chain.deploy(owner, "test/mocks/MockERC20.sol:MockERC20")
     pool = chain.deploy(owner, "test/mocks/MockPool.sol:MockPool")
-    market = chain.deploy(
-        owner, "src/VolMarket.sol:VolMarket", token, 0, 0, pool, cm.DELTA, cm.N_SEGMENTS,
-        COMMIT_LEAD, REVEAL_LEAD,
-    )
+    market = deploy_market(chain, owner, token, pool)
     identity = chain.deploy(owner, "src/erc8004/IdentityRegistryLite.sol:IdentityRegistryLite")
     reputation = chain.deploy(
         owner, "src/erc8004/ReputationRegistryLite.sol:ReputationRegistryLite"
@@ -120,7 +153,7 @@ def deploy(chain: Anvil, models=None) -> Deployment:
         chain.send(owner, market, "registerModel(address,address)", verifier, agent.address)
         agent.model_id = as_int(chain.call(market, "modelCount()(uint256)")[0]) - 1
         # The agent owns its identity and links it to its model, so the market can write the
-        # settled log score to that agent's reputation.
+        # settled pinball score to that agent's reputation.
         agent_id = register_identity(
             chain, identity, key, AGENT_URI.format(name=agent.name)
         )
@@ -149,8 +182,7 @@ def open_round(d: Deployment) -> int:
     c.send(owner, d.pool, "setSegments(uint256,uint256,int24[])", start, cm.DELTA,
            "[" + ",".join(map(str, WINDOW_TICKS)) + "]")
     c.set_next_timestamp(t0)
-    c.send(owner, d.market, "createRound(uint64,uint256[])", start,
-           "[" + ",".join(map(str, cm.BOUNDS)) + "]")
+    create_round(c, owner, d.market, start)
     rid = as_int(c.call(d.market, "roundCount()(uint256)")[0]) - 1
     feats = [as_int(v) for v in c.call(d.market, "getFeatures(uint256)(int256[16])", rid)[0]]
     assert feats == cm.features_from_segment_ticks(hist), (feats, hist)
@@ -188,23 +220,28 @@ def settle_round(d: Deployment, rid: int):
         rid,
     )
     settled, voided, win, rv = r[1], r[2], as_int(r[3]), as_int(r[4])
+    ln_rv, baseline_loss, baseline = c.call(d.market, SCORING_SIG, rid)
+    ln_rv, baseline_loss = as_int(ln_rv), as_int(baseline_loss)
     rows = []
     for a in d.agents:
-        p = c.call(d.market, "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)", rid,
-                   a.address)
-        probs = [as_int(v) for v in p[2]]
+        p = c.call(d.market, PREDICTION_SIG, rid, a.address)
+        q = [as_int(v) for v in p[2]]
+        score = as_int(p[3])
         rows.append({
             "agent": a.name,
-            "model": a.model,
+            "model": getattr(a, "model", None),
             "model_id": as_int(p[1]),
             "submitted": p[0] is True or p[0] == "true",
-            "score": as_int(p[3]),
-            "p_win": probs[win] / 1e18,
-            "probs": [v / 1e18 for v in probs],
+            "score": score,
+            "pinball_loss": -score / 1e18,
+            "excess": max(baseline_loss + score, 0) / 1e18,
+            "quantiles": [v / 1e18 for v in q],
+            "quantiles_e18": [str(v) for v in q],
             "prove_seconds": a.timings.get("prove", {}).get("seconds"),
             "prove_peak_mb": a.timings.get("prove", {}).get("peak_mb"),
         })
     rows.sort(key=lambda r: r["score"], reverse=True)
+    expected_rv = cm.realized_vol(WINDOW_TICKS)
     result = {
         "round_id": rid,
         "market": d.market,
@@ -212,9 +249,14 @@ def settle_round(d: Deployment, rid: int):
         "voided": voided is True or voided == "true",
         "realized_vol": rv,
         "winning_bucket": win,
-        "expected": {"realized_vol": cm.realized_vol(WINDOW_TICKS),
-                     "bucket": cm.bucket_of(cm.realized_vol(WINDOW_TICKS))},
-        "score_unit": "natural log of p_win, scaled 1e18 (VolMarket logScore)",
+        "ln_rv_e18": str(ln_rv),
+        "ln_rv": ln_rv / 1e18,
+        "quantile_levels": list(cm.QUANTILE_LEVELS),
+        "baseline_quantiles": [as_int(v) / 1e18 for v in baseline],
+        "baseline_loss": baseline_loss / 1e18,
+        "expected": {"realized_vol": expected_rv, "bucket": cm.bucket_of(expected_rv),
+                     "ln_rv_e18": str(cm.ln_rv_e18(expected_rv))},
+        "score_unit": "-mean pinball loss of ln(max(RV, 1)) over the quantile levels, scaled 1e18",
         "winner": rows[0]["agent"],
         "agents": rows,
     }

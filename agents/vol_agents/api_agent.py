@@ -11,8 +11,12 @@ Two wire formats (VOL_TSFM_API_SCHEMA):
   and post-processing in tsfm_forecast. A model whose public weights recompute the revealed
   vector on CPU has tier "reproducible" and registers tsfm_forecast.model_hash; the others are
   commit-only, so their score only shows the forecast was made in time, not which model made it.
-- "vol-forecast-request/v1": the generic schema in agents/README.md, answered with 5 bucket
-  probabilities or quantiles of realized vol in tick^2; always commit-only.
+- "vol-forecast-request/v1": the generic schema in agents/README.md, answered with quantiles of
+  realized vol in tick^2 (mapped to ln and interpolated to the market's levels); always
+  commit-only.
+
+Reveals are K signed integers outputs[k] = q_k * 2^OUTPUT_SCALE_BITS, q_k the forecast quantiles
+of y = ln(max(RV, 1)) at contract_math.QUANTILE_LEVELS.
 
 Configuration (environment): VOL_TSFM_API_URL (unset: a deterministic local placeholder forecast;
 for tsfm-forecast the service's base URL, e.g. https://<host>/v1), VOL_TSFM_API_KEY (sent as
@@ -28,7 +32,8 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from fractions import Fraction
+
+import numpy as np
 
 from . import contract_math as cm
 from . import history
@@ -38,8 +43,6 @@ from .chain import Anvil, address_of, as_int
 
 REQUEST_SCHEMA = "vol-forecast-request/v1"
 QUANTILE_LEVELS = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
-# Every bucket keeps at least this probability: a zero would score the floor -18 if it happens.
-MIN_PROB = 1e-6
 PLACEHOLDER_LEVELS = (0.1, 0.5, 0.9)
 # Quantiles as multiples of the trailing realized vol: p10/p50/p90 of next-hour RV over trailing RV
 # in the training period (models/eval.json "placeholder_scale", vol_agents.train).
@@ -122,75 +125,31 @@ def call_api(cfg: ApiConfig, body: dict, url: str | None = None) -> dict:
         raise RuntimeError(f"TSFM API call failed: {type(e).__name__}") from None
 
 
-def probs_from_response(resp: dict, bounds) -> list[float]:
-    if "bucket_probs" in resp:
-        return _normalized(resp["bucket_probs"])
+def quantiles_from_response(resp: dict) -> list[float]:
+    """ln quantiles at the market's levels from a generic answer's RV quantiles (tick^2)."""
     if "quantiles" in resp:
         q = resp["quantiles"]
-        return probs_from_quantiles([p["level"] for p in q], [p["value"] for p in q], bounds)
-    raise ValueError("response needs 'bucket_probs' or 'quantiles'")
+        return ln_quantiles([p["level"] for p in q], [p["value"] for p in q])
+    if "bucket_probs" in resp:
+        raise ValueError("bucket_probs answers are no longer scored: the market takes quantiles "
+                         "of ln realized vol; answer 'quantiles' of realized vol in tick^2")
+    raise ValueError("response needs 'quantiles'")
 
 
-def _normalized(probs) -> list[float]:
-    if len(probs) != cm.BUCKETS:
-        raise ValueError(f"bucket_probs needs {cm.BUCKETS} values, got {len(probs)}")
-    p = [float(v) for v in probs]
-    if any(not math.isfinite(v) or v < 0 for v in p) or sum(p) <= 0:
-        raise ValueError(f"bucket_probs must be non-negative with a positive sum: {probs}")
-    s = sum(p)
-    return [v / s for v in p]
-
-
-def quantile_cdf(levels, values):
-    """CDF of realized vol (>= 0) through the given quantiles: linear between them, linear from
-    (0, 0) up to the lowest one, and an exponential upper tail fitted through the top two."""
-    pts = sorted(zip((float(v) for v in values), (float(q) for q in levels), strict=True),
-                 key=lambda t: (t[1], t[0]))
+def ln_quantiles(levels, values, taus=cm.QUANTILE_LEVELS) -> list[float]:
+    """RV quantiles (tick^2) to quantiles of y = ln(max(RV, RV_FLOOR)) at taus: ln is monotone,
+    so the quantiles map one to one; levels in between are linear in (tau, y), levels outside the
+    given ones take the nearest given quantile."""
+    pts = sorted(zip((float(q) for q in levels), (float(v) for v in values), strict=True))
     if len(pts) < 2:
         raise ValueError("need at least two quantiles")
-    vs, qs = [p[0] for p in pts], [p[1] for p in pts]
+    qs, vs = [p[0] for p in pts], [p[1] for p in pts]
     if any(not 0 < q < 1 for q in qs) or any(b <= a for a, b in itertools.pairwise(qs)):
         raise ValueError(f"quantile levels must be strictly increasing in (0, 1): {qs}")
     if any(not math.isfinite(v) for v in vs) or any(b < a for a, b in itertools.pairwise(vs)):
         raise ValueError(f"quantile values must be finite and non-decreasing: {vs}")
-    vs = [max(v, 0.0) for v in vs]
-    knots = ([(0.0, 0.0)] if vs[0] > 0 else []) + list(zip(vs, qs, strict=True))
-    v_hi, q_hi = vs[-1], qs[-1]
-    span = vs[-1] - vs[-2]
-    tail = span / math.log((1 - qs[-2]) / (1 - q_hi)) if span > 0 else max(v_hi, 1.0)
-
-    def cdf(x):
-        if x >= v_hi:
-            return 1 - (1 - q_hi) * math.exp(-(x - v_hi) / tail)
-        if x < knots[0][0]:
-            return 0.0
-        for (x0, c0), (x1, c1) in itertools.pairwise(knots):
-            if x0 <= x < x1:
-                return c0 + (c1 - c0) * (x - x0) / (x1 - x0)
-        return knots[-1][1]
-
-    return cdf
-
-
-def probs_from_quantiles(levels, values, bounds) -> list[float]:
-    """Bucket i holds bounds[i-1] <= rv < bounds[i] (VolMarket bucketOf)."""
-    cdf = quantile_cdf(levels, values)
-    edges = [0.0] + [cdf(float(b)) for b in bounds] + [1.0]
-    return [max(edges[i + 1] - edges[i], 0.0) for i in range(cm.BUCKETS)]
-
-
-def quantize(probs, min_prob=MIN_PROB) -> list[int]:
-    """1e18-scaled integers that sum exactly to 1e18, each at least min_prob (largest remainder).
-    As reveal outputs they become exactly these probabilities onchain."""
-    p = [Fraction(max(v, min_prob)) for v in _normalized(probs)]
-    s = sum(p)
-    scaled = [v / s * cm.PROB_SCALE for v in p]
-    ints = [math.floor(v) for v in scaled]
-    short = cm.PROB_SCALE - sum(ints)
-    for i in sorted(range(cm.BUCKETS), key=lambda i: scaled[i] - ints[i], reverse=True)[:short]:
-        ints[i] += 1
-    assert sum(ints) == cm.PROB_SCALE and min(ints) > 0
-    return ints
+    ys = [math.log(max(v, cm.RV_FLOOR)) for v in vs]
+    return [float(v) for v in np.interp(list(taus), qs, ys)]
 
 
 def trailing_realized_vol(features, n_segments=cm.N_SEGMENTS) -> int:
@@ -200,9 +159,13 @@ def trailing_realized_vol(features, n_segments=cm.N_SEGMENTS) -> int:
 
 
 def placeholder_quantiles(features):
-    """Deterministic stand-in when no API is configured: quantiles around the trailing RV."""
+    """Deterministic stand-in when no API is configured: RV quantiles around the trailing RV."""
     rv = max(trailing_realized_vol(features), 1)
     return list(PLACEHOLDER_LEVELS), [rv * s for s in PLACEHOLDER_SCALE]
+
+
+def placeholder_forecast(features) -> list[float]:
+    return ln_quantiles(*placeholder_quantiles(features))
 
 
 @dataclass
@@ -244,15 +207,16 @@ class ApiAgent(Forecaster):
         reason = "model reads the onchain features only" if s else None
         return history.Context(sf.context(feats), sf.ONCHAIN, reason)
 
-    def api_probs(self, feats, bounds, info, ctx: history.Context | None = None) -> list[float]:
+    def api_quantiles(self, feats, bounds, info, ctx: history.Context | None = None):
+        """Forecast quantiles of y = ln(max(RV, 1)) at contract_math.QUANTILE_LEVELS (floats)."""
         cfg = self.config
         if self.tsfm:
             ctx = ctx or self.context(feats, info)
             resp = call_api(cfg, sf.build_request(ctx.diffs, info, cfg.model),
                             url=cfg.url.rstrip("/") + "/forecast")
             levels, steps = sf.step_quantiles(resp)
-            return sf.probs(levels, steps, bounds, info["n_segments"], cfg.model, ctx.source)
-        return probs_from_response(call_api(cfg, build_request(feats, bounds, info)), bounds)
+            return sf.ln_quantiles(levels, steps, info["n_segments"], cfg.model, ctx.source)
+        return quantiles_from_response(call_api(cfg, build_request(feats, bounds, info)))
 
     def prepare(self, chain: Anvil, market: str, round_id: int) -> dict:
         feats = [as_int(v) for v in
@@ -264,14 +228,14 @@ class ApiAgent(Forecaster):
         info = {"market": market, "id": round_id, "start": as_int(r[0]), "delta_s": delta,
                 "n_segments": n}
         ctx = self.context(feats, info)
-        if self.config:
-            probs = self.api_probs(feats, bounds, info, ctx)
-        else:
-            probs = probs_from_quantiles(*placeholder_quantiles(feats), bounds)
-        outputs = sf.quantize_reveal(probs) if self.tsfm else quantize(probs)
-        return {"features": feats, "outputs": outputs, "proof": "0x",
-                "source": self.source, "api_probs": probs, "context_source": ctx.source,
-                "context_points": len(ctx.diffs), "context_reason": ctx.reason}
+        q = self.api_quantiles(feats, bounds, info, ctx) if self.config else (
+            placeholder_forecast(feats))
+        outputs = sf.quantize_reveal(q)
+        return {"features": feats, "outputs": outputs,
+                "quantiles": [o / (1 << cm.OUTPUT_SCALE_BITS) for o in outputs],
+                "api_quantiles": q, "proof": "0x", "source": self.source,
+                "context_source": ctx.source, "context_points": len(ctx.diffs),
+                "context_reason": ctx.reason}
 
 
 def tsfm_agents(config: ApiConfig, keys, models=None) -> list[ApiAgent]:

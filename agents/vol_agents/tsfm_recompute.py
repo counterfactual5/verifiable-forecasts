@@ -7,13 +7,12 @@ Online:  uv run python -m vol_agents.tsfm_recompute --model chronos-2 --rpc-url 
   context from chain data (the round's 16 features; for a long-context model the 512-point series
   from the pool's Swap logs, read from --logs-rpc-url, default $MAINNET_RPC_URL or the public
   gateway), runs the public weights (tsfm_local.py under VOL_REPRO_PYTHON), applies the same
-  post-processing and quantization and compares the 5 outputs with the reveal of
-  modelOperator(M). Prints a JSON summary with the largest per-bucket difference and a verdict:
-  "exact" (same integers), "tolerant" (every bucket within tsfm_forecast.RECOMPUTE_TOLERANCE) or
-  "fail"; exit 0 unless "fail".
-Offline: uv run python -m vol_agents.tsfm_recompute --model timesfm-3.0
-           --features=f1,...,f16 --bounds=b1,...,b4   prints the 1e18 vector of the 16-feature
-  context.
+  post-processing and quantization and compares the K quantiles (1e18 ln units) with the reveal
+  of modelOperator(M). Prints a JSON summary with the largest per-quantile difference and a
+  verdict: "exact" (same integers), "tolerant" (every quantile within
+  tsfm_forecast.RECOMPUTE_TOLERANCE_E18) or "fail"; exit 0 unless "fail".
+Offline: uv run python -m vol_agents.tsfm_recompute --model timesfm-3.0 --features=f1,...,f16
+  prints the reveal outputs (2^-12 grid) of the 16-feature context.
 """
 
 import argparse
@@ -31,7 +30,7 @@ from .chain import Rpc, as_int
 from .swap_logs import SwapLogs, round_context_from_chain
 
 LOCAL_RUNNER = Path(__file__).resolve().parent / "tsfm_local.py"
-PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,uint256[5],int256)"
+PREDICTION_SIG = "getPrediction(uint256,address)(bool,uint256,int256[],int256)"
 EXIT_MISMATCH, EXIT_ERROR = 1, 2
 DEFAULT_LOGS_RPC = "https://mainnet.gateway.tenderly.co"
 
@@ -50,11 +49,12 @@ def local_step_quantiles(model: str, diffs, n_segments: int, python=None) -> dic
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
-def recompute_outputs(model: str, ctx: history.Context, bounds, n_segments=cm.N_SEGMENTS,
+def recompute_outputs(model: str, ctx: history.Context, n_segments=cm.N_SEGMENTS,
                       python=None) -> list[int]:
+    """The reveal outputs (2^-12 grid) the public weights give for ctx."""
     q = local_step_quantiles(model, ctx.diffs, n_segments, python)
-    return sf.quantize_reveal(sf.probs(q["levels"], q["steps"], bounds, n_segments, model,
-                                       ctx.source))
+    return sf.quantize_reveal(sf.ln_quantiles(q["levels"], q["steps"], n_segments, model,
+                                              ctx.source))
 
 
 def candidate_contexts(model: str, features, start: int, delta: int, logs: SwapLogs | None,
@@ -69,12 +69,13 @@ def candidate_contexts(model: str, features, start: int, delta: int, logs: SwapL
     return [rebuilt, onchain] if rebuilt.source == sf.SWAPS else [onchain]
 
 
-def verify(model, revealed, contexts, bounds, n_segments, python=None) -> dict:
-    """The first context whose recompute matches the reveal within tolerance, else the closest."""
+def verify(model, revealed_e18, contexts, n_segments, python=None) -> dict:
+    """The first context whose recompute matches the reveal (quantiles in 1e18 ln units, as
+    getPrediction returns them) within tolerance, else the closest."""
     tried = []
     for ctx in contexts:
-        out = recompute_outputs(model, ctx, bounds, n_segments, python)
-        diff, verdict = sf.compare_reveal(revealed, out)
+        out = cm.outputs_to_e18(recompute_outputs(model, ctx, n_segments, python))
+        diff, verdict = sf.compare_reveal(revealed_e18, out)
         tried.append({"contextSource": ctx.source, "contextPoints": len(ctx.diffs),
                       "recomputed": out, "maxAbsDiff": diff, "verdict": verdict})
         if verdict != sf.FAIL:
@@ -99,17 +100,22 @@ def recompute_online(model, rpc_url, market, round_id, model_id, logs_rpc_url=No
     revealed = [as_int(v) for v in rec[2]]
     feats = [as_int(v) for v in chain.call(market, "getFeatures(uint256)(int256[16])",
                                            round_id)[0]]
+    levels = [as_int(v) for v in chain.call(market, "quantileLevels()(uint256[])")[0]]
+    bits = as_int(chain.call(market, "outputScaleBits()(uint8)")[0])
+    if levels != list(cm.QUANTILE_LEVELS_E18) or bits != cm.OUTPUT_SCALE_BITS:
+        print(f"market quantile levels {levels} / scale bits {bits} differ from the model's",
+              file=sys.stderr)
+        return EXIT_MISMATCH
     r = chain.call(market, ROUND_SIG, round_id)
-    start, bounds = as_int(r[0]), [as_int(b) for b in r[7]]
+    start = as_int(r[0])
     n = as_int(chain.call(market, "nSegments()(uint8)")[0])
     delta = as_int(chain.call(market, "delta()(uint32)")[0])
     pool = chain.call(market, "pool()(address)")[0]
     logs = SwapLogs(logs_rpc_url or os.environ.get("MAINNET_RPC_URL") or DEFAULT_LOGS_RPC)
-    result = verify(model, revealed, candidate_contexts(model, feats, start, delta, logs, pool),
-                    bounds, n)
+    result = verify(model, revealed, candidate_contexts(model, feats, start, delta, logs, pool), n)
     print(json.dumps({"model": model, "weights": sf.spec(model).weights, "market": market,
                       "round": round_id, "modelId": model_id, "modelHash": onchain,
-                      "revealed": revealed, "tolerance": sf.RECOMPUTE_TOLERANCE, **result}))
+                      "revealed": revealed, "tolerance": sf.RECOMPUTE_TOLERANCE_E18, **result}))
     return 0 if result["verdict"] != sf.FAIL else EXIT_MISMATCH
 
 
@@ -123,7 +129,6 @@ def main(argv=None) -> int:
     p.add_argument("--round", type=int)
     p.add_argument("--model-id", type=int)
     p.add_argument("--features", type=lambda s: [int(v) for v in s.split(",") if v.strip()])
-    p.add_argument("--bounds", type=lambda s: [int(v) for v in s.split(",") if v.strip()])
     a = p.parse_args(argv)
     try:
         if a.rpc_url:
@@ -131,10 +136,10 @@ def main(argv=None) -> int:
                 p.error("online mode needs --market, --round and --model-id")
             return recompute_online(a.model, a.rpc_url, a.market, a.round, a.model_id,
                                     a.logs_rpc_url)
-        if a.features is None or a.bounds is None:
-            p.error("offline mode needs --features and --bounds")
+        if a.features is None:
+            p.error("offline mode needs --features")
         ctx = history.Context(sf.context(a.features), sf.ONCHAIN)
-        print(json.dumps(recompute_outputs(a.model, ctx, a.bounds)))
+        print(json.dumps(recompute_outputs(a.model, ctx)))
         return 0
     except (RuntimeError, ValueError, subprocess.TimeoutExpired) as e:
         print(f"tsfm_recompute: {e}", file=sys.stderr)

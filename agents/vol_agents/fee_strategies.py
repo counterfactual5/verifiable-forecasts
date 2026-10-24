@@ -1,11 +1,14 @@
 """Off-chain mirror of VolFeeConsumer and the fee strategies the mainnet-fork replay compares.
 
 Contract mirror (integer only, VolFeeConsumer.quote / _fee / _mix / _forecasts):
-- mix[b] = floor(sum_i w_i * p_i[b] / W) for b < 4, the last bucket takes the remainder;
-- w_i = max(reputation mean_i - baselineLogScore, 0); every revealed forecast weighs 1 when the
+- mix[k] = sdiv(sum_i w_i * q_i[k], W) per quantile level (Vincentization; q in 1e18 ln units,
+  Solidity's signed division truncates toward zero);
+- w_i = max(reputation mean_i - baselineScore, 0); every revealed forecast weighs 1 when the
   market has no registry, any revealed model has no reputation, or all weights are 0;
-- expectedVarE18 = sum_b mix[b] * bucketVar[b]; fee = expectedVarE18 * feePerVarE18 / 1e36 pips,
-  clamped to [minFee, maxFee], maxFee when the product overflows uint256.
+- expectedVarE18 = sum_k omega_k * expWad(mix[k]) / sum_k omega_k (tick^2 * 1e18), midpoint
+  weights omega_k = (tau_{k+1} - tau_{k-1}) / 2 with tau_0 = 0, tau_{K+1} = 1e18;
+  fee = expectedVarE18 * feePerVarE18 / 1e36 pips, clamped to [minFee, maxFee], maxFee when the
+  product overflows uint256.
 
 Fair fee (LVR break-even, Milionis et al. 2022): a CPMM loses sigma^2 / 8 of its value per unit
 time to arbitrage; with concentrated liquidity the value at risk is the virtual 2 * L * sqrt(P).
@@ -33,9 +36,47 @@ FAIR_DEFINITION = ("LVR break-even fee: (sigma_hour^2 / 8) * 2*L*sqrt(P) / hour'
                    "to a full hour, 3/2 for the 2/3 variance of window-mean differences)")
 
 
-def expected_var_e18(mix_e18, bucket_var):
-    """sum_b mix[b] * bucketVar[b]: tick^2 scaled by 1e18."""
-    return sum(int(m) * int(v) for m, v in zip(mix_e18, bucket_var, strict=True))
+WAD = 10**18
+LN2_1E18 = 693147180559945309  # MarketMath.LN2_1E18
+EXP_MAX, EXP_MIN = 130 * WAD, -42 * WAD  # MarketMath.expWad domain, 1e18 ln units
+
+
+def _sdiv(a: int, b: int) -> int:
+    """Solidity int256 division: truncates toward zero."""
+    q = abs(a) // abs(b)
+    return q if (a >= 0) == (b > 0) else -q
+
+
+def exp_wad(x: int) -> int:
+    """MarketMath.expWad: exp(x / 1e18) * 1e18 by k*ln2 range reduction and a Taylor sum, with the
+    contract's truncating divisions, so the result is bit-identical; 0 below EXP_MIN."""
+    if x > EXP_MAX:
+        raise ValueError("exp domain")
+    if x < EXP_MIN:
+        return 0
+    ln2 = LN2_1E18
+    k = _sdiv(x + ln2 // 2 if x >= 0 else x - ln2 // 2, ln2)
+    r = x - k * ln2
+    term = total = WAD
+    n = 1
+    while term != 0:
+        term = _sdiv(term * r, n * WAD)
+        total += term
+        n += 1
+    return total << k if k >= 0 else total >> -k
+
+
+def midpoint_weights(levels_e18):
+    """omega_k = floor((tau_{k+1} - tau_{k-1}) / 2), tau_0 = 0, tau_{K+1} = 1e18 (1e18 scale)."""
+    t = [0, *map(int, levels_e18), WAD]
+    return [(t[k + 1] - t[k - 1]) // 2 for k in range(1, len(t) - 1)]
+
+
+def expected_var_e18(mix_e18, levels_e18=cm.QUANTILE_LEVELS_E18):
+    """sum_k omega_k * expWad(mix[k]) / sum_k omega_k: expected RV in tick^2 scaled by 1e18."""
+    w = midpoint_weights(levels_e18)
+    total = sum(o * exp_wad(int(m)) for o, m in zip(w, mix_e18, strict=True))
+    return total // sum(w)
 
 
 def fee_pips(expected_var_e18, fee_per_var_e18, min_fee, max_fee):
@@ -82,24 +123,23 @@ def forecast_weights(reputations, baseline, has_registry):
     return weights, False
 
 
-def mix_e18(probs, weights):
-    """VolFeeConsumer._mix: weighted mean of 1e18-scaled forecasts, rounded down per bucket, the
-    last bucket taking the remainder so the mix sums to exactly 1e18."""
+def mix_e18(quantiles, weights):
+    """VolFeeConsumer._mix: weighted mean per quantile level of 1e18-scaled ln quantiles
+    (Vincentization), truncated toward zero like Solidity's signed division."""
     total = sum(weights)
-    mix = []
-    for b in range(cm.BUCKETS - 1):
-        mix.append(sum(w * int(p[b]) for w, p in zip(weights, probs, strict=True)) // total)
-    return mix + [PROB_SCALE - sum(mix)]
+    k = len(quantiles[0])
+    return [_sdiv(sum(w * int(q[j]) for w, q in zip(weights, quantiles, strict=True)), total)
+            for j in range(k)]
 
 
-def mirror_quote(forecasts, baseline, has_registry, bucket_var, fee_per_var_e18, min_fee,
+def mirror_quote(forecasts, baseline, has_registry, levels_e18, fee_per_var_e18, min_fee,
                  max_fee):
     """Full VolFeeConsumer.quote from on-chain inputs. `forecasts` holds dicts with the revealed
-    probs (1e18) and the model's reputation (found, mean)."""
+    quantiles (1e18 ln units) and the model's reputation (found, mean)."""
     weights, fallback = forecast_weights([f["reputation"] for f in forecasts], baseline,
                                          has_registry)
-    mix = mix_e18([f["probs"] for f in forecasts], weights)
-    ev = expected_var_e18(mix, bucket_var)
+    mix = mix_e18([f["quantiles"] for f in forecasts], weights)
+    ev = expected_var_e18(mix, levels_e18)
     return {"fee_pips": fee_pips(ev, fee_per_var_e18, min_fee, max_fee), "mix_e18": mix,
             "expected_var_e18": ev, "weights": weights, "equal_weight_fallback": fallback}
 

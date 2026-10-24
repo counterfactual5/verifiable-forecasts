@@ -80,7 +80,8 @@ in order:
 and the fresh build differs from it, the build stops instead of overwriting it; pass `--force` only
 when replacing the onchain verifier is intended (retrained model or new settings).
 
-The round writes `out/compare_round.json` (agents sorted by onchain log score, 1e18-scaled ln p_win).
+The round writes `out/compare_round.json` (agents sorted by onchain score = −mean pinball loss of
+`ln(max(RV, 1))`, 1e18-scaled; with the round's `ln_rv`, baseline quantiles and baseline loss).
 Each EZKL step runs in its own process under `/usr/bin/time -l`; wall time and peak RSS are appended
 to `out/<name>/timing.jsonl`.
 
@@ -111,21 +112,23 @@ every Δ seconds ending at `start − Δ`, `y`), with `h = nSegments + 1`, `freq
 answer's per-step `y_hat` and `intervals` become quantiles of each future difference; the last
 `nSegments − 1` steps are the window's differences (rounds open one segment before their start).
 The agent draws 4000 independent samples per step (fixed seed; linear between quantiles,
-exponential tails), scales them by a per-model spread, sums the squares into realized vol,
-histograms the draws into the bounds (floor 1e-4) and mixes with uniform (every bucket keeps at
-least 0.04). Request and post-processing live in `vol_agents/tsfm_forecast.py`; spreads and mixes
-were chosen on the validation period 2026-10-08 .. 10-15 only (scores and reasons in
-`MODEL_CARD.md` 6.2).
+exponential tails), scales them by a per-model spread, sums the squares into realized vol per
+path and takes the empirical quantiles (numpy linear) of `y = ln(max(RV_path, 1))` at the market's
+levels `[0.1, 0.25, 0.5, 0.75, 0.9]`. Request and post-processing live in
+`vol_agents/tsfm_forecast.py`; spreads were chosen on the validation period 2026-10-08 .. 10-15
+only, under the earlier bucket log score (`MODEL_CARD.md` 6.2), and are kept for the quantile
+output.
 
 Context: `timestral-209m` and `chronos-2` send the long context of `history.round_context` (512
 differences, ~42.7 h, from `VOL_HISTORY_CACHE`, falling back to the 16 features when the cache is
-missing, stale or disagrees with them) with the long-context calibration
-`history.LONG_CONTEXT_CALIBRATION`; `timesfm-3.0` sends the 16 onchain features. The forecast
+missing, stale or disagrees with them) with the long-context spread
+`history.LONG_CONTEXT_SPREAD`; `timesfm-3.0` sends the 16 onchain features. The forecast
 record carries `context_source` (`swaps` / `onchain`), `context_points` and `context_reason` next to
-`api_probs`.
+`quantiles` (ln units, as revealed), `outputs` and `api_quantiles` (before quantization).
 
-Reveal: probabilities are rounded to a 1e-3 grid (`PROB_QUANTUM` = 1e15 on the 1e18 scale; sum
-exactly 1e18, every bucket at least one step) before the commit.
+Reveal: `outputs[k] = round(q_k · 4096)` (`OUTPUT_SCALE_BITS` = 12, the same grid as the zk
+models), then lifted to strictly increasing by one step; the market stores
+`outputs[k] · (1e18 >> 12)` and scores the mean pinball loss against `ln(max(RV, 1))`.
 
 `tsfm_agents(config, keys)` builds one agent per model with its own name, key and address:
 
@@ -135,16 +138,15 @@ exactly 1e18, every bucket at least one step) before the commit.
 | `agent-timestral-209m` | `timestral-209m` | `mistralai/Timestral-209M@9874d252ab0aae16f7f7c999f98f98d6ad7d8365` (Mistral Modified MIT) | 512 | reproducible |
 | `agent-chronos-2` | `chronos-2` | `amazon/chronos-2@29ec3766d36d6f73f0696f85560a422f50e8498c` (Apache-2.0) | 512 | reproducible |
 
-Offline test period, 174 hourly rounds (24 of them the replay), mean log score (uniform −1.6094,
-linear_abs −1.3906): timesfm-3.0 c16 −1.5250; timestral-209m c512 −1.4177 (c16 −1.5005); chronos-2
-c512 −1.4465 (c16 −1.4964). Details in `MODEL_CARD.md` 6.2.
+The offline test-period numbers in `MODEL_CARD.md` 6.2 were measured under the earlier bucket log
+score; pinball-loss numbers for the quantile output are not measured yet `[待证据]`.
 
 **Reproducible tier.** The commitment binds the revealed integers. A recompute from the public
-weights on CPU accepts the reveal when every bucket is within `RECOMPUTE_TOLERANCE` = 1e15 (1e-3,
-one grid step) of what it computes: the verdict is `exact` (same integers), `tolerant` or `fail`.
-Checked against the service, one request per round as live: 174/174 test rounds and 24/24 replay
-rounds give the very same integers for all three models (largest float difference before rounding
-1.75e-4, one Monte Carlo draw). The 512-point context is rebuilt from the pool's Swap logs over
+weights on CPU accepts the reveal when every quantile is within `RECOMPUTE_TOLERANCE_E18` = 1e15
+(1e18 ln units, 4 steps of the 2^-12 grid) of what it computes: the verdict is `exact` (same
+integers), `tolerant` or `fail`. Under the earlier bucket output the service and the local runner
+gave the very same integers on 174/174 test and 24/24 replay rounds for all three models; the
+quantile output has not been re-checked against the local runtimes yet `[待证据]`. The 512-point context is rebuilt from the pool's Swap logs over
 JSON-RPC (`vol_agents/swap_logs.py`), equal to the cache series on every checked replay round.
 When the rebuilt series misses, the recompute also tries the 16-feature context the agent falls
 back to when its cache is stale; both are functions of chain data.
@@ -153,7 +155,7 @@ back to when its cache is stale; both are functions of chain data.
 `registerModel(address(0), operator, model_hash)`, commit-only → `registerModel(address(0),
 operator)`. `ApiAgent.kind` stays `commit-only` for all of them. The hash is keccak256 of the
 canonical JSON in `tsfm_forecast.model_hash_preimage` (weights `repo@revision`, context, inference
-and post-processing parameters, reveal grid and tolerance, sha256 of `tsfm_forecast.py`,
+and post-processing parameters, output levels, scale bits, grid and tolerance, sha256 of `tsfm_forecast.py`,
 `tsfm_local.py` and, for 512-point models, `history.py`). Recompute without the inference service,
 with `VOL_REPRO_PYTHON` naming a Python that has torch and the model's runtime (timesfm 3.0.2,
 chronos-forecasting 2.x or timestral 1.0) and the snapshot in the Hugging Face cache; Swap logs
@@ -165,7 +167,8 @@ uv run python -m vol_agents.tsfm_recompute --model chronos-2 --rpc-url <RPC> \
   --market <MARKET> --round <ROUND> --model-id <MODEL_ID>
 ```
 
-It exits 1 on a model hash mismatch, a missing reveal or a bucket beyond tolerance, and 2 when the
+It exits 1 on a model hash mismatch, a missing reveal, quantile levels or scale bits that differ
+from the model's, or a quantile beyond tolerance, and 2 when the
 runner fails; there is no fallback forecast. `tests/test_api_agent.py` runs registration, reveal
 and every verdict on anvil with a stand-in runner, so `uv run pytest` needs no `VOL_REPRO_PYTHON`.
 
@@ -195,24 +198,18 @@ the last 17 segment-mean ticks relative to the oldest. The target is the next wi
 `RV = Σ (ā_k − ā_{k−1})²` over `n_segments` segment-mean ticks, in tick², bucketed half-open by
 `bounds_tick2` (bucket 0: `RV < b0`, bucket 4: `RV ≥ b3`).
 
-**Response**, either form:
-
-```json
-{"bucket_probs": [0.05, 0.15, 0.3, 0.3, 0.2]}
-```
-
-five non-negative numbers with a positive sum (normalized by the agent), or
+**Response**:
 
 ```json
 {"quantiles": [{"level": 0.1, "value": 300.0}, {"level": 0.5, "value": 800.0}, {"level": 0.9, "value": 2200.0}]}
 ```
 
 at least two quantiles of RV in tick², levels strictly increasing in (0, 1), values non-decreasing.
-The `quantile_levels` in the request are a hint; any levels are accepted. The agent builds a CDF:
-linear from (0, 0) to the lowest quantile, linear between quantiles, and an exponential upper tail
-fitted through the top two; bucket probabilities are the CDF differences at the bounds. Probabilities
-are then floored at 1e-6 (a zero bucket would score the −18 floor if it wins) and quantized to
-1e18-scaled integers that sum exactly to 1e18 (largest remainder), which are the revealed outputs.
+The `quantile_levels` in the request are a hint; any levels are accepted. The agent maps each value
+to `ln(max(value, 1))` (ln is monotone, so quantiles map one to one), interpolates linearly in
+(level, ln value) to the market's levels (levels outside the answer's range take the nearest
+quantile) and quantizes as above. A `bucket_probs` answer is rejected with an error: the market
+no longer scores bucket probabilities.
 
 ## Layout
 
@@ -225,8 +222,8 @@ are then floored at 1e-6 (a zero bucket would score the −18 floor if it wins) 
 | `vol_agents/build.py` | idempotent per-model build and verifier install |
 | `vol_agents/chain.py` | anvil / forge / cast subprocess wrappers |
 | `vol_agents/agent.py` | `Forecaster` (commit / reveal); zk `Agent`: read features → witness → check public inputs → prove |
-| `vol_agents/api_agent.py` | `ApiAgent` (one per model via `tsfm_agents`): inference request, quantile → bucket conversion, 1e18 quantization |
-| `vol_agents/tsfm_forecast.py` | `/forecast` request, sampled-path post-processing, 1e-3 reveal grid and tolerance, per-model spec and tier, `model_hash` |
+| `vol_agents/api_agent.py` | `ApiAgent` (one per model via `tsfm_agents`): inference request, RV quantiles → ln quantiles at the market levels, 2^-12 quantization |
+| `vol_agents/tsfm_forecast.py` | `/forecast` request, sampled-path post-processing to ln RV quantiles, 2^-12 reveal grid and 1e15 tolerance, per-model spec and tier, `model_hash` |
 | `vol_agents/tsfm_local.py` | public-weights CPU inference under `VOL_REPRO_PYTHON` (timesfm-3.0, chronos-2, timestral-209m) |
 | `vol_agents/tsfm_recompute.py` | recompute a reproducible model agent's reveal without the inference service, within tolerance |
 | `vol_agents/swap_logs.py` | the pool's Swap logs over JSON-RPC in the history cache format, for the recompute's 512-point context |
