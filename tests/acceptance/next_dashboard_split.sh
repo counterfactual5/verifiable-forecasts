@@ -100,7 +100,7 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
       return { kpi: t(document.querySelector("#summary")), items, card: t(card), visible: !!card?.getClientRects().length, fits, dark,
         more: t(card?.querySelector(".uses-more")),
         x402: [...(card?.querySelectorAll("p, div") ?? [])].filter((e) => /x402/.test(e.textContent))
-          .map((e) => ({ text: t(e), inLi: !!e.closest("li"), muted: e.classList.contains("sub") })),
+          .map((e) => ({ text: t(e), inLi: !!e.closest("li"), muted: e.classList.contains("sub"), afterMore: /更多方向（尚未实现）/.test(e.previousElementSibling?.textContent ?? "") })),
         body: document.body.innerText.replace(/\s+/g, " "), snap: t(document.querySelector("#case-snap")) };
     });
     const v2 = fixed.schema === "vol-replay/v2";
@@ -119,9 +119,9 @@ const FIXED_VIEWS = ["overview", "rounds", "agents", "fee", "chain"];
       `@${width}: more line lists options / vaults, insurance / treasury, perp funding, LP ranges as 尚未实现`);
     check(/换一个结算数据源和一个消费合约/.test(ov.card), `@${width}: card says swapping settlement source + consumer keeps the protocol`);
     check(!/分位.{0,8}(已上线|已实现|已上链)/.test(ov.card), `@${width}: use cases do not claim quantiles as shipped`);
-    check(ov.x402.length === 1 && !ov.x402[0].inLi && ov.x402[0].muted && /设想/.test(ov.x402[0].text) && /未实现/.test(ov.x402[0].text)
+    check(ov.x402.length === 1 && !ov.x402[0].inLi && ov.x402[0].muted && ov.x402[0].afterMore && /设想/.test(ov.x402[0].text) && /未实现/.test(ov.x402[0].text)
       && /交易机器人/.test(ov.x402[0].text) && /按信誉分给预测者/.test(ov.x402[0].text),
-      `@${width}: one muted off-chain x402 line below the use cases (not a case card), marked 设想 (${ov.x402.map((x) => x.text).join(" | ")})`);
+      `@${width}: one muted off-chain x402 line directly below 更多方向 (not a case card), marked 设想 (${ov.x402.map((x) => x.text).join(" | ")})`);
     check(ov.fits, `@${width}: use-case card fits the viewport`);
     check(!ov.dark, `@${width}: no black borders or fills on use cases`);
     check(/observe\(\)/.test(ov.card) && /只实现/.test(ov.card), `@${width}: card keeps that the contract only implements the V3 observe() source`);
