@@ -183,7 +183,10 @@
   .heat .hm { --h: inherit; }
   .sm-title { font: 700 14px/1.3 var(--display); margin-bottom: 8px; }
   .sm-title span { font: 400 12px/1.4 var(--sans); color: var(--muted); margin-left: 8px; }
-  .sm-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) 150px; gap: 10px; align-items: center; margin-bottom: 4px; }
+  .sm-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) 372px; gap: 10px; align-items: center; margin-bottom: 4px; }
+  .sm-stats { display: grid; grid-template-columns: 172px 88px 100px; gap: 6px; align-items: baseline; font: 11.5px/1.3 var(--mono); color: var(--muted); white-space: nowrap; }
+  .sm-stats b { color: var(--text); font-weight: 600; }
+  .sm-head .sm-stats { font: 10.5px/1.25 var(--sans); color: var(--faint); white-space: normal; }
   .sm-name { font: 600 12px/1.15 var(--mono); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
   .sm-name i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
   .sm-name small { flex-basis: 100%; font: 400 10.5px/1 var(--sans); color: var(--muted); padding-left: 15px; }
@@ -192,8 +195,9 @@
   .sm-cov { font: 11.5px/1.3 var(--mono); color: var(--muted); white-space: nowrap; }
   .sm-cov b { color: var(--text); font-weight: 600; }
   @media (max-width: 640px) {
-    .sm-row { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; margin-bottom: 8px; }
-    .sm-row .sm-svg { grid-column: 1 / -1; grid-row: 2; }
+    .sm-row { grid-template-columns: minmax(0, 1fr); gap: 2px 8px; margin-bottom: 8px; }
+    .sm-stats { grid-template-columns: 160px 80px minmax(0, 1fr); font-size: 11px; }
+    .sm-head > span:not(.sm-stats) { display: none; }
     .sm-name small { flex-basis: auto; padding-left: 0; }
     .sm-axis { grid-template-columns: 1fr; }
     .sm-axis .sm-name, .sm-axis > span:last-child { display: none; }
@@ -1832,8 +1836,9 @@ function smallMultiples(d, agents) {
   const fmt = (v) => (v >= 100 ? v.toFixed(0) : v.toFixed(1));
   const hours = rounds.map((r) => ({ t: r.window_utc[0].slice(11, 16), v: r.outcome?.realized_vol ?? r.real_realized_vol, settled: !r.outcome?.voided,
     c: consensusQ(d, r).q, q: Object.fromEntries(agents.map((a) => [a.agent, forecastQ(d, r.agents[a.agent])])) }));
-  const rows = [{ id: "consensus", name: "consensus", sub: "reputation-weighted", color: "var(--accent)", med: "var(--vermil)", get: (x) => x.c }]
-    .concat(agents.map((a) => ({ id: a.agent, name: a.agent.replace("agent-", ""), color: a.color, med: a.color, get: (x) => x.q[a.agent] })));
+  const rows = [{ id: "consensus", name: "consensus", sub: "reputation-weighted", color: "var(--accent)", med: "var(--vermil)", real: "#1b1a17", get: (x) => x.c }]
+    .concat(agents.map((a) => ({ id: a.agent, name: a.agent.replace("agent-", ""), color: a.color, med: a.color, real: "#a8a194",
+      loss: d.summary.agents?.[a.agent]?.mean_pinball_loss ?? null, get: (x) => x.q[a.agent] })));
   const vals = hours.flatMap((x) => [...(x.v != null ? [Math.max(1, x.v)] : []), ...rows.flatMap((r) => r.get(x) ?? [])]);
   const lo = Math.min(...vals) / 1.15, hi = Math.max(...vals) * 1.15;
   const narrow = chartWidth < 600, W = narrow ? Math.max(260, chartWidth) : Math.max(300, Math.min(1200, chartWidth) - 300);
@@ -1848,12 +1853,19 @@ function smallMultiples(d, agents) {
       + run.slice().reverse().map(([i, q]) => `L${xy(i, q[a])}`).join("") + "Z").join("");
   };
   const real = trace((h) => (h.v == null ? null : Math.max(1, h.v)));
-  const dots = hours.map((h, i) => (h.v == null ? "" : `<circle cx="${x(i).toFixed(1)}" cy="${y(Math.max(1, h.v)).toFixed(1)}" r="${narrow ? 1.6 : 2}" fill="#1b1a17"/>`)).join("");
+  const outside = (h, q) => h.settled && h.v != null && q && (Math.max(1, h.v) < q[0] || Math.max(1, h.v) > q[4]);
   const row = (r) => {
     const c = coverage(hours, r.get);
+    const dots = hours.map((h, i) => {
+      if (h.v == null) return "";
+      const out = outside(h, r.get(h)), rad = (narrow ? 1.6 : 2) * (out ? 1.6 : 1);
+      return `<circle${out ? ` class="sm-out"` : ""} cx="${x(i).toFixed(1)}" cy="${y(Math.max(1, h.v)).toFixed(1)}" r="${rad}" fill="${out ? "#d8431b" : r.real}"/>`;
+    }).join("");
+    const xs = hours.filter((h) => h.settled && r.get(h));
+    const width = xs.length ? Math.exp(xs.reduce((s, h) => s + Math.log(r.get(h)[4]) - Math.log(r.get(h)[0]), 0) / xs.length) : null;
     const hits = hours.map((h, i) => {
       const q = r.get(h);
-      const tip = tipLines(`${h.t} UTC · ${r.name}`, [`realized RV: ${h.v ?? "—"}${h.v != null ? " tick²" : ""}${h.settled ? "" : " (voided)"}`,
+      const tip = tipLines(`${h.t} UTC · ${r.name}`, [`realized RV: ${h.v ?? "—"}${h.v != null ? " tick²" : ""}${h.settled ? "" : " (voided)"}${outside(h, q) ? ` · outside ${band}` : ""}`,
         ...(q ? [`median: ${fmt(q[2])} tick²`, `50%: ${fmt(q[1])}–${fmt(q[3])} tick²`, `${band}: ${fmt(q[0])}–${fmt(q[4])} tick²`] : ["no forecast"])]);
       return `<rect class="sm-hit" data-h="${i}" x="${(x(i) - gap / 2).toFixed(1)}" y="0" width="${gap.toFixed(1)}" height="${H}" fill="transparent" data-tip="${attr(tip)}"/>`;
     }).join("");
@@ -1863,13 +1875,17 @@ function smallMultiples(d, agents) {
         <path class="nc-band-wide" d="${area(r.get, 0, 4)}" fill="${r.color}" opacity=".16"/>
         <path class="nc-band-50" d="${area(r.get, 1, 3)}" fill="${r.color}" opacity=".32"/>
         <path class="sm-med" d="${trace((h) => r.get(h)?.[2])}" fill="none" stroke="${r.med}" stroke-width="1.4"${r.id === "consensus" ? ` stroke-dasharray="5 3"` : ""}/>
-        <path class="sm-real" d="${real}" fill="none" stroke="#1b1a17" stroke-width="1.4"/>${dots}${hits}</svg>
-      <span class="sm-cov" data-cov="${r.id}" data-n="${c.n}" data-wide="${c.wide}" data-mid="${c.mid}">${band}: <b>${c.wide}/${c.n}</b> · 50%: <b>${c.mid}/${c.n}</b></span></div>`;
+        <path class="sm-real" d="${real}" fill="none" stroke="${r.real}" stroke-width="${r.id === "consensus" ? 1.4 : 1}"/>${dots}${hits}</svg>
+      <span class="sm-stats"><span class="sm-cov" data-cov="${r.id}" data-n="${c.n}" data-wide="${c.wide}" data-mid="${c.mid}">${band}: <b>${c.wide}/${c.n}</b> · 50%: <b>${c.mid}/${c.n}</b></span>
+        <span class="sm-w" data-width="${width ?? ""}"><b>${width == null ? "—" : `×${width.toFixed(1)}`}</b> width</span>
+        <span class="sm-l" data-loss="${r.loss ?? ""}">loss <b>${r.loss == null ? "—" : r.loss.toFixed(3)}</b></span></span></div>`;
   };
   return `<div class="smult" id="heat" role="img" aria-label="${attr(`Small multiples: consensus and each agent's median, 50% and ${band} intervals against realized RV, ${n} rounds, shared log scale`)}">
     <div class="sm-title">预测区间 vs 实际 <span>每行一个预测者（第一行 = 声誉加权共识），同一时间轴、同一对数 RV 轴；淡色 = ${band} 区间，深色 = 50% 区间，彩线 = 中位数，黑线 = 链上实际 RV；右侧 = 覆盖率 · 点击列切换轮次</span></div>
+    <div class="sm-row sm-head"><span></span><span></span><span class="sm-stats"><span>coverage</span><span>width (q90/q10, ×)</span><span>loss (mean pinball, ln RV)</span></span></div>
     ${rows.map(row).join("")}
-    <div class="sm-row sm-axis"><span class="sm-name"></span><div class="hm-ax"><span>${hours[0].t}</span><span>${hours[Math.floor(n / 2)].t}</span><span>${hours[n - 1].t}</span></div><span></span></div></div>`;
+    <div class="sm-row sm-axis"><span class="sm-name"></span><div class="hm-ax"><span>${hours[0].t}</span><span>${hours[Math.floor(n / 2)].t}</span><span>${hours[n - 1].t}</span></div><span></span></div>
+    <div class="sub">朱红点 = 实际值落在 ${band} 区间外；覆盖率要和区间宽度一起看（区间越宽越容易覆盖）；loss 越低越准。</div></div>`;
 }
 roundListeners.push((tick) => {
   if (tick) return;
