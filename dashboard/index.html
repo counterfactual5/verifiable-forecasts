@@ -518,6 +518,18 @@
   .tier .bond b { color: var(--text); font-weight: 600; margin-right: 4px; }
   .tier .tag { display: inline-block; font-size: 11px; color: var(--faint); white-space: nowrap; }
   .tiers-rule { margin: 12px 0 0; font-size: 12.5px; color: var(--muted); }
+  .zk-models { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: #e9ecf6; font-size: 13px; color: var(--muted); }
+  .zk-models h3 { margin: 0 0 6px; font: 700 15px/1.3 var(--display); color: var(--accent); }
+  .zk-models p { margin: 0; }
+  .zk-models table { margin: 8px 0; max-width: 640px; }
+  .zk-models tr > th, .zk-models tr > td { padding: 6px 10px 6px 0; border-bottom: 1px solid rgba(29,63,196,.14); background: none; white-space: nowrap; }
+  .zk-models tr > td:nth-child(2) { white-space: normal; }
+  .zk-models tr:not(:first-child):hover > td { background: none; }
+  .zk-models tr:last-child td { border-bottom: 0; }
+  .zk-models th { border-bottom-color: rgba(29,63,196,.3); }
+  .zk-models td.mono { color: var(--accent); white-space: nowrap; }
+  .zk-models td.num { color: var(--vermil); padding-right: 0; }
+  .zk-models .why { font-size: 12.5px; }
   @media (max-width: 1000px) { .pipe { grid-template-columns: 1fr; gap: 22px; } .pipe li:not(:last-child)::after { content: "↓"; right: auto; left: 22px; top: auto; bottom: -21px; margin: 0; } }
   @media (max-width: 600px) {
     #nav { padding: 0 8px; }
@@ -2221,13 +2233,22 @@ function tiersCard(agents, tierOf) {
   const n = (t) => agents.filter((a) => tierOf(a) === t).length;
   const tier = (cls, title, count, body, bond) => `<div class="tier${count == null ? " off" : ""}"><h3>${title}<span class="badge ${cls}">${count == null ? "路线图" : `${count} 个 agent`}</span></h3>
     <p>${body}</p><p class="bond"><b>押金</b> ${bond} <span class="tag">设计（未实现）</span></p></div>`;
+  const zkModel = (name, shape, params) => `<tr><td class="mono">${name}</td><td>${shape} → 单调分位数头</td><td class="num">${params}</td></tr>`;
+  const zkModels = `<div class="zk-models"><h3>zk 档的三个模型</h3>
+    <p>输入是开局时合约从池子 <span class="mono">observe()</span> 算出并存在链上的 16 个特征；输出 ln(RV) 的 5 个分位数；权重写死在电路和验证合约里；只用主网真实数据训练。</p>
+    <table><tr><th>模型</th><th>结构</th><th class="num">参数</th></tr>
+      ${zkModel("linear_abs", "取绝对值 → 线性 16→5", 85)}
+      ${zkModel("mlp16", "有符号输入 → 16 ReLU → 5", 357)}
+      ${zkModel("mlp32_abs", "取绝对值 → 32 ReLU → 5", 709)}
+    </table>
+    <p class="why">单调分位数头保证 5 个分位数递增。模型做得小，是因为每次预测都要生成 zk 证明（链上验证约 55 万 gas）。</p></div>`;
   return `<section class="card wide" id="tiers"><h2>验证档位 · Verification tiers</h2><div class="tiers" style="margin-top:0">
       ${tier("zk", "zk 证明", n("zk"), "证明“这个输出来自注册的这个模型 + 链上这组输入”。小模型，链上验证。", "无（出处由证明保证）")}
-      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每个预测值误差 ≤ 0.001（容差复核；提交先于结果）。", "有，复算对不上就扣（接上 opML 式挑战后链上执行）")}
+      ${tier("commit", "可复现", n("reproducible"), "公开权重 + 固定版本，任何人可用链上数据离线重算；每个预测值误差 ≤ 0.001（容差复核；提交先于结果）。现有三个公开权重的时间序列基础模型：<span class=\"mono\">timesfm-3.0</span> / <span class=\"mono\">timestral-209m</span> / <span class=\"mono\">chronos-2</span>，用链上数据重算验证。", "有，复算对不上就扣（接上 opML 式挑战后链上执行）")}
       ${tier("commit", "仅提交", n("commit-only"), "黑盒：本来就不要求公开策略或模型，只公开每轮预测；预测在事前定下、没改过。闭源模型也能参与。", "有，防开很多号只留运气好的")}
       ${tier("commit", "opML", null, "乐观验证：公开模型与输入，有人质疑时链上挑战复算；不阻塞每轮结算。", "有，被挑战且复算对不上就扣")}
       ${tier("commit", "TEE", null, "可信硬件远程证明，适合权重不公开的模型。", "无（硬件证明，需信任厂商）")}
-    </div><p class="tiers-rule">所有档共用：不公开的轮次按最低分记入信誉；三档分成相同，档位只标注出处，权重由消费方决定。（设计，未实现；详见 docs/ARCHITECTURE.md 第 9 节）</p></section>`;
+    </div>${zkModels}<p class="tiers-rule">所有档共用：不公开的轮次按最低分记入信誉；三档分成相同，档位只标注出处，权重由消费方决定。（设计，未实现；详见 docs/ARCHITECTURE.md 第 9 节）</p></section>`;
 }
 
 load().then((x) => {
