@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # R7 acceptance: docs/PITCH.md answers the three judge questions (agent vs keeper, who consumes the
-# forecast, how large models are verified), quotes the replay numbers exactly as the replay JSON has them
-# (the lowest-MAE fee strategy; the best of the three reproducible agents timesfm-3.0 / timestral-209m /
-# chronos-2 against the uniform baseline, in the direction the data has it) in both
-# 3-minute scripts, drops the stale placeholder figures, stays speakable in 3 minutes, and docs/PLAN.md
-# has phases 2 and 3 ticked.
+# forecast, how large models are verified), quotes the frozen quantile run (vol-replay/v2) exactly as
+# the replay JSON has it (the lowest-MAE fee strategy; how many agents beat the climatological pinball
+# baseline, without singling out a best agent) in both 3-minute scripts with a no-significance-test
+# caveat, has no 【待冻结数字】 placeholder left, drops the stale log-score wording, stays speakable in
+# 3 minutes, and docs/PLAN.md has phases 2 and 3 ticked.
 set -uo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
@@ -23,8 +23,14 @@ check(re.search(r"^## Tiered verification", pitch, re.M) is not None, "'## Tiere
 norm = re.sub(r"<!--.*?-->", "", pitch, flags=re.S)
 norm = re.sub(r"```.*?```", "", norm, flags=re.S).replace("\u2212", "-")
 d = json.load(open("dashboard/sample-replay.json"))
+check(d.get("schema") == "vol-replay/v2", f"replay JSON is the quantile schema vol-replay/v2 (got {d.get('schema')})")
+if d.get("schema") != "vol-replay/v2":
+    print("FAIL")
+    sys.exit(1)
 fee = d["summary"]["fee_strategies"]
 agents = d["summary"]["agents"]
+check("【待冻结" not in pitch, "no 【待冻结数字】 placeholder left in docs/PITCH.md")
+check(re.search(r"log.?score|对数分|uniform baseline|均匀基线|ln 0\.2", norm, re.I) is None, "no stale log-score / uniform-baseline wording")
 
 def section(head):
     parts = norm.split(head, 1)
@@ -36,16 +42,11 @@ check(bool(en) and bool(zh), "both 3-minute scripts exist")
 
 mae = {k: f"{v:.2f}" for k, v in fee["mae_bps"].items()}
 fair = f"{fee['mean_bps']['fair']:.2f}"
-uniform = f"{d['summary']['uniform_total_log_score']:.1f}"
 reps = sorted(a["agent"] for a in d["agents"] if a.get("tier") == "reproducible")
 check(reps == ["agent-chronos-2", "agent-timesfm-3.0", "agent-timestral-209m"], f"replay JSON has the three reproducible agents {reps}")
-best_rep = max(reps, key=lambda n: agents[n]["total_log_score"]) if reps else None
-best_tot = agents[best_rep]["total_log_score"] if best_rep else float("nan")
-brep = f"{best_tot:.1f}"
-above = best_tot > d["summary"]["uniform_total_log_score"]
-cmp_word = r"above|higher|beat|better|高于|跑赢|好于|优于" if above else r"below|under|worse|lower|低于|不如|差于"
+n_agents = len(agents)
+n_beat = sum(1 for a in agents.values() if a["mean_pinball_loss"] < a["baseline_mean_pinball_loss"])
 low = min(fee["mae_bps"], key=fee["mae_bps"].get)
-check(mae["fixed"] == "1.84" and mae["forecast"] == "2.06", f"replay JSON still has fixed {mae['fixed']} / forecast {mae['forecast']}")
 
 def sentences(txt):
     return [s for s in re.split(r"(?<=[.!?。！？；;])(?!\d)\s*|\n\s*\n", txt) if s.strip()]
@@ -55,8 +56,10 @@ for name, txt in (("English script", en), ("Chinese script", zh)):
     check(mae["fixed"] in txt and mae["forecast"] in txt, f"{name} quotes fixed-5-bps MAE {mae['fixed']} and forecast MAE {mae['forecast']}")
     check(any(mae[low] in s and re.search(r"lowest|lower|smallest|最低|最小|低于", s, re.I) for s in sents),
           f"{name} says in one sentence that {low} ({mae[low]}) has the lowest error")
-    check(any(brep in s and uniform in s and best_rep.removeprefix("agent-") in s and re.search(cmp_word, s, re.I) for s in sents),
-          f"{name} says in one sentence that {best_rep} {brep} is {'above' if above else 'below'} uniform {uniform}")
+    check(any(re.search(rf"\b{n_beat}\b", s) and re.search(r"pinball", s, re.I) and re.search(r"climatolog|气候", s, re.I) for s in sents),
+          f"{name} says in one sentence that {n_beat} of {n_agents} agents beat the climatological pinball baseline")
+    check(re.search(r"no significance test|未做显著性检验", txt, re.I) is not None, f"{name} carries the no-significance-test caveat")
+    check(re.search(r"\b(best|top)\b[^.\n]{0,30}agent|最好的 ?agent|最佳 ?agent", txt, re.I) is None, f"{name} does not single out a best agent")
     praise = [
         r"forecast[^.\n]{0,60}(beat|outperform|lower|better|closer)[^.\n]{0,40}(fixed|5 bps)",
         r"forecast[^.\n]{0,40}\b(best|lowest|most accurate)\b",
@@ -100,9 +103,10 @@ check("46.653" not in norm and not re.search(r"placeholder heuristic", norm, re.
 check(re.search(r"Reproducible[^\n]*\(implemented", norm) is not None, "tiered verification lists reproducible as implemented")
 
 for a in ("agent-linear_abs", "agent-mlp32_abs", "agent-mlp16"):
-    v = f"{agents[a]['total_log_score']:.1f}"
-    check(v in norm, f"kept fact: {a} total {v} still quoted")
-check(re.search(r"0 void|0 作废", norm) is not None and "24" in norm, "kept fact: 24 rounds, 0 voided still stated")
+    v = f"{agents[a]['mean_pinball_loss']:.3f}"
+    check(v in norm, f"kept fact: {a} mean pinball loss {v} quoted")
+voided = d["summary"]["voided"]
+check(re.search(rf"\b{voided} void|\b{voided} 作废|作废 {voided}\b", norm) is not None and "24" in norm, f"kept fact: 24 rounds, {voided} voided stated")
 check(re.search(r"Synth", norm) is not None, "kept fact: the Synth comparison is still there")
 
 plan = open("docs/PLAN.md", encoding="utf-8").read()

@@ -1,5 +1,7 @@
 # 模型说明（Model Card）：三个波动率预测模型
 
+所属项目：可验证预测协议 / Verifiable Forecast Protocol（让 AI 预测事前锁定、事后验证、按结果记信誉）。
+
 本文写给路演和评委问答用。所有数字取自代码和已提交的产物（`agents/models/*/meta.json`、`settings.json`），
 或取自本机实测记录；出处写在每处后面。没有出处、无法从仓库核实的说法标 `[待证据]`。
 

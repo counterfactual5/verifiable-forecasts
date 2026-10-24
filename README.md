@@ -1,15 +1,16 @@
-# Verifiable AI Forecasts, Held Accountable Onchain
+# 可验证预测协议 / Verifiable Forecast Protocol
 
-> 可验证 AI 预测协议：模型先提交、再证明，链上按真实结果打分、按信誉加权；第一个消费者：AMM 动态手续费。  
-> A protocol for verifiable AI forecasts — commit, prove, settle on-chain, weight by reputation.
+> 让 AI 预测事前锁定、事后验证、按结果记信誉。  
+> Lock AI forecasts ex ante, verify them ex post, score reputation by outcome.
 
-**AI agents forecast Uniswap V3 volatility, prove every forecast with a zk proof of model inference,
-and get scored onchain by the contract itself, with the score written to their ERC-8004 reputation.
-No trusted reporter, and no way to cherry-pick results.**
+**AI agents forecast the next hour's realized volatility of a Uniswap V3 pool as five quantiles,
+commit them before the hour, and get scored onchain by the contract itself (pinball loss against a
+climatological baseline), with the score written to their ERC-8004 reputation. Small models prove
+every forecast with a zk proof of inference; public-weight models are reproducible by anyone.**
 
-Hackathon prototype for ETH Shenzhen 2026: a verifiable AI forecasting protocol. Everything runs on a local
-Anvil chain, either from scratch or as a fork of Ethereum mainnet. No real funds, and nothing is
-deployed to a real network.
+Hackathon prototype for ETH Shenzhen 2026. Everything runs on a local Anvil chain, either from
+scratch or as a fork of Ethereum mainnet. No real funds, and nothing is deployed to a real network;
+the live page's commits happen on an hourly mainnet fork (simulated), not on a persistent chain.
 
 ![Dashboard after the 24-hour mainnet-fork replay](docs/img/dashboard.png)
 
@@ -17,12 +18,13 @@ deployed to a real network.
 
 Anyone can claim their model "called it". Today there is no cheap way to check that a forecast was
 made *before* the outcome, *by the model claimed*, *on the inputs claimed*, and there is no public
-record of how that model did across rounds. This project turns a Uniswap V3 pool into a public exam:
+record of how that model did across rounds. This project makes a Uniswap V3 pool the public yardstick:
 
-- the **question** is defined by onchain data only (the pool's TWAP),
+- the **target** is defined by onchain data only (the pool's TWAP realized volatility),
 - the **inputs** to the model are computed by the contract from the pool, not supplied by the forecaster,
-- the **inference** is proven with EZKL and verified onchain before the forecast is accepted,
-- the **grade** is a log score computed onchain at settlement and written by the market contract to
+- the **forecast** is committed as a hash before the deadline and revealed before the hour starts;
+  for zk models the inference is proven with EZKL and verified onchain before the reveal is accepted,
+- the **score** is a pinball loss computed onchain at settlement and written by the market contract to
   the agent's **ERC-8004** reputation, so anyone can look up an agent's track record,
 - the **pool price** used for settlement is cross-checked against **Chainlink** ETH/USD; a mismatch
   voids the round and refunds every stake.
@@ -36,7 +38,7 @@ flowchart LR
   subgraph market["VolMarket.sol"]
     create["createRound<br/>16 features from observe()"]
     submit["commitPrediction → revealPrediction<br/>zk models: verify EZKL proof<br/>against the stored features"]
-    settle["settle<br/>RV from observe() / sample()<br/>log score per forecast"]
+    settle["settle<br/>RV from observe() / sample()<br/>pinball loss per forecast"]
   end
   agents["agents/<br/>3 zk models (EZKL prove)<br/>+ 3 reproducible time-series model agents"]
   verifier["EZKL Halo2 verifier<br/>(one per model)"]
@@ -51,28 +53,32 @@ flowchart LR
   pool --> settle
   feed -- cross-check --> settle
   agents -- register / linkAgent --> id
-  settle -- giveFeedback(logScore) --> rep
+  settle -- giveFeedback(−pinball loss) --> rep
   settle -. round JSON .-> dash
 ```
 
 ## How it works
 
-The exam: realized volatility of the TWAP tick of the Uniswap V3 ETH/USDC 0.05% pool
+The target: realized volatility of the TWAP tick of the Uniswap V3 ETH/USDC 0.05% pool
 (`0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`) over the next hour, 12 segments of Δ = 300 s, measured as
-`RV = Σ (ā_k − ā_{k−1})²` over adjacent segment-mean ticks, in tick². Bettors stake on one of 5 buckets
-(parimutuel); AI agents commit, then reveal a probability for each bucket.
+`RV = Σ (ā_k − ā_{k−1})²` over adjacent segment-mean ticks, in tick². AI agents commit, then reveal
+5 quantiles (levels 0.1/0.25/0.5/0.75/0.9) of `y = ln(max(RV, 1))`. Separately, bettors stake on one
+of 5 RV buckets (parimutuel pools); the buckets are only for betting, not for scoring forecasts.
 
-1. **observe → features.** `createRound(startTime, bounds)` calls the pool's `observe()` for the last 17
-   segments and stores 16 features (differences of segment-mean ticks, clamped to ±64 and scaled by 128).
-2. **EZKL proof.** Each agent reads `getFeatures(id)`, runs its small model (16 → … → 5, softmax) and
-   proves the inference with EZKL (Halo2/KZG, logrows 15, about 2–18 s per proof on a laptop). Each
-   model's generated verifier is about 21.8 KB (under the 24,576 B EIP-170 limit) and one
-   `verifyProof` costs about 849k gas.
+1. **observe → features.** `createRound(startTime, bounds, baselineQuantiles)` calls the pool's `observe()`
+   for the last 17 segments and stores 16 features (differences of segment-mean ticks, clamped to ±64
+   and scaled by 128), plus the round's climatological baseline quantiles (training period only).
+2. **EZKL proof.** Each zk agent reads `getFeatures(id)`, runs its small model (16 → … → 5 quantiles,
+   monotone head) and proves the inference with EZKL (Halo2/KZG, logrows 15). Each model's generated
+   verifier fits under the 24,576 B EIP-170 limit; see `agents/README.md` for proof time and
+   `verifyProof` gas.
 3. **commit → reveal.** Before `startTime − commitLead` the model's registered operator commits
    `keccak256(abi.encode(id, modelId, outputs, salt, sender))`; between that deadline and
-   `startTime − revealLead` it reveals `(proof, outputs[5], salt)`. For a zk model the contract rebuilds
-   the public inputs from *its own stored features* plus the outputs, calls that model's EZKL-generated
-   verifier, and records the normalized distribution only if the proof verifies. A commit-only model
+   `startTime − revealLead` it reveals `(proof, outputs[5], salt)`. `outputs[k]` are signed fixed-point
+   integers `q_k × 2^12`, strictly increasing; the contract converts them exactly to 1e18 scale
+   (`q × (1e18 >> 12)`). For a zk model the contract rebuilds the public inputs from *its own stored
+   features* plus the outputs, calls that model's EZKL-generated verifier, and records the quantiles
+   only if the proof verifies. A commit-only model
    (registered with `verifier = 0`) only has to match its commitment: it proves timing, not provenance.
    The commitment binds the sender, so a copied commitment or proof is useless; an unrevealed forecast
    is neither scored nor paid.
@@ -83,16 +89,18 @@ The exam: realized volatility of the TWAP tick of the Uniswap V3 ETH/USDC 0.05% 
 5. **Chainlink cross-check** (opt-in via `setPriceFeed`). Settlement compares the pool's TWAP price over
    the last Δ with Chainlink ETH/USD; more than 200 bps apart, or a feed answer older than 3900 s, voids
    the round.
-6. **log score and fee share.** Each revealed forecast scores `max(ln p_win, −18)` (1e18-scaled).
-   Winners claim their pro-rata share of the pool minus fee. `predictorShareBps` of the fee goes to
-   forecasters scoring strictly above the uniform baseline `ln 0.2`, pro rata to their excess score
-   (`claimPredictorReward`); `collectFee` sends the rest, or the whole fee if nobody beat the baseline,
-   to the owner.
+6. **pinball score and fee share.** Each revealed forecast gets the mean pinball loss
+   `L = (1/5) Σ ρ_τk(y − q_k)`, `ρ_τ(u) = u(τ − 1{u<0})`, in 1e18 integer math against the realized
+   `y`; its score is `−L`. The round's climatological baseline quantiles get the same loss `L_b`, and
+   a forecast's excess is `max(0, L_b − L)`. Betting winners claim their pro-rata share of the bucket
+   pool minus fee. `predictorShareBps` of the fee goes to forecasters with positive excess, pro rata to
+   their excess (`claimPredictorReward`); `collectFee` sends the rest, or the whole fee if nobody beat
+   the baseline, to the owner.
 7. **ERC-8004 reputation** (opt-in via `setReputation`). Agents register an identity and the model
    operator links it with `linkAgent`. At settlement the market contract calls
-   `giveFeedback(agentId, logScore, 18, "logScore", "vol-300s-12", …)` (models without a verifier,
+   `giveFeedback(agentId, −L, 18, "pinball", "vol-300s-12", …)` (models without a verifier,
    reproducible and commit-only: `"vol-300s-12-commit"`); readers filter
-   `getSummary(agentId, [market], "logScore", …)` to the market as the only client. A failing registry
+   `getSummary(agentId, [market], "pinball", …)` to the market as the only client. A failing registry
    write emits an event and never blocks settlement. Each registry and feed call gets at most 500k gas,
    and `settle` reverts (`InsufficientGas`) when a call failed because the caller's gas limit starved
    it, so nobody can skip a reputation write or void a round by sending `settle` with too little gas.
@@ -104,14 +112,14 @@ Each registered model has an onchain tier, `verificationTier(modelId)`:
 | Tier | Registered as | What a reveal proves |
 |---|---|---|
 | **zk** | `registerModel(verifier, operator)` | The EZKL proof is verified onchain against the contract's own stored features: this model produced these outputs. |
-| **reproducible** | `registerModel(address(0), operator, modelHash)` | No proof at reveal, but `modelHash` (keccak256 of the canonical JSON in `tsfm_forecast.model_hash_preimage`: weights `repo@revision`, context, inference and post-processing parameters, reveal grid and tolerance, sha256 of the inference code) pins public weights, configuration and code; anyone recomputes the forecast from chain data and accepts the reveal when every bucket is within 0.001. |
+| **reproducible** | `registerModel(address(0), operator, modelHash)` | No proof at reveal, but `modelHash` (keccak256 of the canonical JSON in `tsfm_forecast.model_hash_preimage`: weights `repo@revision`, context, inference and post-processing parameters, reveal grid and tolerance, sha256 of the inference code) pins public weights, configuration and code; anyone recomputes the forecast from chain data and accepts the reveal when every quantile is within 1e15 (1e18 scale, about 4 steps of the 2^-12 grid). |
 | **commit-only** | `registerModel(address(0), operator)` | Timing only: the forecast was committed before the deadline, not which model made it. |
 
 The reproducible tier is implemented and used in the replay by three time-series model agents with
 public weights at a pinned revision: `agent-timesfm-3.0`
 ([`google/timesfm-3.0-pytorch`](https://huggingface.co/google/timesfm-3.0-pytorch)),
-`agent-timestral-209m` and `agent-chronos-2`. After the last round the replay recomputes every
-reveal against the fork; all 72 recomputes (3 agents × 24 rounds) were exact, maximum difference 0 (`reproduced`, `recompute_verdict` and
+`agent-timestral-209m` and `agent-chronos-2`. With `VOL_REPRO_PYTHON` set, the replay recomputes every
+reveal against the fork after the last round (`reproduced`, `recompute_verdict` and
 `recompute_max_abs_diff` per round in the JSON). Anyone can run the same check against a market:
 
 ```bash
@@ -120,15 +128,15 @@ cd agents && VOL_REPRO_PYTHON=<python with torch and the model's runtime> \
   --market <MARKET> --round <ID> --model-id <ID>
 ```
 
-It exits 0 only when the onchain `modelHash` equals the local weights' and every recomputed bucket
-is within 0.001 of the reveal (a tolerance check: the reveal is rounded to a 0.001 grid before it is
+It exits 0 only when the onchain `modelHash` equals the local weights' and every recomputed quantile
+is within 1e15 of the reveal (a tolerance check: the reveal is quantized to the 2^-12 grid before it is
 committed, and the commitment precedes the outcome). timesfm-3.0 reads the round's 16 onchain
 features; timestral-209m and chronos-2 read 512 five-minute points rebuilt from the pool's Swap
 logs. See `agents/README.md` for each model's runtime. Reproducible and commit-only models share
 the `-commit` ERC-8004 tag.
 
-Per-tier bonds, unrevealed rounds scored at the minimum, and an opML-style dispute layer for the
-reproducible tier are a design only, not implemented: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) "验证档位与押金".
+Per-tier bonds, unrevealed rounds scored at the minimum, and a dispute layer for the reproducible
+tier are not part of this branch: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) "验证档位与押金".
 
 ## Demo: 24 real hours on a mainnet fork
 
@@ -158,35 +166,36 @@ the replayed hours, and then on the fork:
   its original timestamp;
 - runs one round per hour: `createRound` from the replayed pool, every agent commits, then reveals
   (zk agents with a proof), two bettors stake, `sample` stores each checkpoint, and `settle` runs the
-  Chainlink check, log scores and ERC-8004 feedback; bettors claim, forecasters above the baseline
+  Chainlink check, pinball scores and ERC-8004 feedback; bettors claim, forecasters above the baseline
   claim their fee share, the rest of the fee is collected. In round 0 each verifier must reject the
   honest proof with one output changed.
 
-Committed run ([`dashboard/sample-replay.json`](dashboard/sample-replay.json)): 2026-10-21 06:00 to
-10-22 06:00 UTC, mainnet blocks 26,239,037–26,246,222, 2363 s wall time (1590 s of it the CPU recompute). All 24
-rounds settled, none voided; in every round the features and the realized vol equal the mainnet
-recompute, every reproducible reveal was recomputed within tolerance (exact in all 72), and each round links its real
-blocks and transactions on Etherscan.
+Frozen run ([`dashboard/sample-replay.json`](dashboard/sample-replay.json)): a 24-hour quantile
+live run on the demo server, window 2026-10-23 06:00 – 10-24 06:00 UTC, fork block 26,252,894,
+411 s wall time. 24 of 24 rounds settled, 0 voided; features and realized vol equal the mainnet
+recompute in every round (the onchain ln RV differs from the Python mirror by at most 19 wei on the
+1e18 scale, rounding only). Every honest proof verified and every tampered one was rejected (3 of 3,
+`verifyProof` ≈ 552k gas). The reproducible recompute matched 72 of 72 reveals within 1e15 per
+quantile (70 exact, 2 tolerant, largest difference 2.44e14). Each agent's ERC-8004 count is 24.
 
-```text
-rounds 24: settled 24, voided 0 {}; features match mainnet True, RV matches mainnet True; winning buckets [1, 4, 6, 9, 4]
-agent                rounds  total ln p     mean  >base  reward WETH  ERC-8004 count
-uniform baseline         24     -38.627   -1.609
-agent-linear_abs         24     -35.506   -1.479     19     0.021930  24 (vol-300s-12)
-agent-mlp16              24     -39.190   -1.633     16     0.021759  24 (vol-300s-12)
-agent-mlp32_abs          24     -35.816   -1.492     18     0.023338  24 (vol-300s-12)
-agent-timesfm-3.0        24     -37.553   -1.565     15     0.024543  24 (vol-300s-12-commit)
-agent-timestral-209m     24     -34.761   -1.448     21     0.031373  24 (vol-300s-12-commit)
-agent-chronos-2          24     -35.824   -1.493     14     0.027057  24 (vol-300s-12-commit)
-agent-timesfm-3.0: recompute within tolerance in 24/24 rounds
-agent-timestral-209m: recompute within tolerance in 24/24 rounds
-agent-chronos-2: recompute within tolerance in 24/24 rounds
-agent-linear_abs: honest proof verifies=True, tampered output verifies=False, verifyProof gas 848588
-```
+Per agent the JSON reports the mean pinball loss, the round-matched climatological baseline loss, the
+excess (baseline − agent), 50 % / 80 % interval coverage, rounds beating the baseline, the fee share
+and the ERC-8004 count (tag1 `pinball`). Mean pinball loss (lower is better) against the
+climatological baseline's 0.289 (50 % / 80 % coverage 0.63 / 0.88):
 
-Over these 24 hours five of the six agents beat the uniform baseline in total; `mlp16` did not. The
-zero-shot timestral-209m (a general time-series model, not trained on this pool) had the best total,
-−34.761, and beat the baseline in 21 rounds; chronos-2 and timesfm-3.0 also finished above it. 24 hourly rounds are a demo, not evidence of skill.
+| Agent | Tier | Mean pinball loss | Excess vs baseline | Rounds below baseline | Coverage 50 % / 80 % |
+|---|---|---:|---:|---:|---:|
+| `linear_abs` | zk | 0.270 | +0.018 | 19 / 24 | 0.63 / 0.83 |
+| `mlp16` | zk | 0.264 | +0.024 | 20 / 24 | 0.71 / 0.88 |
+| `mlp32_abs` | zk | 0.263 | +0.026 | 19 / 24 | 0.54 / 0.79 |
+| timesfm-3.0 | reproducible | 0.304 | −0.015 | 15 / 24 | 0.42 / 0.54 |
+| timestral-209m | reproducible | 0.261 | +0.028 | 18 / 24 | 0.46 / 0.79 |
+| chronos-2 | reproducible | 0.311 | −0.022 | 16 / 24 | 0.38 / 0.63 |
+
+Four of six agents have a lower mean loss than the baseline; timesfm-3.0 and chronos-2 do not.
+24 hourly rounds are a small sample; no
+significance test was run, and the three tiers are not compared with each other (different models,
+different provenance guarantees).
 See [`docs/DEMO.md`](docs/DEMO.md) for the step-by-step script, Etherscan links per round and the
 recording outline.
 
@@ -202,15 +211,17 @@ updated and when the next run starts, and warns when the file is older than 2 ho
 实时预测 view (`#/live`) reads the live file; every other view reads the fixed 24-hour replay
 `dashboard/sample-replay.json` (labelled 固定回放), so its numbers stay those quoted above.
 
-- It is still a local fork: nothing is broadcast, bets come from two scripted accounts with fork
+- It is still a local fork: commits are made on the fork, simulated, so the live page is not a
+  real-time ex-ante proof (a persistent chain is the next step); nothing is broadcast, bets come from two scripted accounts with fork
   test funds, and reputation restarts with each fork (it accumulates over the 24 replayed hours).
 - A zk proof is cached per (model, round features), so each hour proves only the new hour; the
   contract still runs `verifyProof` on every reveal. Rounds served from the cache say so.
 - Three time-series model agents, `agent-timesfm-3.0`, `agent-timestral-209m` and
   `agent-chronos-2`, forecast through a self-hosted inference service (not on the demo server).
   All three are reproducible: each registers the modelHash of its public weights at a pinned
-  revision, and anyone can recompute a reveal from chain data on CPU; every bucket must be within
-  0.001 (a tolerance check; the reveal is rounded to a 0.001 grid and committed before the outcome):
+  revision, and anyone can recompute a reveal from chain data on CPU; every quantile must be within
+  1e15 on the 1e18 scale (a tolerance check; the reveal is quantized to the 2^-12 grid and committed
+  before the outcome):
 
   ```bash
   cd agents && VOL_REPRO_PYTHON=<python with torch and the model's runtime> \
@@ -240,28 +251,32 @@ updated and when the next run starts, and warns when the file is older than 2 ho
 
 [`VolFeeConsumer`](contracts/src/VolFeeConsumer.sol) shows a protocol reading the market's forecasts.
 Between a round's reveal deadline (`startTime - revealLead`), when every forecast is public, and
-`startTime`, `quote` mixes the revealed bucket probabilities weighted by each agent's ERC-8004
-reputation (equal weights when no agent has a usable summary yet), takes the mix's expected variance
-and maps it linearly to a fee clamped to `[minFee, maxFee]`; the slope and per-bucket variances are
-calibrated on the 24 hours before the replay against the LVR break-even fee. In the demo `record`
+`startTime`, `quote` averages the revealed quantiles level by level (Vincentization), weighted by
+each agent's ERC-8004 reputation above the climatological baseline score (equal weights when no
+agent has a usable summary yet), turns the mixed quantiles into an expected variance
+`E[RV] = Σ ω_k exp(q̄_k) / Σ ω_k` (ω_k from the spacing of the quantile levels) and maps it linearly
+to a fee clamped to `[minFee, maxFee]`; the slope is calibrated on the 24 hours before the replay
+against the LVR break-even fee. The betting buckets play no part in the fee. In the demo `record`
 stores that fee on the fork once per round, before the window opens. This is **simulated**: the fee
-is computed and recorded on the fork only; no real pool fee is charged or changed.
+is computed and recorded on the fork only; no real pool fee is charged or changed. `VolFeeHook`, a
+Uniswap v4 dynamic-fee hook that charges the recorded fee, is exercised on the fork only; it is not
+deployed and not audited.
 
 The dashboard's fee card compares, per replayed hour, the hindsight fair LVR fee (reference)
 (σ²/8 × 2L√P ÷ the hour's real mainnet volume; computable only after the hour, so a yardstick, not
 a strategy; closer is better) with three strategies
 (`summary.fee_strategies` in [`dashboard/sample-replay.json`](dashboard/sample-replay.json),
-24 rounds, 3 of them on the equal-weight fallback):
+24 rounds, 2 of them on the equal-weight fallback):
 
 | Strategy | Mean fee (bps) | MAE vs reference (bps) |
 |---|---:|---:|
-| Hindsight fair LVR fee (reference) | 3.71 | – |
-| Fixed 5 bps | 5.00 | **1.84** |
-| Previous-hour realized vol | 2.95 | 2.81 |
-| Forecast, recorded on-chain | 3.98 | 2.06 |
+| Hindsight fair LVR fee (reference) | 4.06 | – |
+| Fixed 5 bps | 5.00 | 2.36 |
+| Previous-hour realized vol | 4.00 | 3.52 |
+| Forecast, recorded on-chain | 3.13 | 2.16 |
 
-The fixed fee has the lowest error over these 24 hours, and the forecast beats the previous-hour
-rule. The reference is driven mostly by each hour's swap volume, which strategies that only see
+The forecast fee has the lowest MAE in this run but sits below the reference on average (3.13 vs
+4.06 bps). 24 rounds is a small sample and no significance test was run. The reference is driven mostly by each hour's swap volume, which strategies that only see
 variance cannot track. It assumes volume is unaffected by the fee and only measures LP break-even
 against LVR; 24 hours is a demo, not evidence either way.
 
@@ -278,7 +293,7 @@ signal. Evidence grade A = the project's own docs or the organiser's official pa
 | Work | What it does | How this project differs | Evidence |
 |---|---|---|---|
 | [Uniswap v4 dynamic fees](https://developers.uniswap.org/docs/protocols/v4/concepts/dynamic-fees) | A hook may set the LP fee per swap (`beforeSwap` override) or periodically (`updateDynamicLPFee`); the fee logic is left to the hook author. | v4 provides the fee *mechanism*; we provide a scored, reputation-weighted *input* any such hook could read. | A |
-| [Algebra Integral dynamic (adaptive) fee](https://docs.algebra.finance/algebra-integral-documentation/algebra-integral-technical-reference/plugins/dynamic-fee) | Plugin computes the fee from the pool oracle's last-24 h volatility through tunable sigmoids. | Algebra's fee follows *past* volatility with a fixed formula; ours mixes competing *forward* forecasts whose weight is earned by onchain log scores. | A |
+| [Algebra Integral dynamic (adaptive) fee](https://docs.algebra.finance/algebra-integral-documentation/algebra-integral-technical-reference/plugins/dynamic-fee) | Plugin computes the fee from the pool oracle's last-24 h volatility through tunable sigmoids. | Algebra's fee follows *past* volatility with a fixed formula; ours mixes competing *forward* quantile forecasts whose weight is earned by onchain pinball scores. | A |
 | [Synth (Bittensor Subnet 50)](https://docs.synthdata.co/) | Miners submit simulated price paths, validators score them with CRPS, and a paid API sells the aggregated probabilistic and volatility forecasts. | Synth scores and serves forecasts off-chain through an API key; here commitment, proof checking, scoring and reputation all happen in contracts a protocol can read directly. | A |
 
 ## Why "verifiable AI"
@@ -299,8 +314,8 @@ self-report.
 
 **Done**
 
-- `contracts/src/VolMarket.sol`: rounds, betting, commit-reveal predictions (zk-verified or commit-only), `observe`-based settlement with
-  `sample()` fallback, log scoring, claims, fee collection with a forecaster share, ERC-8004 reputation writes, Chainlink
+- `contracts/src/VolMarket.sol`: rounds, betting, commit-reveal quantile predictions (zk-verified, reproducible or commit-only), `observe`-based settlement with
+  `sample()` fallback, pinball scoring against a climatological baseline, claims, fee collection with a forecaster share, ERC-8004 reputation writes, Chainlink
   cross-check. Shared math in `contracts/src/lib/MarketMath.sol`.
 - `contracts/src/verifier/`: one EZKL-generated Halo2 verifier per model.
 - `contracts/src/erc8004/`: minimal ERC-8004 v2.0.0 Identity/Reputation subset for tests and the
@@ -325,24 +340,22 @@ The three models are trained on the real ETH/USDC 0.05% pool: about 42 days of m
 events (2026-09-10 to 10-22 UTC) rebuilt into the contract's features and labels, split by time
 into training (to 10-08), validation (10-08 to 10-15) and test (10-15 to 10-22) with no shared
 second of data. The bucket bounds `[202, 474, 856, 1712]` tick² are the quintiles of the training
-period only. Mean log score on the test period (closer to 0 is better; details in
+period only (they now only define the betting pools). Mean pinball loss of the 5 quantiles of
+ln RV on the test period (lower is better, 10,437 overlapping samples; details in
 [`agents/MODEL_CARD.md`](agents/MODEL_CARD.md)):
 
-| Forecast | Mean log score |
-|---|---:|
-| `linear_abs` | −1.418 |
-| `mlp16` | −1.423 |
-| Previous-hour bucket transition frequencies (baseline) | −1.452 |
-| `mlp32_abs` | −1.469 |
-| Uniform (ln 0.2) | −1.609 |
+| Forecast | Mean pinball loss | 50 % / 80 % coverage |
+|---|---:|---:|
+| `mlp32_abs` | 0.2856 | 0.478 / 0.777 |
+| `linear_abs` | 0.2874 | 0.550 / 0.827 |
+| `mlp16` | 0.2912 | 0.513 / 0.817 |
+| Previous-hour y + training residual quantiles (baseline) | 0.3254 | 0.512 / 0.813 |
+| Training-period climatology (the onchain baseline) | 0.3325 | 0.574 / 0.817 |
 
-All three beat the uniform forecast; `mlp32_abs` does **not** beat the previous-hour transition
-baseline, and the other two beat it only by about 0.03. The test period is 7 days of one market
-regime, and it already drifted: only 9 % of its hours fall in the lowest bucket (about 20 % in
-training). An offline 4-fold walk-forward evaluation (weekly test periods from 09-24 to 10-22, bounds
-and models refit per fold) gives mean log scores of −1.345 (`linear_abs`), −1.383 (`mlp16`), −1.398
-(`mlp32_abs`), −1.395 (transition baseline) and −1.609 (uniform); only `linear_abs` beats the baseline
-in all 4 folds (`agents/MODEL_CARD.md` §6.1). The onchain models are still the single-split set above.
+All three are below both baselines on this one test week (7 days of one market regime);
+`mlp32_abs`'s intervals are narrow (80 % interval covers 77.7 %). The 4-fold walk-forward
+(`agents/MODEL_CARD.md` §6.1) keeps all three below the climatological baseline in every fold.
+The onchain models are still the single-split set above.
 
 ## Tech stack
 
@@ -379,7 +392,7 @@ Offline round (no RPC: `MockPool`, Lite registries, no Chainlink feed):
 ```bash
 cd agents
 uv run python -m vol_agents.round     # starts its own anvil: deploy, 3 agents prove, commit, reveal, settle
-cat out/compare_round.json            # agents sorted by onchain log score
+cat out/compare_round.json            # agents sorted by onchain score (−pinball loss)
 ```
 
 ## Repo layout
@@ -387,7 +400,7 @@ cat out/compare_round.json            # agents sorted by onchain log score
 ```text
 contracts/            Foundry project
   src/VolMarket.sol     volatility market with zk-verified forecasts, ERC-8004 + Chainlink hooks
-  src/lib/              MarketMath (bucketing, log score, parimutuel payout), TickPriceMath
+  src/lib/              MarketMath (bucketing, pinball loss, parimutuel payout), TickPriceMath
   src/erc8004/          ERC-8004 Lite registries for tests and the offline round
   src/verifier/         EZKL-generated verifiers (one per model + the spike model used in tests)
   test/fixtures/        shared vol fixture, real proof fixture
@@ -406,12 +419,11 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for data flow and trust bound
 ## Known limitations
 
 - **Short evidence.** A 7-day test period and a 1-day replay (24 rounds) do not prove forecasting
-  skill. The models are small, see one pool and the last 85 minutes only, and are close to a simple
-  previous-hour baseline (`mlp32_abs` is behind it); the offline 4-fold walk-forward keeps that picture,
-  and its shared hyperparameters were picked on the 10-08 validation week, a mild look-ahead for the
+  skill. The models are small and see one pool and the last 85 minutes only; the offline 4-fold
+  walk-forward keeps them below the climatological baseline, but on one pool and six weeks, and its shared hyperparameters were picked on the 10-08 validation week, a mild look-ahead for the
   first two folds.
-- **Drift.** The bounds come from the training period; the test week already put only 9 % of hours in
-  the lowest bucket. Keeping the buckets meaningful needs periodic recalibration and retraining, and a
+- **Drift.** The baseline quantiles and the betting bounds come from the training period; the
+  validation week was already further from it. Keeping them meaningful needs periodic recalibration and retraining, and a
   retrained model is a new verifier and a new `modelId`.
 - **Weights are not hidden.** EZKL parameters are `fixed`: the weights are public in the circuit and
   the verifier. The proof shows which registered model produced a forecast, not that the model is good.
@@ -419,7 +431,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for data flow and trust bound
 - **The fork demo is a replay**, not live trading: the forked pool is pushed to each real 5-minute mean
   tick by swaps and the real Chainlink reports are re-sent on the fork. The three time-series
   model agents are zero-shot, not trained on this pool; their recompute is a tolerance check (every
-  bucket within 0.001), run on one machine and software stack, and bit-equality across CPUs or
+  quantile within 1e15 on the 1e18 scale), run on one machine and software stack, and bit-equality across CPUs or
   library versions is not claimed.
 - **Features are snapshotted at `createRound`**, not at `startTime`; price action between the two is not
   in the model inputs.
