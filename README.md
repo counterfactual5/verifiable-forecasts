@@ -459,7 +459,7 @@ the full list):
 | When | Milestone | Commits |
 |---|---|---|
 | 10-20 16:21 – 10-21 00:49 | Kickoff and feasibility spikes: repo rules and verify chain, a first base-fee market prototype, swap fetcher, EZKL spike (proof time, verifier size, verify gas), verified facts on pool history, ERC-8004 and Chainlink | `2551c88`…`1111524` |
-| 10-21 01:00 – 19:51 | Pivot to the volatility market: implementation plan, `VolMarket` with EZKL-verified forecasts, three zk agents and their verifiers; base-fee bots archived to `legacy/` (since removed from the tree; see git history at `e93932c`) | `fe40862`…`207e5d3` |
+| 10-21 01:00 – 19:51 | Pivot to the volatility market: implementation plan, `VolMarket` with EZKL-verified forecasts, three zk agents and their verifiers; base-fee bots archived to `legacy/` (since removed from the tree; see git history at `9f30f70`) | `fe40862`…`207e5d3` |
 | 10-21 23:40 | R1: volatility definition shared by contract and analysis, bucket bounds calibrated on real swaps | `48aff5c` (later speed-ups `ff717a5`, `7215f60`) |
 | 10-22 01:05 | R2: ERC-8004 identity linking and reputation writes from the market | `e414814` |
 | 10-22 16:10 | R3: Chainlink ETH/USD cross-check at settlement | `c7f8409` |
@@ -477,7 +477,7 @@ working name; authors and timestamps are unchanged, and the hashes above are the
 iteration of a project from an earlier event. To the best of our knowledge it has not won an award at
 any other hackathon and has not received a grant. The base-fee prototype, once under `legacy/`, was written
 in this same period (10-20 to 10-21); it has been removed from the tree and survives only in git
-history (last present in `e93932c`).
+history (last present in `9f30f70`).
 
 **Not hand-written here:**
 
