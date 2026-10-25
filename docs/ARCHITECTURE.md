@@ -81,7 +81,7 @@ agents/round.py → out/compare_round.json；demo/fork_round.py → demo/out/for
 
 ### `erc8004/`
 
-`IdentityRegistryLite` 与 `ReputationRegistryLite`：按 erc-8004-contracts v2.0.0 接口写的最小子集，只供单测与离线回合使用（agentId 从 1 开始；Reputation 按 client 与 `tag1`/`tag2` 过滤，空 tag 为通配）。主网 fork 演示直接使用已部署的 v2.0.0 注册表。注意两者 `getSummary` 返回值不同：Lite 返回一个 `int256` 平均值，已部署版本返回 `(uint64 count, int128 summaryValue, uint8 summaryValueDecimals)`；`VolMarket` 只调用两者一致的 `ownerOf` 与 `giveFeedback`。
+`IdentityRegistryLite` 与 `ReputationRegistryLite`：参照 erc-8004-contracts v2.0.0 写的最小实现，并非其子集，只供单测与离线回合使用（agentId 从 1 开始；Reputation 按 client 与 `tag1`/`tag2` 过滤，空 tag 为通配）。主网 fork 演示直接使用已部署的 v2.0.0 注册表。与 v2.0.0 的差异：`getSummary` 返回一个 18 位小数的 `int256` 平均值，已部署版本返回 `(uint64 count, int128 summaryValue, uint8 summaryValueDecimals)`；`readFeedback(agentId, client)` 返回全部记录，已部署版本为 `readFeedback(agentId, client, feedbackIndex)` 返回单条记录及 `isRevoked`；`NewFeedback` 事件缺少 `feedbackIndex`、`indexedTag1`、`endpoint`、`feedbackURI`、`feedbackHash`；Identity 的 `agentCount`、`getAgentURI` 在 v2.0.0 中不存在（v2.0.0 是 ERC-721，用 `tokenURI`）。`VolMarket` 只调用两者一致的 `ownerOf` 与 `giveFeedback`。
 
 ### `verifier/`
 

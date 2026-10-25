@@ -4,9 +4,10 @@ pragma solidity ^0.8.28;
 import {IERC8004Reputation} from "../interfaces/IERC8004Reputation.sol";
 
 /// @title ReputationRegistryLite
-/// @notice Minimal local subset of the ERC-8004 agent reputation registry, matching the
-///         interface of the reference implementation erc-8004/erc-8004-contracts v2.0.0
-///         (getVersion() == "2.0.0"). For unit tests and offline demos only.
+/// @notice Minimal local registry modeled on the ERC-8004 reputation registry of
+///         erc-8004/erc-8004-contracts v2.0.0, with the deviations listed on
+///         IERC8004Reputation; v2.0.0's self-feedback check, revocation and responses
+///         are omitted. For unit tests and offline demos only.
 /// @dev Anyone may submit feedback (no access control) and values may be negative.
 ///      Summaries normalize every record to 18 decimals before averaging, so record
 ///      values with fewer decimals are upscaled (a record with `valueDecimals == 0`

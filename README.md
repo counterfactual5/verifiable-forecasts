@@ -320,8 +320,10 @@ self-report.
   `sample()` fallback, pinball scoring against a climatological baseline, claims, fee collection with a forecaster share, ERC-8004 reputation writes, Chainlink
   cross-check. Shared math in `contracts/src/lib/MarketMath.sol`.
 - `contracts/src/verifier/`: one EZKL-generated Halo2 verifier per model.
-- `contracts/src/erc8004/`: minimal ERC-8004 v2.0.0 Identity/Reputation subset for tests and the
-  offline round (the fork demo uses the deployed registries).
+- `contracts/src/erc8004/`: minimal Identity/Reputation registries modeled on ERC-8004 v2.0.0 for
+  tests and the offline round, not ABI-compatible beyond `register`, `ownerOf` and `giveFeedback`
+  (deviations listed in `contracts/src/interfaces/IERC8004*.sol`); the fork demo uses the deployed
+  registries.
 - `agents/`: three structurally different models (`linear_abs`, `mlp16`, `mlp32_abs`) trained on the
   real pool's history, EZKL build with a pinned SRS digest, three reproducible time-series
   model agents (timesfm-3.0, timestral-209m, chronos-2) with their public recompute command
@@ -489,7 +491,7 @@ history (last present in `e93932c`).
   licenses; the timesfm-3.0 weights carry the TimesFM license: non-commercial use only.
 - External onchain contracts that the code calls but does not contain: the Uniswap V3 pool, the
   deployed ERC-8004 registries and the Chainlink ETH/USD feed. `contracts/src/erc8004/` is our own
-  minimal subset written from the ERC-8004 spec for tests and the offline round.
+  minimal registry pair modeled on ERC-8004 v2.0.0 (with deviations) for tests and the offline round.
 - AI coding assistants were used throughout development for code, tests and docs.
 
 ## License

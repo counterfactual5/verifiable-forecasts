@@ -4,9 +4,9 @@ pragma solidity ^0.8.28;
 import {IERC8004Identity} from "../interfaces/IERC8004Identity.sol";
 
 /// @title IdentityRegistryLite
-/// @notice Minimal local subset of the ERC-8004 agent identity registry, matching the
-///         interface of the reference implementation erc-8004/erc-8004-contracts v2.0.0
-///         (getVersion() == "2.0.0"). For unit tests and offline demos only.
+/// @notice Minimal local registry modeled on the ERC-8004 identity registry of
+///         erc-8004/erc-8004-contracts v2.0.0, with the deviations listed on
+///         IERC8004Identity. For unit tests and offline demos only.
 /// @dev Agent ids are minted starting at 1; the caller of `register` is the owner. No
 ///      transfers or approvals in the Lite subset.
 contract IdentityRegistryLite is IERC8004Identity {

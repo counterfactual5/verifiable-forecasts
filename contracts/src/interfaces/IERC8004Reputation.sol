@@ -2,10 +2,14 @@
 pragma solidity ^0.8.28;
 
 /// @title ERC-8004 agent reputation interface
-/// @notice Mirrors the reputation half of ERC-8004 as deployed by the reference
-///         implementation erc-8004/erc-8004-contracts v2.0.0 (getVersion() == "2.0.0");
-///         see spikes/facts/FACTS.md section 4. Minimal local subset for unit tests
-///         and offline demos: signatures are pinned, VolMarket wiring consumes them.
+/// @notice Minimal local interface modeled on the ERC-8004 reputation registry of
+///         erc-8004/erc-8004-contracts v2.0.0; see spikes/facts/FACTS.md section 4.
+///         Only `giveFeedback` matches v2.0.0. Deviations from v2.0.0: `getSummary`
+///         returns one 18-decimal mean instead of (uint64 count, int128 summaryValue,
+///         uint8 summaryValueDecimals); `readFeedback` takes (agentId, client) and
+///         returns all records instead of (agentId, client, feedbackIndex) returning
+///         one record with `isRevoked`; `NewFeedback` lacks feedbackIndex, indexedTag1,
+///         endpoint, feedbackURI and feedbackHash.
 interface IERC8004Reputation {
     event NewFeedback(
         uint256 indexed agentId, address indexed client, int128 value, uint8 valueDecimals, string tag1, string tag2
